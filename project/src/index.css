@@ -1,0 +1,57 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  * {
+    -webkit-tap-highlight-color: transparent;
+  }
+  
+  html {
+    -webkit-text-size-adjust: 100%;
+    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+  }
+  
+  body {
+    margin: 0;
+    padding: 0;
+    background-color: #f9fafb;
+    overscroll-behavior: none;
+  }
+  
+  input, textarea, select {
+    -webkit-appearance: none;
+    border-radius: 8px;
+  }
+  
+  button {
+    -webkit-appearance: none;
+    border-radius: 8px;
+  }
+}
+
+@layer components {
+  .ios-card {
+    @apply bg-white rounded-xl shadow-sm border border-gray-100;
+  }
+  
+  .ios-button {
+    @apply bg-primary-500 text-white font-medium py-3 px-6 rounded-xl active:scale-95 transition-transform duration-150;
+  }
+  
+  .ios-button-secondary {
+    @apply bg-gray-100 text-gray-700 font-medium py-3 px-6 rounded-xl active:scale-95 transition-transform duration-150;
+  }
+  
+  .ios-input {
+    @apply w-full px-4 py-3 border border-gray-200 rounded-xl focus:border-primary-500 focus:ring-2 focus:ring-primary-100 transition-colors;
+  }
+  
+  .safe-area-top {
+    padding-top: env(safe-area-inset-top);
+  }
+  
+  .safe-area-bottom {
+    padding-bottom: env(safe-area-inset-bottom);
+  }
+}
