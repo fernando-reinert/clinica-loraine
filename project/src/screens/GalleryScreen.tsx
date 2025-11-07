@@ -18,7 +18,7 @@ import {
   Save,
 } from "lucide-react";
 import Header from "../components/Header";
-import BottomNavigation from "../components/BottomNavigation";
+//import BottomNavigation from "../components/BottomNavigation";
 import LoadingSpinner from "../components/LoadingSpinner";
 import toast from "react-hot-toast";
 import { supabase } from "../lib/supabase";
@@ -1499,7 +1499,7 @@ const GalleryScreen: React.FC = () => {
         </div>
       )}
 
-      <BottomNavigation />
+      
     </div>
   );
 };

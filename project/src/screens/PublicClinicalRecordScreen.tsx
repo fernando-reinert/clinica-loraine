@@ -1,11 +1,10 @@
 import React, { useState, useRef, useEffect } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { Save, FileText, FileSignature as Signature, User, HeartPulse, AlertTriangle, ClipboardList, Share2, Mail, MessageSquare } from 'lucide-react';
-import SignatureCanvas, { ReactSignatureCanvas } from 'react-signature-canvas';
+import SignatureCanvas from 'react-signature-canvas'; // ✅ Corrigido - removido ReactSignatureCanvas
 import { supabase } from '../supabaseClient';
 import { PostgrestError } from '@supabase/supabase-js';
 import Header from '../components/Header';
-import BottomNavigation from '../components/BottomNavigation';
 import LoadingSpinner from '../components/LoadingSpinner';
 import toast from 'react-hot-toast';
 
@@ -86,7 +85,7 @@ interface PublicClinicalRecordScreenProps {
 
 const PublicClinicalRecordScreen: React.FC<PublicClinicalRecordScreenProps> = ({ isPublicMode, patientId }) => {
   const navigate = useNavigate();
-  const signatureRef = useRef<ReactSignatureCanvas>(null);
+  const signatureRef = useRef<SignatureCanvas>(null); // ✅ Corrigido - mudado para SignatureCanvas
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [showSignature, setShowSignature] = useState(false);

@@ -4,7 +4,6 @@ import { useNavigate, useLocation } from 'react-router-dom';
 import { supabase } from '../supabaseClient';
 import { Calendar, Clock } from 'lucide-react';
 import Header from '../components/Header';
-import BottomNavigation from '../components/BottomNavigation';
 import LoadingSpinner from '../components/LoadingSpinner';
 
 const AppointmentCreateScreen: React.FC = () => {
@@ -98,7 +97,6 @@ const AppointmentCreateScreen: React.FC = () => {
         </form>
       </div>
 
-      <BottomNavigation />
     </div>
   );
 };

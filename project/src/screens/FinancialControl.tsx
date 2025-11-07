@@ -3,7 +3,6 @@ import { useSupabase } from "../contexts/SupabaseContext";
 import { toast } from "react-hot-toast";
 import { useNavigate } from "react-router-dom";
 import { Search, DollarSign, Calendar, User, CreditCard, Calendar as CalendarIcon, BarChart3, ChevronDown, ChevronUp, X, Edit, Save, Trash2, ArrowLeft, CheckCircle } from "lucide-react";
-import BottomNavigation from "../components/BottomNavigation"; // Importe o componente
 
 interface Patient {
   id: string;
@@ -950,8 +949,6 @@ const FinancialControl: React.FC = () => {
         </div>
       </div>
 
-      {/* Adicione a BottomNavigation aqui */}
-      <BottomNavigation />
 
       {/* Modal de Confirmação de Pagamento */}
       {paymentModal.isOpen && paymentModal.installment && (

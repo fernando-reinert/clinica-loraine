@@ -2,7 +2,6 @@ import React, { useState } from 'react'
 import { User, Settings, Bell, Shield, HelpCircle, LogOut, Edit, Camera } from 'lucide-react'
 import { useAuth } from '../contexts/AuthContext'
 import Header from '../components/Header'
-import BottomNavigation from '../components/BottomNavigation'
 import toast from 'react-hot-toast'
 
 const ProfileScreen: React.FC = () => {
@@ -259,7 +258,6 @@ const ProfileScreen: React.FC = () => {
         </div>
       )}
 
-      <BottomNavigation />
     </div>
   )
 }

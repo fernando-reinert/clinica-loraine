@@ -1,15 +1,16 @@
 // src/screens/PatientDetailScreen.tsx
 import React, { useState, useEffect } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
-import { Phone, Mail, Calendar, FileText, Camera, Edit, Trash2, User, CheckCircle, AlertCircle, Save, X } from 'lucide-react';
-import Header from '../components/Header';
-import BottomNavigation from '../components/BottomNavigation';
+import { 
+  Phone, Mail, Calendar, FileText, Camera, Edit, Trash2, User, 
+  CheckCircle, AlertCircle, Save, X, MapPin, CreditCard, Heart, // ✅ Mudei IdCard para CreditCard
+  Clock, Plus, Stethoscope, GalleryVertical, Share2, Download
+} from 'lucide-react';
+import AppLayout from '../components/Layout/AppLayout';
 import LoadingSpinner from '../components/LoadingSpinner';
 import toast from 'react-hot-toast';
 import { usePatients } from '../hooks/usePatients';
 import { supabase } from '../supabaseClient';
-
-
 
 const PatientDetailScreen: React.FC = () => {
   const { id } = useParams<{ id: string }>();
@@ -19,8 +20,6 @@ const PatientDetailScreen: React.FC = () => {
   const [appointmentTitle, setAppointmentTitle] = useState('');
   const [appointmentDate, setAppointmentDate] = useState('');
   const [appointmentLoading, setAppointmentLoading] = useState(false);
-  const [hasClinicalRecord, setHasClinicalRecord] = useState(false);
-  const [clinicalRecordLoading, setClinicalRecordLoading] = useState(false);
   const [isEditing, setIsEditing] = useState(false);
   const [editLoading, setEditLoading] = useState(false);
   const [photoFile, setPhotoFile] = useState<File | null>(null);
@@ -39,8 +38,6 @@ const PatientDetailScreen: React.FC = () => {
   useEffect(() => {
     if (id) {
       loadPatient(id);
-      setHasClinicalRecord(false);
-      setClinicalRecordLoading(false);
     }
   }, [id]);
 
@@ -66,7 +63,6 @@ const PatientDetailScreen: React.FC = () => {
         setEditBirthDate(patientData.birth_date);
         setEditAddress(patientData.address || '');
         
-        // Usar apenas URLs permanentes, não blob
         if (patientData.photo_url && !patientData.photo_url.startsWith('blob:')) {
           setPhotoPreview(patientData.photo_url);
         }
@@ -105,7 +101,6 @@ const PatientDetailScreen: React.FC = () => {
         .from('patient_photos')
         .getPublicUrl(filePath);
 
-      console.log('Foto enviada com sucesso:', publicUrl);
       return publicUrl;
     } catch (error) {
       console.error('Erro ao fazer upload da foto:', error);
@@ -130,12 +125,9 @@ const PatientDetailScreen: React.FC = () => {
         const uploadedUrl = await uploadPhotoToStorage(photoFile);
         if (uploadedUrl) {
           finalPhotoUrl = uploadedUrl;
-          // Limpar URL blob temporária após o upload
           if (photoPreview.startsWith('blob:')) {
             URL.revokeObjectURL(photoPreview);
           }
-        } else {
-          toast.error('Erro ao salvar nova foto. Mantendo foto atual.');
         }
       }
 
@@ -154,7 +146,7 @@ const PatientDetailScreen: React.FC = () => {
         setPatient(updatedPatient);
         setIsEditing(false);
         setPhotoFile(null);
-        setPhotoPreview(finalPhotoUrl); // Usar a URL permanente
+        setPhotoPreview(finalPhotoUrl);
         toast.success('Paciente atualizado com sucesso!');
       } else {
         throw new Error('Erro ao atualizar paciente');
@@ -182,8 +174,6 @@ const PatientDetailScreen: React.FC = () => {
       }
 
       setPhotoFile(file);
-      
-      // Criar URL temporária apenas para preview
       const objectUrl = URL.createObjectURL(file);
       setPhotoPreview(objectUrl);
       toast.success('Foto selecionada! Clique em Salvar para confirmar.');
@@ -283,7 +273,6 @@ const PatientDetailScreen: React.FC = () => {
     setIsEditing(false);
     setPhotoFile(null);
     
-    // Restaurar valores originais
     if (patient) {
       setEditName(patient.name);
       setEditEmail(patient.email || '');
@@ -294,14 +283,12 @@ const PatientDetailScreen: React.FC = () => {
       setPhotoPreview(patient.photo_url || '');
     }
     
-    // Limpar URL blob temporária se existir
     if (photoPreview.startsWith('blob:')) {
       URL.revokeObjectURL(photoPreview);
       setPhotoPreview(patient?.photo_url || '');
     }
   };
 
-  // Verificar se há alterações não salvas
   const hasUnsavedChanges = () => {
     if (!patient) return false;
     
@@ -317,107 +304,86 @@ const PatientDetailScreen: React.FC = () => {
     );
   };
 
+  // Quick Actions Premium
+  const quickActions = [
+    {
+      title: 'Ficha Clínica',
+      icon: FileText,
+      gradient: 'from-blue-500 to-cyan-500',
+      action: () => navigate(`/patients/${id}/anamnese`),
+    },
+    {
+      title: 'Agendar',
+      icon: Calendar,
+      gradient: 'from-green-500 to-emerald-500',
+      action: () => {},
+    },
+    {
+      title: 'Galeria',
+      icon: GalleryVertical,
+      gradient: 'from-purple-500 to-pink-500',
+      action: () => navigate('/gallery'),
+    },
+    {
+      title: 'Prontuário',
+      icon: Stethoscope,
+      gradient: 'from-orange-500 to-red-500',
+      action: () => navigate(`/patients/${id}/clinical-record`),
+    },
+  ];
+
   if (loading) {
     return (
-      <div className="min-h-screen flex items-center justify-center">
-        <LoadingSpinner size="lg" />
-      </div>
+      <AppLayout title="Carregando..." showBack={true}>
+        <div className="flex items-center justify-center h-64">
+          <LoadingSpinner size="lg" />
+        </div>
+      </AppLayout>
     );
   }
 
   if (!patient) {
     return (
-      <div className="min-h-screen bg-gray-50">
-        <Header title="Paciente não encontrado" showBack />
-        <div className="p-4 text-center">
-          <p className="text-gray-600">Paciente não encontrado</p>
+      <AppLayout title="Paciente não encontrado" showBack={true}>
+        <div className="flex items-center justify-center h-64">
+          <div className="text-center">
+            <AlertCircle className="mx-auto text-gray-400 mb-4" size={48} />
+            <p className="text-gray-600">Paciente não encontrado</p>
+          </div>
         </div>
-      </div>
+      </AppLayout>
     );
   }
 
- // Encontre a parte das quickActions e substitua:
-const quickActions = [
-  {
-    title: 'Ficha Clínica',
-    icon: FileText,
-    color: 'bg-primary-500',
-    action: () => navigate(`/patients/${id}/anamnese`), // ← MUDE PARA ESTA ROTA
-  },
-  {
-    title: 'Agendar',
-    icon: Calendar,
-    color: 'bg-green-500',
-    action: () => {}, // Agendamento será feito na mesma tela
-  },
-  {
-    title: 'Galeria',
-    icon: Camera,
-    color: 'bg-purple-500',
-    action: () => navigate('/gallery'),
-  },
-  {
-    title: isEditing ? 'Cancelar' : 'Editar',
-    icon: isEditing ? X : Edit,
-    color: isEditing ? 'bg-red-500' : 'bg-blue-500',
-    action: isEditing ? handleCancelEdit : () => setIsEditing(true),
-  },
-];
-
   return (
-    <div className="min-h-screen bg-gray-50 pb-20">
-      <Header
-        title={isEditing ? "Editando Paciente" : "Detalhes do Paciente"}
-        showBack
-        rightAction={
-          isEditing ? (
-            <button 
-              onClick={handleSaveEdit}
-              disabled={editLoading || !hasUnsavedChanges()}
-              className="p-2 text-green-500 active:scale-95 transition-transform disabled:opacity-50 disabled:cursor-not-allowed"
-            >
-              {editLoading ? <LoadingSpinner size="sm" /> : <Save size={20} />}
-            </button>
-          ) : (
-            <button className="p-2 text-red-500 active:scale-95 transition-transform">
-              <Trash2 size={20} />
-            </button>
-          )
-        }
-      />
-
-      <div className="p-4 space-y-6">
-        {/* Patient Header */}
-        <div className="ios-card p-6">
-          <div className="flex items-center space-x-4 mb-4">
+    <AppLayout 
+      title={isEditing ? "Editando Paciente" : "Detalhes do Paciente"} 
+      showBack={true}
+    >
+      <div className="p-6 space-y-6">
+        {/* Header do Paciente - Design Premium */}
+        <div className="bg-gradient-to-br from-slate-900 via-purple-900 to-slate-900 rounded-3xl p-8 text-white shadow-2xl">
+          <div className="flex items-start space-x-6">
+            {/* Área da Foto Premium */}
             <div className="relative">
-              <div className="w-20 h-20 bg-gray-200 rounded-full flex items-center justify-center overflow-hidden">
+              <div className="w-24 h-24 bg-gradient-to-r from-cyan-400 to-blue-500 rounded-2xl flex items-center justify-center overflow-hidden shadow-2xl border-4 border-white/20">
                 {photoPreview ? (
                   <img
                     src={photoPreview}
                     alt={editName}
                     className="w-full h-full object-cover"
-                    onError={(e) => {
-                      // Se a imagem não carregar, mostrar ícone
-                      const target = e.target as HTMLImageElement;
-                      target.style.display = 'none';
-                    }}
                   />
                 ) : patient.photo_url && !patient.photo_url.startsWith('blob:') ? (
                   <img
                     src={patient.photo_url}
                     alt={patient.name}
                     className="w-full h-full object-cover"
-                    onError={(e) => {
-                      // Se a imagem permanente não carregar, mostrar ícone
-                      const target = e.target as HTMLImageElement;
-                      target.style.display = 'none';
-                    }}
                   />
                 ) : (
-                  <User className="text-gray-500" size={32} />
+                  <User className="text-white" size={32} />
                 )}
               </div>
+              
               {isEditing && (
                 <>
                   <input
@@ -429,218 +395,240 @@ const quickActions = [
                   />
                   <button
                     onClick={() => fileInputRef.current?.click()}
-                    className="absolute bottom-0 right-0 bg-blue-500 text-white rounded-full p-1 shadow-lg hover:bg-blue-600 transition-colors"
+                    className="absolute -bottom-2 -right-2 bg-blue-500 text-white rounded-full p-2 shadow-lg hover:bg-blue-600 transition-all duration-300 hover:scale-110 border-2 border-white"
                   >
-                    <Camera size={14} />
+                    <Camera size={16} />
                   </button>
-                  {photoPreview && (
-                    <button
-                      onClick={handleRemovePhoto}
-                      className="absolute top-0 right-0 bg-red-500 text-white rounded-full p-1 shadow-lg hover:bg-red-600 transition-colors"
-                    >
-                      <X size={14} />
-                    </button>
-                  )}
                 </>
               )}
             </div>
 
+            {/* Informações Principais */}
             <div className="flex-1">
               {isEditing ? (
                 <input
                   type="text"
                   value={editName}
                   onChange={(e) => setEditName(e.target.value)}
-                  className="w-full p-2 border border-gray-300 rounded-md text-xl font-bold focus:border-blue-500 focus:ring-1 focus:ring-blue-500"
+                  className="w-full p-3 bg-white/10 border border-white/20 rounded-xl text-xl font-bold text-white placeholder-white/60 focus:border-white/40 focus:ring-2 focus:ring-white/20 transition-all duration-300"
                   placeholder="Nome do paciente"
                 />
               ) : (
                 <>
-                  <h2 className="text-xl font-bold text-gray-900">{patient.name}</h2>
-                  <p className="text-gray-600">{calculateAge(patient.birth_date)} anos</p>
-                  <p className="text-sm text-gray-500">Paciente desde {formatDate(patient.created_at)}</p>
+                  <h2 className="text-2xl font-bold mb-2">{patient.name}</h2>
+                  <div className="flex items-center space-x-4 text-white/80">
+                    <div className="flex items-center space-x-1">
+                      <Heart size={16} />
+                      <span>{calculateAge(patient.birth_date)} anos</span>
+                    </div>
+                    <div className="flex items-center space-x-1">
+                      <Calendar size={16} />
+                      <span>Desde {formatDate(patient.created_at)}</span>
+                    </div>
+                  </div>
                 </>
               )}
             </div>
-          </div>
 
-          {/* Contact Info */}
-          <div className="space-y-3">
-            <div className="flex items-center space-x-3">
-              <Phone className="text-gray-400" size={18} />
+            {/* Botões de Ação */}
+            <div className="flex space-x-2">
               {isEditing ? (
-                <input
-                  type="text"
-                  value={editPhone}
-                  onChange={(e) => setEditPhone(formatPhone(e.target.value))}
-                  className="flex-1 p-2 border border-gray-300 rounded-md focus:border-blue-500 focus:ring-1 focus:ring-blue-500"
-                  placeholder="Telefone"
-                />
+                <>
+                  <button
+                    onClick={handleCancelEdit}
+                    className="p-3 bg-white/10 hover:bg-white/20 rounded-xl transition-all duration-300 hover:scale-105"
+                  >
+                    <X size={20} />
+                  </button>
+                  <button
+                    onClick={handleSaveEdit}
+                    disabled={editLoading || !hasUnsavedChanges()}
+                    className="p-3 bg-green-500 hover:bg-green-600 rounded-xl transition-all duration-300 hover:scale-105 disabled:opacity-50 disabled:cursor-not-allowed"
+                  >
+                    {editLoading ? <LoadingSpinner size="sm" /> : <Save size={20} />}
+                  </button>
+                </>
               ) : (
-                <span className="text-gray-700">{patient.phone}</span>
-              )}
-            </div>
-
-            <div className="flex items-center space-x-3">
-              <Mail className="text-gray-400" size={18} />
-              {isEditing ? (
-                <input
-                  type="email"
-                  value={editEmail}
-                  onChange={(e) => setEditEmail(e.target.value)}
-                  className="flex-1 p-2 border border-gray-300 rounded-md focus:border-blue-500 focus:ring-1 focus:ring-blue-500"
-                  placeholder="Email"
-                />
-              ) : (
-                <span className="text-gray-700">{patient.email || 'Não informado'}</span>
-              )}
-            </div>
-
-            <div className="flex items-center space-x-3">
-              <FileText className="text-gray-400" size={18} />
-              {isEditing ? (
-                <input
-                  type="text"
-                  value={editCpf}
-                  onChange={(e) => setEditCpf(formatCPF(e.target.value))}
-                  className="flex-1 p-2 border border-gray-300 rounded-md focus:border-blue-500 focus:ring-1 focus:ring-blue-500"
-                  placeholder="CPF"
-                  maxLength={14}
-                />
-              ) : (
-                <span className="text-gray-700">CPF: {maskCPF(patient.cpf)}</span>
-              )}
-            </div>
-
-            <div className="flex items-center space-x-3">
-              <Calendar className="text-gray-400" size={18} />
-              {isEditing ? (
-                <input
-                  type="date"
-                  value={editBirthDate}
-                  onChange={(e) => setEditBirthDate(e.target.value)}
-                  className="flex-1 p-2 border border-gray-300 rounded-md focus:border-blue-500 focus:ring-1 focus:ring-blue-500"
-                />
-              ) : (
-                <span className="text-gray-700">Nascimento: {formatDate(patient.birth_date)}</span>
-              )}
-            </div>
-
-            <div className="flex items-start space-x-3">
-              <User className="text-gray-400 mt-1" size={18} />
-              {isEditing ? (
-                <input
-                  type="text"
-                  value={editAddress}
-                  onChange={(e) => setEditAddress(e.target.value)}
-                  className="flex-1 p-2 border border-gray-300 rounded-md focus:border-blue-500 focus:ring-1 focus:ring-blue-500"
-                  placeholder="Endereço"
-                />
-              ) : (
-                <span className="text-gray-700">{patient.address || 'Endereço não informado'}</span>
-              )}
-            </div>
-          </div>
-
-          {isEditing && (
-            <div className="mt-6 pt-4 border-t border-gray-200">
-              <div className="flex space-x-3">
                 <button
-                  onClick={() => fileInputRef.current?.click()}
-                  className="flex-1 p-3 bg-blue-500 text-white rounded-md flex items-center justify-center space-x-2 hover:bg-blue-600 transition-colors"
+                  onClick={() => setIsEditing(true)}
+                  className="p-3 bg-white/10 hover:bg-white/20 rounded-xl transition-all duration-300 hover:scale-105"
                 >
-                  <Camera size={18} />
-                  <span>Alterar Foto</span>
+                  <Edit size={20} />
                 </button>
-              </div>
-              
-              {/* Botão de Salvar Alterações */}
-              <button
-                onClick={handleSaveEdit}
-                disabled={editLoading || !hasUnsavedChanges()}
-                className="w-full mt-4 p-3 bg-green-500 text-white rounded-md flex items-center justify-center space-x-2 hover:bg-green-600 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
-              >
-                {editLoading ? (
-                  <>
-                    <LoadingSpinner size="sm" />
-                    <span>Salvando...</span>
-                  </>
-                ) : (
-                  <>
-                    <Save size={18} />
-                    <span>Salvar Alterações</span>
-                  </>
-                )}
-              </button>
-
-              {hasUnsavedChanges() && !editLoading && (
-                <p className="text-sm text-yellow-600 mt-2 text-center">
-                  Você tem alterações não salvas
-                </p>
               )}
+            </div>
+          </div>
+        </div>
+
+        {/* Informações de Contato - Design Moderno */}
+        <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+          {/* Coluna 1: Informações Pessoais */}
+          <div className="bg-white rounded-2xl p-6 shadow-sm border border-gray-100">
+            <h3 className="text-lg font-semibold text-gray-900 mb-4 flex items-center space-x-2">
+              <CreditCard size={20} className="text-purple-600" /> {/* ✅ Mudei para CreditCard */}
+              <span>Informações Pessoais</span>
+            </h3>
+            
+            <div className="space-y-4">
+              <div className="flex items-center space-x-3 p-3 bg-gray-50 rounded-xl">
+                <Phone className="text-gray-400" size={18} />
+                {isEditing ? (
+                  <input
+                    type="text"
+                    value={editPhone}
+                    onChange={(e) => setEditPhone(formatPhone(e.target.value))}
+                    className="flex-1 p-2 bg-transparent border-none focus:ring-0 text-gray-700"
+                    placeholder="Telefone"
+                  />
+                ) : (
+                  <span className="text-gray-700">{patient.phone}</span>
+                )}
+              </div>
+
+              <div className="flex items-center space-x-3 p-3 bg-gray-50 rounded-xl">
+                <Mail className="text-gray-400" size={18} />
+                {isEditing ? (
+                  <input
+                    type="email"
+                    value={editEmail}
+                    onChange={(e) => setEditEmail(e.target.value)}
+                    className="flex-1 p-2 bg-transparent border-none focus:ring-0 text-gray-700"
+                    placeholder="Email"
+                  />
+                ) : (
+                  <span className="text-gray-700">{patient.email || 'Não informado'}</span>
+                )}
+              </div>
+
+              <div className="flex items-center space-x-3 p-3 bg-gray-50 rounded-xl">
+                <FileText className="text-gray-400" size={18} />
+                {isEditing ? (
+                  <input
+                    type="text"
+                    value={editCpf}
+                    onChange={(e) => setEditCpf(formatCPF(e.target.value))}
+                    className="flex-1 p-2 bg-transparent border-none focus:ring-0 text-gray-700"
+                    placeholder="CPF"
+                    maxLength={14}
+                  />
+                ) : (
+                  <span className="text-gray-700">CPF: {maskCPF(patient.cpf)}</span>
+                )}
+              </div>
+
+              <div className="flex items-center space-x-3 p-3 bg-gray-50 rounded-xl">
+                <Calendar className="text-gray-400" size={18} />
+                {isEditing ? (
+                  <input
+                    type="date"
+                    value={editBirthDate}
+                    onChange={(e) => setEditBirthDate(e.target.value)}
+                    className="flex-1 p-2 bg-transparent border-none focus:ring-0 text-gray-700"
+                  />
+                ) : (
+                  <span className="text-gray-700">Nascimento: {formatDate(patient.birth_date)}</span>
+                )}
+              </div>
+
+              <div className="flex items-start space-x-3 p-3 bg-gray-50 rounded-xl">
+                <MapPin className="text-gray-400 mt-1" size={18} />
+                {isEditing ? (
+                  <input
+                    type="text"
+                    value={editAddress}
+                    onChange={(e) => setEditAddress(e.target.value)}
+                    className="flex-1 p-2 bg-transparent border-none focus:ring-0 text-gray-700"
+                    placeholder="Endereço"
+                  />
+                ) : (
+                  <span className="text-gray-700">{patient.address || 'Endereço não informado'}</span>
+                )}
+              </div>
+            </div>
+          </div>
+
+          {/* Coluna 2: Agendamento Rápido */}
+          {!isEditing && (
+            <div className="bg-white rounded-2xl p-6 shadow-sm border border-gray-100">
+              <h3 className="text-lg font-semibold text-gray-900 mb-4 flex items-center space-x-2">
+                <Clock size={20} className="text-green-600" />
+                <span>Agendamento Rápido</span>
+              </h3>
+              
+              <form onSubmit={handleCreateAppointment} className="space-y-4">
+                <input
+                  type="text"
+                  placeholder="Título do Procedimento"
+                  value={appointmentTitle}
+                  onChange={(e) => setAppointmentTitle(e.target.value)}
+                  className="w-full p-3 border border-gray-300 rounded-xl focus:ring-2 focus:ring-green-500 focus:border-transparent transition-all duration-300"
+                />
+                <input
+                  type="datetime-local"
+                  value={appointmentDate}
+                  onChange={(e) => setAppointmentDate(e.target.value)}
+                  className="w-full p-3 border border-gray-300 rounded-xl focus:ring-2 focus:ring-green-500 focus:border-transparent transition-all duration-300"
+                />
+                <button
+                  type="submit"
+                  disabled={appointmentLoading}
+                  className="w-full bg-gradient-to-r from-green-500 to-emerald-500 text-white py-3 rounded-xl font-semibold hover:shadow-lg transition-all duration-300 hover:scale-105 disabled:opacity-50 disabled:cursor-not-allowed"
+                >
+                  {appointmentLoading ? (
+                    <div className="flex items-center justify-center space-x-2">
+                      <LoadingSpinner size="sm" />
+                      <span>Criando Agendamento...</span>
+                    </div>
+                  ) : (
+                    <div className="flex items-center justify-center space-x-2">
+                      <Plus size={20} />
+                      <span>Criar Agendamento</span>
+                    </div>
+                  )}
+                </button>
+              </form>
             </div>
           )}
         </div>
 
-        {/* Agendamento */}
-        {!isEditing && (
-          
-          <div className="ios-card p-6">
-            <h3 className="text-lg font-semibold text-gray-900 mb-4">Agendar Procedimento</h3>
-            <form onSubmit={handleCreateAppointment} className="space-y-4">
-              <input
-                type="text"
-                placeholder="Título do Procedimento"
-                value={appointmentTitle}
-                onChange={(e) => setAppointmentTitle(e.target.value)}
-                className="ios-input"
-              />
-              <input
-                type="datetime-local"
-                value={appointmentDate}
-                onChange={(e) => setAppointmentDate(e.target.value)}
-                className="ios-input"
-              />
-              <button
-                type="submit"
-                className="ios-button"
-                disabled={appointmentLoading}
-              >
-                {appointmentLoading ? 'Criando Agendamento...' : 'Criar Agendamento'}
-              </button>
-            </form>
-          </div>
-          
-        )}
-          
-        {/* Quick Actions */}
-        <div>
-          <h3 className="text-lg font-semibold text-gray-900 mb-4">
-            {isEditing ? 'Ações' : 'Ações Rápidas'}
+        {/* Ações Rápidas - Design Premium */}
+        <div className="bg-white rounded-2xl p-6 shadow-sm border border-gray-100">
+          <h3 className="text-lg font-semibold text-gray-900 mb-6">
+            Ações Rápidas
           </h3>
-          <div className="grid grid-cols-2 gap-4">
+          
+          <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
             {quickActions.map((action, index) => {
               const Icon = action.icon;
               return (
                 <button
                   key={index}
                   onClick={action.action}
-                  className="ios-card p-6 text-center active:scale-95 transition-transform hover:shadow-lg"
+                  className="group p-6 bg-gradient-to-br from-gray-50 to-white rounded-2xl border border-gray-200 hover:shadow-xl transition-all duration-300 hover:scale-105 text-center"
                 >
-                  <div className={`w-12 h-12 ${action.color} rounded-full flex items-center justify-center mx-auto mb-3`}>
-                    <Icon size={24} className="text-white" />
+                  <div className={`w-16 h-16 bg-gradient-to-r ${action.gradient} rounded-2xl flex items-center justify-center mx-auto mb-4 group-hover:scale-110 transition-transform duration-300 shadow-lg`}>
+                    <Icon size={28} className="text-white" />
                   </div>
-                  <p className="font-medium text-gray-900">{action.title}</p>
+                  <p className="font-semibold text-gray-900 group-hover:text-gray-700 transition-colors">
+                    {action.title}
+                  </p>
                 </button>
               );
             })}
           </div>
         </div>
 
+        {/* Status de Edição */}
+        {isEditing && hasUnsavedChanges() && !editLoading && (
+          <div className="fixed bottom-6 left-1/2 transform -translate-x-1/2 bg-amber-500 text-white px-6 py-3 rounded-xl shadow-2xl animate-pulse">
+            <div className="flex items-center space-x-2">
+              <AlertCircle size={20} />
+              <span>Você tem alterações não salvas</span>
+            </div>
+          </div>
+        )}
       </div>
-
-      <BottomNavigation />
-    </div>
+    </AppLayout>
   );
 };
 

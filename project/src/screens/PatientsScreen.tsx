@@ -1,138 +1,300 @@
 import React, { useState } from 'react';
-import { Search, Plus, User, FileText } from 'lucide-react';
+import { Search, Plus, User, FileText, Phone, Calendar, Mail, Camera, Users, Filter } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
 import { usePatients } from '../hooks/usePatients';
-import Header from '../components/Header';
-import BottomNavigation from '../components/BottomNavigation';
+import AppLayout from '../components/Layout/AppLayout';
 import LoadingSpinner from '../components/LoadingSpinner';
 
 const PatientsScreen: React.FC = () => {
   const navigate = useNavigate();
   const { patients, loading } = usePatients();
   const [searchTerm, setSearchTerm] = useState('');
+  const [statusFilter, setStatusFilter] = useState<'all' | 'active' | 'inactive'>('all');
 
   // Filtrando pacientes
-  const filteredPatients = patients.filter(patient =>
-    patient.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
-    patient.phone.includes(searchTerm)
-  );
+  const filteredPatients = patients.filter(patient => {
+    const matchesSearch = 
+      patient.name?.toLowerCase().includes(searchTerm.toLowerCase()) ||
+      patient.phone?.includes(searchTerm) ||
+      patient.email?.toLowerCase().includes(searchTerm.toLowerCase()) ||
+      patient.full_name?.toLowerCase().includes(searchTerm.toLowerCase());
+    
+    const matchesStatus = 
+      statusFilter === 'all' || 
+      (statusFilter === 'active' && patient.active !== false) ||
+      (statusFilter === 'inactive' && patient.active === false);
+    
+    return matchesSearch && matchesStatus;
+  });
 
   const formatDate = (dateString: string) => {
     return new Date(dateString).toLocaleDateString('pt-BR');
   };
 
+  const formatPhone = (phone: string) => {
+    return phone.replace(/(\d{2})(\d{5})(\d{4})/, '($1) $2-$3');
+  };
+
+  const getInitials = (name: string) => {
+    if (!name) return 'P';
+    return name
+      .split(' ')
+      .map(word => word[0])
+      .join('')
+      .toUpperCase()
+      .slice(0, 2);
+  };
+
+  const getStatusCounts = () => {
+    const active = patients.filter(p => p.active !== false).length;
+    const inactive = patients.filter(p => p.active === false).length;
+    return { active, inactive, total: patients.length };
+  };
+
+  const statusCounts = getStatusCounts();
+
   if (loading) {
     return (
-      <div className="min-h-screen flex items-center justify-center">
-        <LoadingSpinner size="lg" />
-      </div>
+      <AppLayout title="Pacientes" showBack={true}>
+        <div className="flex items-center justify-center h-64">
+          <LoadingSpinner size="lg" />
+        </div>
+      </AppLayout>
     );
   }
 
   return (
-    <div className="min-h-screen bg-gray-900 pb-20 text-white">
-      <Header 
-        title="Pacientes" 
-        rightAction={
-          <button
-            onClick={() => navigate('/patients/new')}
-            className="p-3 bg-pink-600 text-white rounded-full shadow-lg transition-transform hover:scale-105"
-          >
-            <Plus size={24} />
-          </button>
-        }
-      />
-
-      <div className="p-6 space-y-8">
-        {/* Search Bar */}
-        <div className="relative">
-          <Search className="absolute left-4 top-1/2 transform -translate-y-1/2 text-gray-300" size={22} />
-          <input
-            type="text"
-            placeholder="Buscar pacientes..."
-            value={searchTerm}
-            onChange={(e) => setSearchTerm(e.target.value)}
-            className="w-full pl-12 pr-6 py-4 bg-gray-800 rounded-xl border-2 border-gray-700 focus:border-pink-500 focus:ring-2 focus:ring-pink-300 text-lg text-white"
-          />
+    <AppLayout title="Pacientes" showBack={true}>
+      <div className="p-6 space-y-6">
+        {/* Header com Estatísticas */}
+        <div className="bg-gradient-to-br from-slate-900 via-purple-900 to-slate-900 rounded-3xl p-8 text-white shadow-2xl">
+          <div className="flex flex-col lg:flex-row justify-between items-start lg:items-center gap-6">
+            <div className="flex-1">
+              <h1 className="text-3xl font-bold mb-2">Gestão de Pacientes</h1>
+              <p className="text-white/80 text-lg">
+                Controle completo dos dados dos seus pacientes
+              </p>
+              
+              {/* Estatísticas */}
+              <div className="flex flex-wrap gap-6 mt-6">
+                <div className="text-center">
+                  <div className="text-2xl font-bold text-white">{statusCounts.total}</div>
+                  <div className="text-white/60 text-sm">Total</div>
+                </div>
+                <div className="text-center">
+                  <div className="text-2xl font-bold text-green-400">{statusCounts.active}</div>
+                  <div className="text-white/60 text-sm">Ativos</div>
+                </div>
+                <div className="text-center">
+                  <div className="text-2xl font-bold text-amber-400">{statusCounts.inactive}</div>
+                  <div className="text-white/60 text-sm">Inativos</div>
+                </div>
+              </div>
+            </div>
+            
+            <button
+              onClick={() => navigate('/patients/new')}
+              className="flex items-center space-x-3 bg-gradient-to-r from-cyan-500 to-blue-500 text-white px-6 py-4 rounded-2xl hover:shadow-2xl transition-all duration-300 hover:scale-105 group"
+            >
+              <Plus size={24} className="group-hover:rotate-90 transition-transform duration-300" />
+              <span className="font-semibold text-lg">Novo Paciente</span>
+            </button>
+          </div>
         </div>
 
-        {/* Patients List */}
-        <div className="space-y-6">
-          {filteredPatients.length === 0 ? (
-            <div className="ios-card p-8 text-center bg-gray-800 shadow-lg rounded-lg">
-              <User className="mx-auto mb-4 text-gray-500" size={48} />
-              <p className="text-gray-400">
-                {searchTerm ? 'Nenhum paciente encontrado' : 'Nenhum paciente cadastrado'}
-              </p>
-              <button
-                onClick={() => navigate('/patients/new')}
-                className="mt-4 ios-button bg-pink-600 text-white"
+        {/* Barra de Ferramentas */}
+        <div className="bg-white rounded-2xl p-6 shadow-sm border border-gray-100">
+          <div className="flex flex-col lg:flex-row gap-4">
+            {/* Barra de Busca */}
+            <div className="flex-1 relative">
+              <Search className="absolute left-4 top-1/2 transform -translate-y-1/2 text-gray-400" size={20} />
+              <input
+                type="text"
+                placeholder="Buscar por nome, telefone ou email..."
+                value={searchTerm}
+                onChange={(e) => setSearchTerm(e.target.value)}
+                className="w-full pl-12 pr-4 py-4 border border-gray-300 rounded-xl focus:ring-2 focus:ring-purple-500 focus:border-transparent transition-all duration-300 text-lg"
+              />
+            </div>
+
+            {/* Filtro de Status */}
+            <div className="flex items-center space-x-3 bg-gray-50 rounded-xl p-2">
+              <Filter size={20} className="text-gray-400" />
+              <select
+                value={statusFilter}
+                onChange={(e) => setStatusFilter(e.target.value as any)}
+                className="bg-transparent border-none focus:ring-0 text-gray-700 font-medium"
               >
-                Adicionar Primeiro Paciente
-              </button>
+                <option value="all">Todos</option>
+                <option value="active">Ativos</option>
+                <option value="inactive">Inativos</option>
+              </select>
+            </div>
+          </div>
+        </div>
+
+        {/* Lista de Pacientes - Design Premium */}
+        <div className="space-y-4">
+          {filteredPatients.length === 0 ? (
+            <div className="text-center py-16 bg-white rounded-2xl shadow-sm border border-gray-100">
+              <div className="w-24 h-24 bg-gradient-to-r from-purple-100 to-pink-100 rounded-full flex items-center justify-center mx-auto mb-6">
+                <Users className="text-purple-400" size={40} />
+              </div>
+              <h3 className="text-2xl font-bold text-gray-900 mb-3">
+                {searchTerm || statusFilter !== 'all' ? 'Nenhum paciente encontrado' : 'Nenhum paciente cadastrado'}
+              </h3>
+              <p className="text-gray-600 text-lg mb-8 max-w-md mx-auto">
+                {searchTerm || statusFilter !== 'all' 
+                  ? 'Tente ajustar os termos da busca ou os filtros aplicados' 
+                  : 'Comece cadastrando seu primeiro paciente para organizar sua clínica'
+                }
+              </p>
+              {!searchTerm && statusFilter === 'all' && (
+                <button
+                  onClick={() => navigate('/patients/new')}
+                  className="inline-flex items-center space-x-3 bg-gradient-to-r from-purple-600 to-pink-600 text-white px-8 py-4 rounded-2xl hover:shadow-2xl transition-all duration-300 hover:scale-105"
+                >
+                  <Plus size={24} />
+                  <span className="font-semibold text-lg">Cadastrar Primeiro Paciente</span>
+                </button>
+              )}
             </div>
           ) : (
-            <>
-              <button
-                onClick={() => navigate('/patients/new')}
-                className="ios-button mt-4 bg-pink-600 text-white shadow-md rounded-lg"
-              >
-                Adicionar Novo Paciente
-              </button>
+            <div className="grid grid-cols-1 lg:grid-cols-2 xl:grid-cols-3 gap-6">
               {filteredPatients.map((patient) => (
                 <div
                   key={patient.id}
-                  className="w-full ios-card p-6 bg-gray-800 rounded-xl shadow-xl hover:scale-105 transform transition-all duration-300"
+                  className="bg-white rounded-2xl p-6 shadow-sm border border-gray-100 hover:shadow-2xl hover:border-purple-200 transition-all duration-300 group cursor-pointer"
+                  onClick={() => navigate(`/patients/${patient.id}`)}
                 >
-                  <div className="flex items-center space-x-4 mb-4">
-                    <div className="w-16 h-16 bg-pink-500 rounded-full flex items-center justify-center overflow-hidden">
-                      {patient.photo_url ? (
-                        <img
-                          src={patient.photo_url}
-                          alt={patient.name}
-                          className="w-full h-full object-cover"
-                        />
-                      ) : (
-                        <User className="text-white" size={28} />
-                      )}
+                  {/* Header do Card */}
+                  <div className="flex items-start space-x-4 mb-4">
+                    {/* Avatar com Foto */}
+                    <div className="relative">
+                      <div className="w-16 h-16 bg-gradient-to-r from-purple-500 to-pink-500 rounded-2xl flex items-center justify-center text-white font-bold text-lg overflow-hidden shadow-lg">
+                        {patient.photo_url ? (
+                          <img
+                            src={patient.photo_url}
+                            alt={patient.name || patient.full_name}
+                            className="w-full h-full object-cover"
+                            onError={(e) => {
+                              e.currentTarget.style.display = 'none';
+                            }}
+                          />
+                        ) : null}
+                        
+                        {(!patient.photo_url || patient.photo_url === '') && (
+                          <span>{getInitials(patient.name || patient.full_name || 'P')}</span>
+                        )}
+                      </div>
+                      
+                      {/* Badge de Status */}
+                      <div className={`absolute -top-2 -right-2 rounded-full p-1 border-2 border-white ${
+                        patient.active !== false ? 'bg-green-500' : 'bg-gray-400'
+                      }`}>
+                        <div className="w-3 h-3 rounded-full bg-white"></div>
+                      </div>
                     </div>
+                    
+                    {/* Informações Principais */}
+                    <div className="flex-1 min-w-0">
+                      <h3 className="font-bold text-gray-900 text-lg mb-1 group-hover:text-purple-600 transition-colors truncate">
+                        {patient.name || patient.full_name || 'Nome não informado'}
+                      </h3>
+                      
+                      <div className="flex items-center space-x-2 text-sm text-gray-500 mb-2">
+                        <Calendar size={14} />
+                        <span>Cadastro: {formatDate(patient.created_at)}</span>
+                      </div>
 
-                    <div className="flex-1 text-left">
-                      <h3 className="font-semibold text-gray-200">{patient.name}</h3>
-                      <p className="text-sm text-gray-400">{patient.phone}</p>
-                      <p className="text-xs text-gray-500">
-                        Cadastrado em: {formatDate(patient.created_at)}
-                      </p>
+                      {/* Informações de Contato */}
+                      <div className="space-y-2">
+                        {patient.phone && (
+                          <div className="flex items-center space-x-2 text-sm text-gray-600">
+                            <Phone size={14} />
+                            <span className="font-medium">{formatPhone(patient.phone)}</span>
+                          </div>
+                        )}
+                        
+                        {patient.email && (
+                          <div className="flex items-center space-x-2 text-sm text-gray-600">
+                            <Mail size={14} />
+                            <span className="truncate max-w-[180px]">{patient.email}</span>
+                          </div>
+                        )}
+                      </div>
                     </div>
                   </div>
 
-                  {/* BOTÕES DE AÇÃO */}
-                  <div className="flex space-x-3">
+                  {/* Botões de Ação */}
+                  <div className="flex space-x-3 pt-4 border-t border-gray-100">
                     <button
-                      onClick={() => navigate(`/patients/${patient.id}`)}
-                      className="flex-1 ios-button bg-blue-600 text-white text-sm py-2"
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        navigate(`/patients/${patient.id}`);
+                      }}
+                      className="flex-1 bg-blue-50 text-blue-600 hover:bg-blue-100 py-3 px-4 rounded-xl font-semibold transition-all duration-200 text-sm flex items-center justify-center space-x-2 hover:scale-105"
                     >
-                      Ver Detalhes
+                      <User size={16} />
+                      <span>Detalhes</span>
                     </button>
                     
-                    {/* 🔥 NOVO BOTÃO DA ANAMNESE */}
                     <button
-                      onClick={() => navigate(`/patients/${patient.id}/anamnese`)}
-                      className="flex-1 ios-button bg-purple-600 text-white text-sm py-2 flex items-center justify-center space-x-1"
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        navigate(`/patients/${patient.id}/anamnese`);
+                      }}
+                      className="flex-1 bg-purple-50 text-purple-600 hover:bg-purple-100 py-3 px-4 rounded-xl font-semibold transition-all duration-200 text-sm flex items-center justify-center space-x-2 hover:scale-105"
                     >
                       <FileText size={16} />
                       <span>Anamnese</span>
                     </button>
                   </div>
+
+                  {/* Status e Indicadores */}
+                  <div className="flex justify-between items-center mt-4 pt-3 border-t border-gray-100">
+                    <span className={`px-3 py-1 rounded-full text-xs font-bold ${
+                      patient.active !== false 
+                        ? 'bg-green-100 text-green-800' 
+                        : 'bg-gray-100 text-gray-800'
+                    }`}>
+                      {patient.active !== false ? 'ATIVO' : 'INATIVO'}
+                    </span>
+                    
+                    <div className="text-purple-600 opacity-0 group-hover:opacity-100 transition-opacity duration-300 transform group-hover:translate-x-1">
+                      →
+                    </div>
+                  </div>
                 </div>
               ))}
-            </>
+            </div>
           )}
         </div>
-      </div>
 
-      <BottomNavigation />
-    </div>
+        {/* Footer com Estatísticas */}
+        {filteredPatients.length > 0 && (
+          <div className="bg-white rounded-2xl p-6 shadow-sm border border-gray-100">
+            <div className="flex flex-wrap justify-between items-center">
+              <div className="text-gray-600">
+                Mostrando <span className="font-bold text-gray-900">{filteredPatients.length}</span> de{' '}
+                <span className="font-bold text-gray-900">{patients.length}</span> pacientes
+              </div>
+              
+              <div className="flex items-center space-x-6 text-sm">
+                <div className="flex items-center space-x-2">
+                  <div className="w-3 h-3 bg-green-500 rounded-full"></div>
+                  <span className="text-gray-600">{statusCounts.active} ativos</span>
+                </div>
+                <div className="flex items-center space-x-2">
+                  <div className="w-3 h-3 bg-gray-400 rounded-full"></div>
+                  <span className="text-gray-600">{statusCounts.inactive} inativos</span>
+                </div>
+              </div>
+            </div>
+          </div>
+        )}
+      </div>
+    </AppLayout>
   );
 };
 

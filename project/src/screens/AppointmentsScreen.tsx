@@ -4,7 +4,6 @@ import { supabase } from '../supabaseClient';
 import { Calendar, Clock, User, Search, DollarSign, Edit, Trash2, Filter, ChevronDown, ChevronUp } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
 import Header from '../components/Header';
-import BottomNavigation from '../components/BottomNavigation';
 import LoadingSpinner from '../components/LoadingSpinner';
 import { convertToSupabaseFormat, convertToBrazilianFormat } from '../utils/dateUtils';
 
@@ -624,7 +623,6 @@ const AppointmentsScreen: React.FC = () => {
         </div>
       </div>
 
-      <BottomNavigation />
     </div>
   );
 };

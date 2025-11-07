@@ -4,6 +4,8 @@ import { useAuth } from '../contexts/AuthContext';
 import toast from 'react-hot-toast';
 
 export interface Patient {
+  full_name: any;
+  active: any;
   id: string;
   name: string;
   email?: string;
