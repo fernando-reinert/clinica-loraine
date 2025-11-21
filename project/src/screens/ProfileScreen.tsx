@@ -35,25 +35,25 @@ const ProfileScreen: React.FC = () => {
       icon: Settings,
       title: 'Configurações',
       subtitle: 'Preferências do aplicativo',
-      action: () => toast.info('Em desenvolvimento')
+      action: () => toast('Configurações em desenvolvimento') // ✅ CORRIGIDO
     },
     {
       icon: Bell,
       title: 'Notificações',
       subtitle: 'Gerenciar alertas e lembretes',
-      action: () => toast.info('Em desenvolvimento')
+      action: () => toast('Notificações em desenvolvimento') // ✅ CORRIGIDO
     },
     {
       icon: Shield,
       title: 'Privacidade e Segurança',
       subtitle: 'Controle de dados e backup',
-      action: () => toast.info('Em desenvolvimento')
+      action: () => toast('Privacidade e segurança em desenvolvimento') // ✅ CORRIGIDO
     },
     {
       icon: HelpCircle,
       title: 'Ajuda e Suporte',
       subtitle: 'FAQ e contato',
-      action: () => toast.info('Em desenvolvimento')
+      action: () => toast('Ajuda e suporte em desenvolvimento') // ✅ CORRIGIDO
     }
   ]
 
@@ -257,7 +257,6 @@ const ProfileScreen: React.FC = () => {
           </div>
         </div>
       )}
-
     </div>
   )
 }

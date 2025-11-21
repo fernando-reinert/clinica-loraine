@@ -1,23 +1,10 @@
 import React, { useState, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { Phone, Mail, Camera, X, Image as ImageIcon, Upload, Trash2, Calendar } from 'lucide-react';
+import { Phone, Mail, Camera, Image as ImageIcon, Trash2, Calendar, User, MapPin, CreditCard } from 'lucide-react';
 import toast from 'react-hot-toast';
-import { supabase } from '../lib/supabase';
-import Header from '../components/Header';
+import { supabase } from '../supabaseClient';
+import AppLayout from '../components/Layout/AppLayout';
 import LoadingSpinner from '../components/LoadingSpinner';
-
-interface Patient {
-  id: string;
-  name: string;
-  email?: string;
-  phone: string;
-  cpf: string;
-  birth_date: string;
-  address?: string;
-  photo_url?: string;
-  professional_id?: string;
-  created_at: string;
-}
 
 const NewPatient: React.FC = () => {
   const navigate = useNavigate();
@@ -34,13 +21,15 @@ const NewPatient: React.FC = () => {
   const [loading, setLoading] = useState(false);
   const [uploading, setUploading] = useState(false);
 
-  // Função para fazer upload da foto para o Supabase Storage
+  // ✅ FUNÇÃO CORRIGIDA: Upload da foto para o Supabase Storage
   const uploadPhotoToStorage = async (file: File): Promise<string | null> => {
     try {
       setUploading(true);
       
-      // Verificar se o bucket existe
-      const { data: buckets } = await supabase.storage.listBuckets();
+      // Verificar se o bucket existe, se não, criar
+      const { data: buckets, error: listError } = await supabase.storage.listBuckets();
+      if (listError) throw listError;
+
       const bucketExists = buckets?.some(bucket => bucket.name === 'patient-photos');
       
       if (!bucketExists) {
@@ -51,31 +40,36 @@ const NewPatient: React.FC = () => {
         if (createError) throw createError;
       }
 
-      // Fazer upload do arquivo
+      // Gerar nome único para o arquivo
       const fileExt = file.name.split('.').pop();
-      const fileName = `${Math.random().toString(36).substring(2, 15)}_${Date.now()}.${fileExt}`;
-      const filePath = `${fileName}`;
+      const fileName = `patient_${Date.now()}_${Math.random().toString(36).substring(2, 9)}.${fileExt}`;
+      const filePath = fileName;
 
-      const { error: uploadError } = await supabase.storage
-        .from('patient_photos')
+      // Fazer upload do arquivo para o bucket CORRETO
+      const { data: uploadData, error: uploadError } = await supabase.storage
+        .from('patient-photos') // ✅ Nome correto do bucket
         .upload(filePath, file, {
           cacheControl: '3600',
           upsert: false
         });
 
-      if (uploadError) throw uploadError;
+      if (uploadError) {
+        console.error('Erro no upload:', uploadError);
+        throw uploadError;
+      }
 
-      // Obter URL pública
+      // Obter URL pública permanente
       const { data: { publicUrl } } = supabase.storage
         .from('patient-photos')
         .getPublicUrl(filePath);
 
-      toast.success('Foto enviada com sucesso!');
+      console.log('Foto salva com sucesso:', publicUrl);
+      toast.success('Foto salva com sucesso!');
       return publicUrl;
 
     } catch (error) {
       console.error('Erro ao fazer upload da foto:', error);
-      toast.error('Erro ao fazer upload da foto. Tente novamente.');
+      toast.error('Erro ao salvar a foto. Tente novamente.');
       return null;
     } finally {
       setUploading(false);
@@ -90,20 +84,23 @@ const NewPatient: React.FC = () => {
 
     setLoading(true);
     try {
-      let finalPhotoUrl = photoUrl;
+      let finalPhotoUrl = '';
 
-      // Se há uma foto selecionada do dispositivo, fazer upload para o Storage
+      // ✅ SEMPRE fazer upload da foto se foi selecionada
       if (photoFile) {
         const uploadedUrl = await uploadPhotoToStorage(photoFile);
         if (uploadedUrl) {
           finalPhotoUrl = uploadedUrl;
+          // Limpar URL temporária (blob)
+          if (photoUrl.startsWith('blob:')) {
+            URL.revokeObjectURL(photoUrl);
+          }
         } else {
-          // Se o upload falhou, avisar sobre a foto temporária
-          toast.error('Erro ao salvar a foto. A foto pode não persistir.');
+          throw new Error('Falha ao salvar a foto');
         }
       }
 
-      // Inserir paciente no banco de dados
+      // Inserir paciente no banco de dados com a URL PERMANENTE
       const { data, error } = await supabase
         .from('patients')
         .insert([
@@ -114,7 +111,7 @@ const NewPatient: React.FC = () => {
             cpf,
             birth_date: birthDate,
             address: address || null,
-            photo_url: finalPhotoUrl || null,
+            photo_url: finalPhotoUrl || null, // ✅ URL permanente do Supabase
             professional_id: 'a3f11e68-67ea-4a9f-b1fb-33d9843a738f'
           }
         ])
@@ -143,13 +140,11 @@ const NewPatient: React.FC = () => {
   const handleFileSelect = async (event: React.ChangeEvent<HTMLInputElement>) => {
     const file = event.target.files?.[0];
     if (file) {
-      // Verificar se é uma imagem
       if (!file.type.startsWith('image/')) {
         toast.error('Por favor, selecione um arquivo de imagem (JPEG, PNG, etc).');
         return;
       }
 
-      // Verificar tamanho do arquivo (max 5MB)
       if (file.size > 5 * 1024 * 1024) {
         toast.error('A imagem deve ter no máximo 5MB.');
         return;
@@ -157,11 +152,11 @@ const NewPatient: React.FC = () => {
 
       setPhotoFile(file);
       
-      // Criar URL local para preview imediato
+      // Criar URL temporária apenas para preview
       const objectUrl = URL.createObjectURL(file);
       setPhotoUrl(objectUrl);
       
-      toast.success('Foto selecionada! Ela será salva quando você cadastrar o paciente.');
+      toast.success('Foto selecionada! Ela será salva permanentemente quando você cadastrar o paciente.');
     }
   };
 
@@ -221,228 +216,257 @@ const NewPatient: React.FC = () => {
   };
 
   return (
-    <div className="min-h-screen bg-gradient-to-b from-pink-900 via-pink-800 to-pink-700 text-white pb-20">
-      <Header title="Cadastrar Novo Paciente" showBack />
-      
-      {/* Input de arquivo oculto */}
-      <input
-        type="file"
-        ref={fileInputRef}
-        onChange={handleFileSelect}
-        accept="image/*"
-        className="hidden"
-      />
-      
+    <AppLayout title="Novo Paciente" showBack={true}>
       <div className="p-6 space-y-6">
-        {/* Card Principal */}
-        <div className="ios-card p-6 bg-gradient-to-r from-gray-800 to-gray-900 rounded-lg shadow-lg">
-          {/* Seção da Foto */}
-          <div className="flex flex-col md:flex-row items-center space-y-6 md:space-y-0 md:space-x-8 mb-8">
-            <div className="relative">
-              <div className="w-32 h-32 bg-gradient-to-r from-pink-500 to-pink-600 rounded-full flex items-center justify-center overflow-hidden shadow-lg border-4 border-pink-400">
-                {photoUrl ? (
-                  <img
-                    src={photoUrl}
-                    alt={name || 'Foto do paciente'}
-                    className="w-full h-full object-cover"
-                    onError={(e) => {
-                      // Se a imagem não carregar, mostrar ícone
-                      const target = e.target as HTMLImageElement;
-                      target.style.display = 'none';
-                    }}
-                  />
-                ) : (
-                  <Camera className="text-white" size={40} />
-                )}
-              </div>
-              {photoUrl && (
-                <button
-                  onClick={removePhoto}
-                  className="absolute -top-2 -right-2 bg-rose-500 text-white rounded-full p-2 shadow-lg hover:bg-rose-600 transition-colors"
-                >
-                  <Trash2 size={16} />
-                </button>
-              )}
+        {/* Header Premium */}
+        <div className="bg-gradient-to-br from-slate-900 via-purple-900 to-slate-900 rounded-3xl p-8 text-white shadow-2xl">
+          <div className="flex flex-col lg:flex-row justify-between items-start lg:items-center gap-6">
+            <div className="flex-1">
+              <h1 className="text-3xl font-bold mb-2">Cadastrar Novo Paciente</h1>
+              <p className="text-white/80 text-lg">
+                Preencha as informações para cadastrar um novo paciente na clínica
+              </p>
             </div>
             
-            <div className="flex-1 space-y-4 w-full">
-              <h3 className="text-lg font-semibold text-white text-center md:text-left">
-                Foto do Paciente
-              </h3>
-              
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                <button
-                  onClick={handleTakePhoto}
-                  disabled={uploading}
-                  className="p-4 bg-gradient-to-r from-blue-500 to-blue-600 text-white rounded-xl flex items-center justify-center space-x-3 shadow-lg active:scale-95 transition-transform disabled:opacity-50"
-                >
-                  <Camera size={20} />
-                  <span>Tirar Foto</span>
-                </button>
-                
-                <button
-                  onClick={handleChooseFromLibrary}
-                  disabled={uploading}
-                  className="p-4 bg-gradient-to-r from-purple-500 to-purple-600 text-white rounded-xl flex items-center justify-center space-x-3 shadow-lg active:scale-95 transition-transform disabled:opacity-50"
-                >
-                  <ImageIcon size={20} />
-                  <span>Galeria</span>
-                </button>
-              </div>
-
-              <div className="relative">
-                <div className="absolute inset-0 flex items-center">
-                  <div className="w-full border-t border-gray-600"></div>
-                </div>
-                <div className="relative flex justify-center text-sm">
-                  <span className="px-2 bg-gray-800 text-gray-400">ou</span>
-                </div>
-              </div>
-
-              <div>
-                <label className="block text-sm font-medium text-gray-300 mb-2">
-                  Cole a URL da foto
-                </label>
-                <input
-                  type="text"
-                  value={photoUrl}
-                  onChange={(e) => setPhotoUrl(e.target.value)}
-                  className="w-full p-3 bg-gray-700 border border-gray-600 rounded-xl text-white placeholder-gray-400 focus:border-pink-500 focus:ring-1 focus:ring-pink-500"
-                  placeholder="https://exemplo.com/foto.jpg"
-                />
-              </div>
-
-              {uploading && (
-                <div className="flex items-center space-x-2 text-sm text-gray-300">
-                  <LoadingSpinner size="sm" />
-                  <span>Processando foto...</span>
-                </div>
-              )}
-            </div>
-          </div>
-
-          {/* Formulário */}
-          <div className="space-y-4">
-            <div>
-              <label className="block text-sm font-medium text-gray-300 mb-2">
-                Nome Completo *
-              </label>
-              <input
-                type="text"
-                value={name}
-                onChange={(e) => setName(e.target.value)}
-                className="w-full p-4 bg-gray-700 border border-gray-600 rounded-xl text-white placeholder-gray-400 focus:border-pink-500 focus:ring-1 focus:ring-pink-500 transition-colors"
-                placeholder="Digite o nome completo do paciente"
-                required
-              />
-            </div>
-
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-              <div>
-                <label className="block text-sm font-medium text-gray-300 mb-2">
-                  Telefone *
-                </label>
-                <div className="relative">
-                  <Phone className="absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-400" size={20} />
-                  <input
-                    type="text"
-                    value={phone}
-                    onChange={handlePhoneChange}
-                    className="w-full p-4 pl-12 bg-gray-700 border border-gray-600 rounded-xl text-white placeholder-gray-400 focus:border-pink-500 focus:ring-1 focus:ring-pink-500 transition-colors"
-                    placeholder="(11) 99999-9999"
-                    required
-                    maxLength={15}
-                  />
-                </div>
-              </div>
-
-              <div>
-                <label className="block text-sm font-medium text-gray-300 mb-2">
-                  Email
-                </label>
-                <div className="relative">
-                  <Mail className="absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-400" size={20} />
-                  <input
-                    type="email"
-                    value={email}
-                    onChange={(e) => setEmail(e.target.value)}
-                    className="w-full p-4 pl-12 bg-gray-700 border border-gray-600 rounded-xl text-white placeholder-gray-400 focus:border-pink-500 focus:ring-1 focus:ring-pink-500 transition-colors"
-                    placeholder="paciente@email.com"
-                  />
-                </div>
-              </div>
-            </div>
-
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-              <div>
-                <label className="block text-sm font-medium text-gray-300 mb-2">
-                  CPF *
-                </label>
-                <input
-                  type="text"
-                  value={cpf}
-                  onChange={handleCpfChange}
-                  className="w-full p-4 bg-gray-700 border border-gray-600 rounded-xl text-white placeholder-gray-400 focus:border-pink-500 focus:ring-1 focus:ring-pink-500 transition-colors"
-                  placeholder="000.000.000-00"
-                  required
-                  maxLength={14}
-                />
-              </div>
-
-              <div>
-                <label className="block text-sm font-medium text-gray-300 mb-2">
-                  Data de Nascimento *
-                </label>
-                <div className="relative">
-                  <Calendar className="absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-400" size={20} />
-                  <input
-                    type="date"
-                    value={birthDate}
-                    onChange={(e) => setBirthDate(e.target.value)}
-                    className="w-full p-4 pl-12 bg-gray-700 border border-gray-600 rounded-xl text-white placeholder-gray-400 focus:border-pink-500 focus:ring-1 focus:ring-pink-500 transition-colors"
-                    required
-                  />
-                </div>
-              </div>
-            </div>
-
-            <div>
-              <label className="block text-sm font-medium text-gray-300 mb-2">
-                Endereço Completo
-              </label>
-              <input
-                type="text"
-                value={address}
-                onChange={(e) => setAddress(e.target.value)}
-                className="w-full p-4 bg-gray-700 border border-gray-600 rounded-xl text-white placeholder-gray-400 focus:border-pink-500 focus:ring-1 focus:ring-pink-500 transition-colors"
-                placeholder="Rua, número, bairro, cidade - Estado"
-              />
+            <div className="w-16 h-16 bg-gradient-to-r from-cyan-400 to-blue-500 rounded-2xl flex items-center justify-center shadow-lg">
+              <User className="text-white" size={32} />
             </div>
           </div>
         </div>
 
-        {/* Botão de Cadastro */}
-        <button
-          onClick={handleSubmit}
-          disabled={loading || uploading}
-          className="w-full p-4 bg-gradient-to-r from-green-500 to-green-600 text-white rounded-xl shadow-lg font-semibold active:scale-95 transition-transform disabled:opacity-50 disabled:cursor-not-allowed hover:shadow-xl"
-        >
-          {loading ? (
-            <div className="flex items-center justify-center space-x-2">
-              <LoadingSpinner size="sm" />
-              <span>Cadastrando...</span>
+        {/* Card Principal */}
+        <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+          {/* Coluna 1: Foto do Paciente */}
+          <div className="lg:col-span-1">
+            <div className="bg-white rounded-2xl p-6 shadow-sm border border-gray-100">
+              <h3 className="text-lg font-bold text-gray-900 mb-4 flex items-center space-x-2">
+                <Camera className="text-purple-600" size={20} />
+                <span>Foto do Paciente</span>
+              </h3>
+              
+              {/* Input de arquivo oculto */}
+              <input
+                type="file"
+                ref={fileInputRef}
+                onChange={handleFileSelect}
+                accept="image/*"
+                className="hidden"
+              />
+              
+              <div className="space-y-4">
+                {/* Preview da Foto */}
+                <div className="flex justify-center">
+                  <div className="relative">
+                    <div className="w-32 h-32 bg-gradient-to-r from-purple-100 to-pink-100 rounded-2xl flex items-center justify-center overflow-hidden shadow-lg border-2 border-gray-200">
+                      {photoUrl ? (
+                        <img
+                          src={photoUrl}
+                          alt={name || 'Foto do paciente'}
+                          className="w-full h-full object-cover"
+                          onError={(e) => {
+                            const target = e.target as HTMLImageElement;
+                            target.style.display = 'none';
+                          }}
+                        />
+                      ) : (
+                        <Camera className="text-gray-400" size={40} />
+                      )}
+                    </div>
+                    {photoUrl && (
+                      <button
+                        onClick={removePhoto}
+                        className="absolute -top-2 -right-2 bg-red-500 text-white rounded-full p-1 shadow-lg hover:bg-red-600 transition-all duration-300"
+                      >
+                        <Trash2 size={14} />
+                      </button>
+                    )}
+                  </div>
+                </div>
+
+                {/* Botões de Ação */}
+                <div className="space-y-3">
+                  <button
+                    onClick={handleTakePhoto}
+                    disabled={uploading}
+                    className="w-full p-3 bg-gradient-to-r from-blue-500 to-blue-600 text-white rounded-xl font-medium hover:shadow-lg transition-all duration-300 hover:scale-105 disabled:opacity-50 flex items-center justify-center space-x-2"
+                  >
+                    <Camera size={18} />
+                    <span>Tirar Foto</span>
+                  </button>
+                  
+                  <button
+                    onClick={handleChooseFromLibrary}
+                    disabled={uploading}
+                    className="w-full p-3 bg-gradient-to-r from-purple-500 to-pink-500 text-white rounded-xl font-medium hover:shadow-lg transition-all duration-300 hover:scale-105 disabled:opacity-50 flex items-center justify-center space-x-2"
+                  >
+                    <ImageIcon size={18} />
+                    <span>Escolher da Galeria</span>
+                  </button>
+                </div>
+
+                {/* ✅ REMOVIDA: Seção de URL da foto */}
+
+                {uploading && (
+                  <div className="flex items-center justify-center space-x-2 text-sm text-gray-600">
+                    <LoadingSpinner size="sm" />
+                    <span>Salvando foto...</span>
+                  </div>
+                )}
+
+                {/* Informação sobre a foto */}
+                <div className="bg-blue-50 border border-blue-200 rounded-xl p-3">
+                  <p className="text-sm text-blue-800 text-center">
+                    📸 A foto será salva permanentemente e aparecerá em todo o sistema
+                  </p>
+                </div>
+              </div>
             </div>
-          ) : uploading ? (
-            <div className="flex items-center justify-center space-x-2">
-              <LoadingSpinner size="sm" />
-              <span>Enviando foto...</span>
+          </div>
+
+          {/* Coluna 2: Formulário */}
+          <div className="lg:col-span-2">
+            <div className="bg-white rounded-2xl p-6 shadow-sm border border-gray-100">
+              <h3 className="text-lg font-bold text-gray-900 mb-6 flex items-center space-x-2">
+                <User className="text-purple-600" size={20} />
+                <span>Informações Pessoais</span>
+              </h3>
+
+              <div className="space-y-6">
+                {/* Nome Completo */}
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-2">
+                    Nome Completo *
+                  </label>
+                  <input
+                    type="text"
+                    value={name}
+                    onChange={(e) => setName(e.target.value)}
+                    className="w-full p-3 border border-gray-300 rounded-xl focus:ring-2 focus:ring-purple-500 focus:border-transparent transition-all duration-300"
+                    placeholder="Digite o nome completo do paciente"
+                    required
+                  />
+                </div>
+
+                {/* Telefone e Email */}
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-2">
+                      Telefone *
+                    </label>
+                    <div className="relative">
+                      <Phone className="absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-400" size={18} />
+                      <input
+                        type="text"
+                        value={phone}
+                        onChange={handlePhoneChange}
+                        className="w-full p-3 pl-10 border border-gray-300 rounded-xl focus:ring-2 focus:ring-purple-500 focus:border-transparent transition-all duration-300"
+                        placeholder="(11) 99999-9999"
+                        required
+                        maxLength={15}
+                      />
+                    </div>
+                  </div>
+
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-2">
+                      Email
+                    </label>
+                    <div className="relative">
+                      <Mail className="absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-400" size={18} />
+                      <input
+                        type="email"
+                        value={email}
+                        onChange={(e) => setEmail(e.target.value)}
+                        className="w-full p-3 pl-10 border border-gray-300 rounded-xl focus:ring-2 focus:ring-purple-500 focus:border-transparent transition-all duration-300"
+                        placeholder="paciente@email.com"
+                      />
+                    </div>
+                  </div>
+                </div>
+
+                {/* CPF e Data de Nascimento */}
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-2">
+                      CPF *
+                    </label>
+                    <div className="relative">
+                      <CreditCard className="absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-400" size={18} />
+                      <input
+                        type="text"
+                        value={cpf}
+                        onChange={handleCpfChange}
+                        className="w-full p-3 pl-10 border border-gray-300 rounded-xl focus:ring-2 focus:ring-purple-500 focus:border-transparent transition-all duration-300"
+                        placeholder="000.000.000-00"
+                        required
+                        maxLength={14}
+                      />
+                    </div>
+                  </div>
+
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-2">
+                      Data de Nascimento *
+                    </label>
+                    <div className="relative">
+                      <Calendar className="absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-400" size={18} />
+                      <input
+                        type="date"
+                        value={birthDate}
+                        onChange={(e) => setBirthDate(e.target.value)}
+                        className="w-full p-3 pl-10 border border-gray-300 rounded-xl focus:ring-2 focus:ring-purple-500 focus:border-transparent transition-all duration-300"
+                        required
+                      />
+                    </div>
+                  </div>
+                </div>
+
+                {/* Endereço */}
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-2">
+                    Endereço Completo
+                  </label>
+                  <div className="relative">
+                    <MapPin className="absolute left-3 top-3 text-gray-400" size={18} />
+                    <input
+                      type="text"
+                      value={address}
+                      onChange={(e) => setAddress(e.target.value)}
+                      className="w-full p-3 pl-10 border border-gray-300 rounded-xl focus:ring-2 focus:ring-purple-500 focus:border-transparent transition-all duration-300"
+                      placeholder="Rua, número, bairro, cidade - Estado"
+                    />
+                  </div>
+                </div>
+              </div>
             </div>
-          ) : (
-            'Cadastrar Paciente'
-          )}
-        </button>
+
+            {/* Botão de Cadastro */}
+            <button
+              onClick={handleSubmit}
+              disabled={loading || uploading}
+              className="w-full mt-6 p-4 bg-gradient-to-r from-purple-600 to-pink-600 text-white rounded-xl font-bold hover:shadow-2xl transition-all duration-300 hover:scale-105 disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center space-x-2"
+            >
+              {loading ? (
+                <>
+                  <LoadingSpinner size="sm" />
+                  <span>Cadastrando Paciente...</span>
+                </>
+              ) : uploading ? (
+                <>
+                  <LoadingSpinner size="sm" />
+                  <span>Salvando Foto...</span>
+                </>
+              ) : (
+                <>
+                  <User size={20} />
+                  <span>Cadastrar Paciente</span>
+                </>
+              )}
+            </button>
+          </div>
+        </div>
       </div>
-    </div>
+    </AppLayout>
   );
 };
 

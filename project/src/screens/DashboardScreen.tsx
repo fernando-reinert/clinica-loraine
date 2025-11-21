@@ -1,5 +1,5 @@
 import React from 'react'
-import { Users, Calendar, Camera, Clock, CheckCircle, DollarSign, Plus, TrendingUp, Sparkles, Zap, Activity } from 'lucide-react'
+import { Users, Calendar, Camera, Clock, CheckCircle, DollarSign, Plus, TrendingUp, Sparkles, Zap, Activity, Settings } from 'lucide-react'
 import { useNavigate } from 'react-router-dom'
 import { useAuth } from '../contexts/AuthContext'
 import { useDashboardStats } from '../hooks/useDashboardStats'
@@ -26,7 +26,7 @@ const DashboardScreen: React.FC = () => {
     {
       title: 'Agendar Consulta',
       icon: Calendar,
-      gradient: 'from-purple-500 to-pink-600',
+      gradient: 'from-purple-500 to-pink-600', 
       glow: 'hover:shadow-purple-500/25',
       action: () => navigate('/appointments/new')
     },
@@ -44,7 +44,7 @@ const DashboardScreen: React.FC = () => {
       glow: 'hover:shadow-emerald-500/25',
       action: () => navigate('/financial-control')
     }
-  ]
+  ];
 
   if (loading) {
     return (
@@ -90,44 +90,55 @@ const DashboardScreen: React.FC = () => {
               </p>
             </div>
             
-            <Button 
-              onClick={() => navigate('/patients/new')}
-              className="group relative bg-gradient-to-r from-cyan-500 to-blue-600 border-0 text-white px-8 py-4 rounded-2xl font-semibold overflow-hidden transition-all duration-300 hover:scale-105 hover:shadow-2xl hover:shadow-cyan-500/25"
-            >
-              <div className="absolute inset-0 bg-gradient-to-r from-white/20 to-transparent opacity-0 group-hover:opacity-100 transition-opacity"></div>
-              <Plus size={20} className="mr-2 relative z-10" />
-              <span className="relative z-10">Novo Paciente</span>
-            </Button>
+            <div className="flex items-center gap-3">
+              {/* Botão de Configurações no Header */}
+              <button
+                onClick={() => navigate('/profile')}
+                className="p-3 bg-white/10 hover:bg-white/20 rounded-2xl backdrop-blur-sm transition-all duration-300 hover:scale-105 group"
+                title="Configurações do perfil"
+              >
+                <Settings size={20} className="text-white group-hover:text-cyan-300 transition-colors" />
+              </button>
+              
+              <Button 
+                onClick={() => navigate('/patients/new')}
+                className="group relative bg-gradient-to-r from-cyan-500 to-blue-600 border-0 text-white px-8 py-4 rounded-2xl font-semibold overflow-hidden transition-all duration-300 hover:scale-105 hover:shadow-2xl hover:shadow-cyan-500/25"
+              >
+                <div className="absolute inset-0 bg-gradient-to-r from-white/20 to-transparent opacity-0 group-hover:opacity-100 transition-opacity"></div>
+                <Plus size={20} className="mr-2 relative z-10" />
+                <span className="relative z-10">Novo Paciente</span>
+              </Button>
+            </div>
           </div>
         </div>
 
         {/* 📊 Stats Grid - Premium */}
-       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
-  <StatCard
-    title="Total Pacientes"
-    value={stats.totalPatients || 0}
-    icon={Users}
-    gradient="from-blue-500 to-cyan-500"
-  />
-  <StatCard
-    title="Agendamentos Hoje"
-    value={stats.todayAppointments || 0}
-    icon={Clock}
-    gradient="from-green-500 to-emerald-500"
-  />
-  <StatCard
-    title="Esta Semana"
-    value={stats.thisWeekAppointments || 0}
-    icon={Calendar}
-    gradient="from-purple-500 to-pink-500"
-  />
-  <StatCard
-    title="Procedimentos"
-    value={stats.completedProcedures || 0}
-    icon={CheckCircle}
-    gradient="from-orange-500 to-red-500"
-  />
-</div>
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+          <StatCard
+            title="Total Pacientes"
+            value={stats.totalPatients || 0}
+            icon={Users}
+            gradient="from-blue-500 to-cyan-500"
+          />
+          <StatCard
+            title="Agendamentos Hoje"
+            value={stats.todayAppointments || 0}
+            icon={Clock}
+            gradient="from-green-500 to-emerald-500"
+          />
+          <StatCard
+            title="Esta Semana"
+            value={stats.thisWeekAppointments || 0}
+            icon={Calendar}
+            gradient="from-purple-500 to-pink-500"
+          />
+          <StatCard
+            title="Procedimentos"
+            value={stats.completedProcedures || 0}
+            icon={CheckCircle}
+            gradient="from-orange-500 to-red-500"
+          />
+        </div>
 
         {/* ⚡ Quick Actions - Premium */}
         <Card className="bg-white/80 backdrop-blur-sm border border-white/20 shadow-2xl rounded-3xl">
@@ -316,7 +327,7 @@ const DashboardScreen: React.FC = () => {
                 { label: 'Formulários', path: '/anamnese' },
                 { label: 'Prontuários', path: '/clinical-record' },
                 { label: 'Galeria', path: '/gallery' },
-                { label: 'Configurações', path: '/settings' }
+                { label: 'Configurações', path: '/profile' } // ✅ CORRIGIDO: '/settings' → '/profile'
               ].map((item, index) => (
                 <Button 
                   key={index}

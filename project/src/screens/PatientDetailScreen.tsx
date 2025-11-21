@@ -1,37 +1,55 @@
 // src/screens/PatientDetailScreen.tsx
-import React, { useState, useEffect } from 'react';
-import { useParams, useNavigate } from 'react-router-dom';
-import { 
-  Phone, Mail, Calendar, FileText, Camera, Edit, Trash2, User, 
-  CheckCircle, AlertCircle, Save, X, MapPin, CreditCard, Heart, // ✅ Mudei IdCard para CreditCard
-  Clock, Plus, Stethoscope, GalleryVertical, Share2, Download
-} from 'lucide-react';
-import AppLayout from '../components/Layout/AppLayout';
-import LoadingSpinner from '../components/LoadingSpinner';
-import toast from 'react-hot-toast';
-import { usePatients } from '../hooks/usePatients';
-import { supabase } from '../supabaseClient';
+import React, { useState, useEffect } from "react";
+import { useParams, useNavigate } from "react-router-dom";
+import {
+  Phone,
+  Mail,
+  Calendar,
+  FileText,
+  Camera,
+  Edit,
+  Trash2,
+  User,
+  CheckCircle,
+  AlertCircle,
+  Save,
+  X,
+  MapPin,
+  CreditCard,
+  Heart, // ✅ Mudei IdCard para CreditCard
+  Clock,
+  Plus,
+  Stethoscope,
+  GalleryVertical,
+  Share2,
+  Download,
+} from "lucide-react";
+import AppLayout from "../components/Layout/AppLayout";
+import LoadingSpinner from "../components/LoadingSpinner";
+import toast from "react-hot-toast";
+import { usePatients } from "../hooks/usePatients";
+import { supabase } from "../supabaseClient";
 
 const PatientDetailScreen: React.FC = () => {
   const { id } = useParams<{ id: string }>();
   const navigate = useNavigate();
   const { getPatient, updatePatient, loading } = usePatients();
   const [patient, setPatient] = useState<any | null>(null);
-  const [appointmentTitle, setAppointmentTitle] = useState('');
-  const [appointmentDate, setAppointmentDate] = useState('');
+  const [appointmentTitle, setAppointmentTitle] = useState("");
+  const [appointmentDate, setAppointmentDate] = useState("");
   const [appointmentLoading, setAppointmentLoading] = useState(false);
   const [isEditing, setIsEditing] = useState(false);
   const [editLoading, setEditLoading] = useState(false);
   const [photoFile, setPhotoFile] = useState<File | null>(null);
-  const [photoPreview, setPhotoPreview] = useState<string>('');
+  const [photoPreview, setPhotoPreview] = useState<string>("");
 
   // Estados para edição
-  const [editName, setEditName] = useState('');
-  const [editEmail, setEditEmail] = useState('');
-  const [editPhone, setEditPhone] = useState('');
-  const [editCpf, setEditCpf] = useState('');
-  const [editBirthDate, setEditBirthDate] = useState('');
-  const [editAddress, setEditAddress] = useState('');
+  const [editName, setEditName] = useState("");
+  const [editEmail, setEditEmail] = useState("");
+  const [editPhone, setEditPhone] = useState("");
+  const [editCpf, setEditCpf] = useState("");
+  const [editBirthDate, setEditBirthDate] = useState("");
+  const [editAddress, setEditAddress] = useState("");
 
   const fileInputRef = React.useRef<HTMLInputElement>(null);
 
@@ -44,7 +62,7 @@ const PatientDetailScreen: React.FC = () => {
   // Limpar URLs blob quando o componente desmontar
   useEffect(() => {
     return () => {
-      if (photoPreview.startsWith('blob:')) {
+      if (photoPreview.startsWith("blob:")) {
         URL.revokeObjectURL(photoPreview);
       }
     };
@@ -57,54 +75,64 @@ const PatientDetailScreen: React.FC = () => {
         setPatient(patientData);
         // Preencher os campos de edição
         setEditName(patientData.name);
-        setEditEmail(patientData.email || '');
+        setEditEmail(patientData.email || "");
         setEditPhone(patientData.phone);
         setEditCpf(patientData.cpf);
         setEditBirthDate(patientData.birth_date);
-        setEditAddress(patientData.address || '');
-        
-        if (patientData.photo_url && !patientData.photo_url.startsWith('blob:')) {
+        setEditAddress(patientData.address || "");
+
+        if (
+          patientData.photo_url &&
+          !patientData.photo_url.startsWith("blob:")
+        ) {
           setPhotoPreview(patientData.photo_url);
         }
       } else {
-        toast.error('Paciente não encontrado');
+        toast.error("Paciente não encontrado");
       }
     } catch (error) {
-      console.error('Error loading patient:', error);
-      toast.error('Erro ao carregar dados do paciente');
+      console.error("Error loading patient:", error);
+      toast.error("Erro ao carregar dados do paciente");
     }
   };
 
   // Função para fazer upload da foto
   const uploadPhotoToStorage = async (file: File): Promise<string | null> => {
     try {
-      const fileExt = file.name.split('.').pop();
-      const fileName = `${Math.random().toString(36).substring(2, 15)}_${Date.now()}.${fileExt}`;
+      const fileExt = file.name.split(".").pop();
+      const fileName = `${Math.random()
+        .toString(36)
+        .substring(2, 15)}_${Date.now()}.${fileExt}`;
       const filePath = `${fileName}`;
 
       const { error: uploadError } = await supabase.storage
-        .from('patient_photos')
+        .from("patient_photos")
         .upload(filePath, file, {
-          cacheControl: '3600',
-          upsert: false
+          cacheControl: "3600",
+          upsert: false,
         });
 
       if (uploadError) {
-        if (uploadError.message.includes('bucket') || uploadError.message.includes('not found')) {
-          toast.error('Bucket de fotos não configurado. Configure no Supabase Storage.');
+        if (
+          uploadError.message.includes("bucket") ||
+          uploadError.message.includes("not found")
+        ) {
+          toast.error(
+            "Bucket de fotos não configurado. Configure no Supabase Storage."
+          );
           return null;
         }
         throw uploadError;
       }
 
-      const { data: { publicUrl } } = supabase.storage
-        .from('patient_photos')
-        .getPublicUrl(filePath);
+      const {
+        data: { publicUrl },
+      } = supabase.storage.from("patient_photos").getPublicUrl(filePath);
 
       return publicUrl;
     } catch (error) {
-      console.error('Erro ao fazer upload da foto:', error);
-      toast.error('Erro ao fazer upload da foto.');
+      console.error("Erro ao fazer upload da foto:", error);
+      toast.error("Erro ao fazer upload da foto.");
       return null;
     }
   };
@@ -112,20 +140,20 @@ const PatientDetailScreen: React.FC = () => {
   // Função para salvar as alterações
   const handleSaveEdit = async () => {
     if (!editName || !editPhone || !editCpf || !editBirthDate) {
-      toast.error('Por favor, preencha todos os campos obrigatórios.');
+      toast.error("Por favor, preencha todos os campos obrigatórios.");
       return;
     }
 
     setEditLoading(true);
     try {
-      let finalPhotoUrl = patient?.photo_url || '';
+      let finalPhotoUrl = patient?.photo_url || "";
 
       // Se há uma nova foto, fazer upload
       if (photoFile) {
         const uploadedUrl = await uploadPhotoToStorage(photoFile);
         if (uploadedUrl) {
           finalPhotoUrl = uploadedUrl;
-          if (photoPreview.startsWith('blob:')) {
+          if (photoPreview.startsWith("blob:")) {
             URL.revokeObjectURL(photoPreview);
           }
         }
@@ -147,13 +175,13 @@ const PatientDetailScreen: React.FC = () => {
         setIsEditing(false);
         setPhotoFile(null);
         setPhotoPreview(finalPhotoUrl);
-        toast.success('Paciente atualizado com sucesso!');
+        toast.success("Paciente atualizado com sucesso!");
       } else {
-        throw new Error('Erro ao atualizar paciente');
+        throw new Error("Erro ao atualizar paciente");
       }
     } catch (error) {
-      console.error('Erro ao atualizar paciente:', error);
-      toast.error('Erro ao atualizar paciente.');
+      console.error("Erro ao atualizar paciente:", error);
+      toast.error("Erro ao atualizar paciente.");
     } finally {
       setEditLoading(false);
     }
@@ -163,34 +191,34 @@ const PatientDetailScreen: React.FC = () => {
   const handlePhotoSelect = (event: React.ChangeEvent<HTMLInputElement>) => {
     const file = event.target.files?.[0];
     if (file) {
-      if (!file.type.startsWith('image/')) {
-        toast.error('Por favor, selecione um arquivo de imagem.');
+      if (!file.type.startsWith("image/")) {
+        toast.error("Por favor, selecione um arquivo de imagem.");
         return;
       }
 
       if (file.size > 5 * 1024 * 1024) {
-        toast.error('A imagem deve ter no máximo 5MB.');
+        toast.error("A imagem deve ter no máximo 5MB.");
         return;
       }
 
       setPhotoFile(file);
       const objectUrl = URL.createObjectURL(file);
       setPhotoPreview(objectUrl);
-      toast.success('Foto selecionada! Clique em Salvar para confirmar.');
+      toast.success("Foto selecionada! Clique em Salvar para confirmar.");
     }
   };
 
   // Função para remover foto
   const handleRemovePhoto = () => {
-    if (photoPreview.startsWith('blob:')) {
+    if (photoPreview.startsWith("blob:")) {
       URL.revokeObjectURL(photoPreview);
     }
     setPhotoFile(null);
-    setPhotoPreview('');
+    setPhotoPreview("");
     if (fileInputRef.current) {
-      fileInputRef.current.value = '';
+      fileInputRef.current.value = "";
     }
-    toast.success('Foto removida! Clique em Salvar para confirmar.');
+    toast.success("Foto removida! Clique em Salvar para confirmar.");
   };
 
   const calculateAge = (birthDate: string) => {
@@ -199,7 +227,10 @@ const PatientDetailScreen: React.FC = () => {
     let age = today.getFullYear() - birth.getFullYear();
     const monthDiff = today.getMonth() - birth.getMonth();
 
-    if (monthDiff < 0 || (monthDiff === 0 && today.getDate() < birth.getDate())) {
+    if (
+      monthDiff < 0 ||
+      (monthDiff === 0 && today.getDate() < birth.getDate())
+    ) {
       age--;
     }
 
@@ -207,25 +238,25 @@ const PatientDetailScreen: React.FC = () => {
   };
 
   const formatDate = (dateString: string) => {
-    return new Date(dateString).toLocaleDateString('pt-BR');
+    return new Date(dateString).toLocaleDateString("pt-BR");
   };
 
   const maskCPF = (cpf: string) => {
-    return cpf.replace(/(\d{3})(\d{3})(\d{3})(\d{2})/, '$1.***.**$4');
+    return cpf.replace(/(\d{3})(\d{3})(\d{3})(\d{2})/, "$1.***.**$4");
   };
 
   const formatPhone = (value: string) => {
-    const numbers = value.replace(/\D/g, '');
+    const numbers = value.replace(/\D/g, "");
     if (numbers.length <= 11) {
-      return numbers.replace(/(\d{2})(\d{5})(\d{4})/, '($1) $2-$3');
+      return numbers.replace(/(\d{2})(\d{5})(\d{4})/, "($1) $2-$3");
     }
     return value;
   };
 
   const formatCPF = (value: string) => {
-    const numbers = value.replace(/\D/g, '');
+    const numbers = value.replace(/\D/g, "");
     if (numbers.length <= 11) {
-      return numbers.replace(/(\d{3})(\d{3})(\d{3})(\d{2})/, '$1.$2.$3-$4');
+      return numbers.replace(/(\d{3})(\d{3})(\d{3})(\d{2})/, "$1.$2.$3-$4");
     }
     return value;
   };
@@ -234,36 +265,36 @@ const PatientDetailScreen: React.FC = () => {
     event.preventDefault();
 
     if (!appointmentTitle || !appointmentDate) {
-      toast.error('Por favor, preencha todos os campos do agendamento.');
+      toast.error("Por favor, preencha todos os campos do agendamento.");
       return;
     }
 
     setAppointmentLoading(true);
 
     try {
-      const { data, error } = await supabase.from('appointments').insert([
+      const { data, error } = await supabase.from("appointments").insert([
         {
           patient_name: patient.name,
           patient_phone: patient.phone,
           start_time: appointmentDate,
           description: appointmentTitle,
           title: appointmentTitle,
-          status: 'scheduled',
+          status: "scheduled",
           patient_id: id,
         },
       ]);
 
       if (error) {
-        console.error('Erro ao criar agendamento:', error);
-        toast.error('Erro ao criar o agendamento.');
+        console.error("Erro ao criar agendamento:", error);
+        toast.error("Erro ao criar o agendamento.");
       } else {
-        toast.success('Agendamento criado com sucesso!');
-        setAppointmentTitle('');
-        setAppointmentDate('');
+        toast.success("Agendamento criado com sucesso!");
+        setAppointmentTitle("");
+        setAppointmentDate("");
       }
     } catch (error) {
-      console.error('Erro ao criar agendamento:', error);
-      toast.error('Erro ao criar agendamento.');
+      console.error("Erro ao criar agendamento:", error);
+      toast.error("Erro ao criar agendamento.");
     } finally {
       setAppointmentLoading(false);
     }
@@ -272,63 +303,63 @@ const PatientDetailScreen: React.FC = () => {
   const handleCancelEdit = () => {
     setIsEditing(false);
     setPhotoFile(null);
-    
+
     if (patient) {
       setEditName(patient.name);
-      setEditEmail(patient.email || '');
+      setEditEmail(patient.email || "");
       setEditPhone(patient.phone);
       setEditCpf(patient.cpf);
       setEditBirthDate(patient.birth_date);
-      setEditAddress(patient.address || '');
-      setPhotoPreview(patient.photo_url || '');
+      setEditAddress(patient.address || "");
+      setPhotoPreview(patient.photo_url || "");
     }
-    
-    if (photoPreview.startsWith('blob:')) {
+
+    if (photoPreview.startsWith("blob:")) {
       URL.revokeObjectURL(photoPreview);
-      setPhotoPreview(patient?.photo_url || '');
+      setPhotoPreview(patient?.photo_url || "");
     }
   };
 
   const hasUnsavedChanges = () => {
     if (!patient) return false;
-    
+
     return (
       editName !== patient.name ||
-      editEmail !== (patient.email || '') ||
+      editEmail !== (patient.email || "") ||
       editPhone !== patient.phone ||
       editCpf !== patient.cpf ||
       editBirthDate !== patient.birth_date ||
-      editAddress !== (patient.address || '') ||
+      editAddress !== (patient.address || "") ||
       photoFile !== null ||
-      (photoPreview.startsWith('blob:') && photoPreview !== patient.photo_url)
+      (photoPreview.startsWith("blob:") && photoPreview !== patient.photo_url)
     );
   };
 
   // Quick Actions Premium
   const quickActions = [
     {
-      title: 'Ficha Clínica',
+      title: "Ficha Anamnese",
       icon: FileText,
-      gradient: 'from-blue-500 to-cyan-500',
-      action: () => navigate(`/patients/${id}/anamnese`),
+      gradient: "from-blue-500 to-cyan-500",
+      action: () => navigate(`/patients/${id}/anamnese`), // ✅ Ficha Anamnese
     },
     {
-      title: 'Agendar',
+      title: "Agendar",
       icon: Calendar,
-      gradient: 'from-green-500 to-emerald-500',
+      gradient: "from-green-500 to-emerald-500",
       action: () => {},
     },
     {
-      title: 'Galeria',
+      title: "Galeria",
       icon: GalleryVertical,
-      gradient: 'from-purple-500 to-pink-500',
-      action: () => navigate('/gallery'),
+      gradient: "from-purple-500 to-pink-500",
+      action: () => navigate("/gallery"),
     },
     {
-      title: 'Prontuário',
+      title: "Prontuário",
       icon: Stethoscope,
-      gradient: 'from-orange-500 to-red-500',
-      action: () => navigate(`/patients/${id}/clinical-record`),
+      gradient: "from-orange-500 to-red-500",
+      action: () => navigate(`/patients/${id}/medical-record`), // ✅ Prontuário
     },
   ];
 
@@ -356,8 +387,8 @@ const PatientDetailScreen: React.FC = () => {
   }
 
   return (
-    <AppLayout 
-      title={isEditing ? "Editando Paciente" : "Detalhes do Paciente"} 
+    <AppLayout
+      title={isEditing ? "Editando Paciente" : "Detalhes do Paciente"}
       showBack={true}
     >
       <div className="p-6 space-y-6">
@@ -373,7 +404,8 @@ const PatientDetailScreen: React.FC = () => {
                     alt={editName}
                     className="w-full h-full object-cover"
                   />
-                ) : patient.photo_url && !patient.photo_url.startsWith('blob:') ? (
+                ) : patient.photo_url &&
+                  !patient.photo_url.startsWith("blob:") ? (
                   <img
                     src={patient.photo_url}
                     alt={patient.name}
@@ -383,7 +415,7 @@ const PatientDetailScreen: React.FC = () => {
                   <User className="text-white" size={32} />
                 )}
               </div>
-              
+
               {isEditing && (
                 <>
                   <input
@@ -445,7 +477,11 @@ const PatientDetailScreen: React.FC = () => {
                     disabled={editLoading || !hasUnsavedChanges()}
                     className="p-3 bg-green-500 hover:bg-green-600 rounded-xl transition-all duration-300 hover:scale-105 disabled:opacity-50 disabled:cursor-not-allowed"
                   >
-                    {editLoading ? <LoadingSpinner size="sm" /> : <Save size={20} />}
+                    {editLoading ? (
+                      <LoadingSpinner size="sm" />
+                    ) : (
+                      <Save size={20} />
+                    )}
                   </button>
                 </>
               ) : (
@@ -465,10 +501,11 @@ const PatientDetailScreen: React.FC = () => {
           {/* Coluna 1: Informações Pessoais */}
           <div className="bg-white rounded-2xl p-6 shadow-sm border border-gray-100">
             <h3 className="text-lg font-semibold text-gray-900 mb-4 flex items-center space-x-2">
-              <CreditCard size={20} className="text-purple-600" /> {/* ✅ Mudei para CreditCard */}
+              <CreditCard size={20} className="text-purple-600" />{" "}
+              {/* ✅ Mudei para CreditCard */}
               <span>Informações Pessoais</span>
             </h3>
-            
+
             <div className="space-y-4">
               <div className="flex items-center space-x-3 p-3 bg-gray-50 rounded-xl">
                 <Phone className="text-gray-400" size={18} />
@@ -496,7 +533,9 @@ const PatientDetailScreen: React.FC = () => {
                     placeholder="Email"
                   />
                 ) : (
-                  <span className="text-gray-700">{patient.email || 'Não informado'}</span>
+                  <span className="text-gray-700">
+                    {patient.email || "Não informado"}
+                  </span>
                 )}
               </div>
 
@@ -512,7 +551,9 @@ const PatientDetailScreen: React.FC = () => {
                     maxLength={14}
                   />
                 ) : (
-                  <span className="text-gray-700">CPF: {maskCPF(patient.cpf)}</span>
+                  <span className="text-gray-700">
+                    CPF: {maskCPF(patient.cpf)}
+                  </span>
                 )}
               </div>
 
@@ -526,7 +567,9 @@ const PatientDetailScreen: React.FC = () => {
                     className="flex-1 p-2 bg-transparent border-none focus:ring-0 text-gray-700"
                   />
                 ) : (
-                  <span className="text-gray-700">Nascimento: {formatDate(patient.birth_date)}</span>
+                  <span className="text-gray-700">
+                    Nascimento: {formatDate(patient.birth_date)}
+                  </span>
                 )}
               </div>
 
@@ -541,7 +584,9 @@ const PatientDetailScreen: React.FC = () => {
                     placeholder="Endereço"
                   />
                 ) : (
-                  <span className="text-gray-700">{patient.address || 'Endereço não informado'}</span>
+                  <span className="text-gray-700">
+                    {patient.address || "Endereço não informado"}
+                  </span>
                 )}
               </div>
             </div>
@@ -554,7 +599,7 @@ const PatientDetailScreen: React.FC = () => {
                 <Clock size={20} className="text-green-600" />
                 <span>Agendamento Rápido</span>
               </h3>
-              
+
               <form onSubmit={handleCreateAppointment} className="space-y-4">
                 <input
                   type="text"
@@ -596,7 +641,7 @@ const PatientDetailScreen: React.FC = () => {
           <h3 className="text-lg font-semibold text-gray-900 mb-6">
             Ações Rápidas
           </h3>
-          
+
           <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
             {quickActions.map((action, index) => {
               const Icon = action.icon;
@@ -606,7 +651,9 @@ const PatientDetailScreen: React.FC = () => {
                   onClick={action.action}
                   className="group p-6 bg-gradient-to-br from-gray-50 to-white rounded-2xl border border-gray-200 hover:shadow-xl transition-all duration-300 hover:scale-105 text-center"
                 >
-                  <div className={`w-16 h-16 bg-gradient-to-r ${action.gradient} rounded-2xl flex items-center justify-center mx-auto mb-4 group-hover:scale-110 transition-transform duration-300 shadow-lg`}>
+                  <div
+                    className={`w-16 h-16 bg-gradient-to-r ${action.gradient} rounded-2xl flex items-center justify-center mx-auto mb-4 group-hover:scale-110 transition-transform duration-300 shadow-lg`}
+                  >
                     <Icon size={28} className="text-white" />
                   </div>
                   <p className="font-semibold text-gray-900 group-hover:text-gray-700 transition-colors">

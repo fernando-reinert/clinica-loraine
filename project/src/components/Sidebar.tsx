@@ -42,8 +42,8 @@ const Sidebar: React.FC<SidebarProps> = ({ isOpen, onToggle }) => {
       isOpen ? 'w-64' : 'w-20'
     } transition-all duration-300`}>
       
-      {/* Header */}
-      <div className="p-4 border-b border-white/10">
+      {/* Header - ALTURA FIXA */}
+      <div className="p-4 border-b border-white/10 flex-shrink-0">
         <div className="flex items-center justify-between">
           {isOpen && (
             <div className="flex items-center space-x-3">
@@ -57,7 +57,6 @@ const Sidebar: React.FC<SidebarProps> = ({ isOpen, onToggle }) => {
             </div>
           )}
           
-          {/* Botão toggle - SEMPRE VISÍVEL */}
           <button
             onClick={onToggle}
             className="p-2 hover:bg-white/10 rounded-lg transition-colors"
@@ -68,42 +67,43 @@ const Sidebar: React.FC<SidebarProps> = ({ isOpen, onToggle }) => {
         </div>
       </div>
 
-      {/* Navegação */}
-      <nav className="flex-1 p-4 space-y-2 overflow-y-auto">
-        {navigation.map((item) => {
-          const Icon = item.icon;
-          const isActive = location.pathname.startsWith(item.href);
-          
-          return (
-            <Link
-              key={item.href}
-              to={item.href}
-              className={`
-                flex items-center gap-3 p-3 rounded-xl transition-all group
-                ${isActive 
-                  ? 'bg-white/10 text-white shadow-lg' 
-                  : 'text-gray-300 hover:bg-white/5 hover:text-white'
-                }
-                ${isOpen ? 'justify-start' : 'justify-center'}
-              `}
-              title={!isOpen ? item.label : ''}
-            >
-              <Icon size={20} />
-              {isOpen && <span className="font-medium">{item.label}</span>}
-              
-              {/* Tooltip quando fechada - funciona em mobile/tablet/desktop */}
-              {!isOpen && (
-                <div className="absolute left-full ml-2 px-2 py-1 bg-gray-900 text-white text-sm rounded opacity-0 group-hover:opacity-100 transition-opacity z-50 whitespace-nowrap pointer-events-none">
-                  {item.label}
-                </div>
-              )}
-            </Link>
-          );
-        })}
-      </nav>
+      {/* Navegação - PREENCHE O ESPAÇO DISPONÍVEL */}
+      <div className="flex-1 overflow-y-auto">
+        <nav className="p-4 space-y-2">
+          {navigation.map((item) => {
+            const Icon = item.icon;
+            const isActive = location.pathname.startsWith(item.href);
+            
+            return (
+              <Link
+                key={item.href}
+                to={item.href}
+                className={`
+                  flex items-center gap-3 p-3 rounded-xl transition-all group
+                  ${isActive 
+                    ? 'bg-white/10 text-white shadow-lg' 
+                    : 'text-gray-300 hover:bg-white/5 hover:text-white'
+                  }
+                  ${isOpen ? 'justify-start' : 'justify-center'}
+                `}
+                title={!isOpen ? item.label : ''}
+              >
+                <Icon size={20} />
+                {isOpen && <span className="font-medium">{item.label}</span>}
+                
+                {!isOpen && (
+                  <div className="absolute left-full ml-2 px-2 py-1 bg-gray-900 text-white text-sm rounded opacity-0 group-hover:opacity-100 transition-opacity z-50 whitespace-nowrap pointer-events-none">
+                    {item.label}
+                  </div>
+                )}
+              </Link>
+            );
+          })}
+        </nav>
+      </div>
 
-      {/* Footer */}
-      <div className="p-4 border-t border-white/10">
+      {/* Footer - ALTURA FIXA */}
+      <div className="p-4 border-t border-white/10 flex-shrink-0">
         {isOpen ? (
           <div className="flex items-center space-x-3 p-3 bg-white/5 rounded-xl">
             <div className="w-8 h-8 bg-gradient-to-r from-pink-400 to-rose-500 rounded-lg flex items-center justify-center">
@@ -117,7 +117,7 @@ const Sidebar: React.FC<SidebarProps> = ({ isOpen, onToggle }) => {
         ) : (
           <div className="flex justify-center">
             <div 
-              className="w-8 h-8 bg-gradient-to-r from-pink-400 to-rose-500 rounded-lg flex items-center justify-center"
+              className="w-8 h-8 bg-gradient-to-r from-pink-400 to-rose-500 rounded-lg flex items-center justify-center cursor-pointer"
               title="Dra. Loraine"
             >
               <span className="font-bold text-xs">L</span>
