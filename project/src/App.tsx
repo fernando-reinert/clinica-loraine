@@ -1,4 +1,4 @@
-// src/App.tsx - VERSÃO SIMPLIFICADA
+// src/App.tsx - DESIGN FUTURISTA COMPLETO
 import React from "react";
 import {
   BrowserRouter as Router,
@@ -6,7 +6,6 @@ import {
   Route,
   Navigate,
 } from "react-router-dom";
-
 import { Toaster } from "react-hot-toast";
 import { AuthProvider } from "./contexts/AuthContext";
 import { SupabaseProvider } from "./contexts/SupabaseContext";
@@ -17,18 +16,16 @@ import DashboardScreen from "./screens/DashboardScreen";
 import PatientsScreen from "./screens/PatientsScreen";
 import PatientDetailScreen from "./screens/PatientDetailScreen";
 import ClinicalRecordScreen from "./screens/ClinicalRecordScreen";
-import PublicClinicalRecordScreen from "./screens/PublicClinicalRecordScreen";
-import GalleryScreen from "./screens/GalleryScreen";
 import AppointmentsScreen from "./screens/AppointmentsScreen";
 import AppointmentCreateScreen from "./screens/AppointmentCreateScreen";
 import ProfileScreen from "./screens/ProfileScreen";
 import NewPatient from "./screens/NewPatient";
 import FinancialControl from "./screens/FinancialControl";
-import AnamneseScreen from "./screens/AnamneseScreen";
-import PatientFormScreen from "./screens/PatientFormScreen";
-import DatabaseCheckScreen from "./screens/DatabaseCheckScreen";
-import SignUpForm from "./screens/SignUpForm";
 import MedicalRecordScreen from "./screens/MedicalRecordScreen";
+import GalleryScreen from "./screens/GalleryScreen";
+import AnamneseScreen from "./screens/AnamneseScreen";
+
+import "./styles/futurist.css";
 
 function App() {
   return (
@@ -36,29 +33,14 @@ function App() {
       <AuthProvider>
         <OfflineProvider>
           <Router>
-            <div className="min-h-screen bg-gray-50">
+            {/* 🌌 Background Cosmic Fixo */}
+            <div className="cosmic-bg"></div>
+            
+            <div className="min-h-screen text-white relative">
               <Routes>
                 {/* ========== ROTAS PÚBLICAS ========== */}
                 <Route path="/login" element={<LoginScreen />} />
-                <Route path="/signup" element={<SignUpForm />} />
                 
-                <Route
-                  path="/patient-form/:shareToken"
-                  element={<PatientFormScreen />}
-                />
-
-                <Route
-                  path="/public/patients/:id/clinical-record"
-                  element={
-                    <PublicClinicalRecordScreen
-                      isPublicMode={true}
-                      patientId={""}
-                    />
-                  }
-                />
-
-                <Route path="/database-check" element={<DatabaseCheckScreen />} />
-
                 {/* ========== ROTAS PROTEGIDAS ========== */}
                 <Route path="/" element={<Navigate to="/dashboard" replace />} />
                 
@@ -153,23 +135,25 @@ function App() {
             <Toaster
               position="top-center"
               toastOptions={{
-                duration: 3000,
+                duration: 4000,
                 style: {
-                  background: "#fff",
-                  color: "#374151",
-                  borderRadius: "12px",
-                  boxShadow: "0 10px 25px -5px rgba(0, 0, 0, 0.1)",
+                  background: 'rgba(42, 43, 69, 0.95)',
+                  backdropFilter: 'blur(20px)',
+                  color: '#ffffff',
+                  borderRadius: '16px',
+                  border: '1px solid rgba(99, 102, 241, 0.3)',
+                  boxShadow: '0 8px 32px rgba(0, 0, 0, 0.3)',
                 },
                 success: {
                   iconTheme: {
-                    primary: "#10B981",
-                    secondary: "#FFFFFF",
+                    primary: '#00ff88',
+                    secondary: '#1a1b2f',
                   },
                 },
                 error: {
                   iconTheme: {
-                    primary: "#EF4444",
-                    secondary: "#FFFFFF",
+                    primary: '#ef4444',
+                    secondary: '#1a1b2f',
                   },
                 },
               }}

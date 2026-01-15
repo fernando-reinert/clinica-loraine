@@ -1,12 +1,12 @@
-// src/components/Header.tsx
+// src/components/Header.tsx - DESIGN FUTURISTA
 import React from 'react';
-import { ArrowLeft } from 'lucide-react';
+import { ArrowLeft, Menu } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
 
 interface HeaderProps {
   title: string;
   showBack?: boolean;
-  rightAction?: React.ReactNode; // ✅ Adicionar esta prop
+  rightAction?: React.ReactNode;
 }
 
 const Header: React.FC<HeaderProps> = ({ 
@@ -17,19 +17,19 @@ const Header: React.FC<HeaderProps> = ({
   const navigate = useNavigate();
 
   return (
-    <header className="bg-white shadow-sm border-b border-gray-200 px-6 py-4">
-      <div className="flex items-center justify-between">
+    <header className="glass-card border-b border-white/10 mx-6 mt-6 rounded-2xl">
+      <div className="flex items-center justify-between p-6">
         <div className="flex items-center space-x-4">
           {showBack && (
             <button
               onClick={() => navigate(-1)}
-              className="p-2 hover:bg-gray-100 rounded-lg transition-colors"
+              className="p-3 hover:bg-white/10 rounded-2xl transition-all duration-300 hover:scale-110"
             >
               <ArrowLeft size={20} />
             </button>
           )}
           
-          <h1 className="text-xl font-semibold text-gray-900">{title}</h1>
+          <h1 className="text-2xl font-bold glow-text">{title}</h1>
         </div>
 
         {/* ✅ Right Action Area */}

@@ -1,67 +1,63 @@
-import React, { useState, useEffect } from 'react';
+// src/screens/AnamneseScreen.tsx
+import React, { useState, useEffect, useMemo } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { supabase } from '../lib/supabase';
 import toast from 'react-hot-toast';
-import { 
-  Share2, 
-  CheckCircle, 
-  Clock, 
-  Edit3, 
+import {
+  Share2,
+  CheckCircle,
+  Clock,
+  Edit3,
   FileText,
   User,
   ArrowLeft,
   Send,
-  RefreshCw,
   Database,
   Cloud,
   ChevronRight,
-  ChevronLeft
+  ChevronLeft,
+  Sparkles,
 } from 'lucide-react';
 
 // Importações centralizadas
-import { questions, categories, calculateProgress } from '../data/anamneseQuestions';
+import { questions, categories } from '../data/anamneseQuestions';
 import { AnamneseFormData, Patient } from '../types';
+
+import AppLayout from '../components/Layout/AppLayout';
+import LoadingSpinner from '../components/LoadingSpinner';
 
 const AnamneseScreen: React.FC = () => {
   const params = useParams();
   const patientId = params.patientId;
   const navigate = useNavigate();
-  
+
   const [formData, setFormData] = useState<AnamneseFormData | null>(null);
   const [patient, setPatient] = useState<Patient | null>(null);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [showShareModal, setShowShareModal] = useState(false);
   const [activeCategory, setActiveCategory] = useState('geral');
-  const [syncing, setSyncing] = useState(false);
   const [usingLocalStorage, setUsingLocalStorage] = useState(true);
   const [tableChecked, setTableChecked] = useState(false);
   const [hasUnsavedChanges, setHasUnsavedChanges] = useState(false);
 
-  // 🔥 FUNÇÃO GERAR UUID SIMPLES
+  // 🔥 UUID simples
   const generateUUID = (): string => {
-    return 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, function(c) {
-      const r = Math.random() * 16 | 0;
-      const v = c == 'x' ? r : (r & 0x3 | 0x8);
+    return 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, function (c) {
+      const r = (Math.random() * 16) | 0;
+      const v = c === 'x' ? r : (r & 0x3) | 0x8;
       return v.toString(16);
     });
   };
 
-  // 🛠️ VERIFICAR SE TABELA EXISTE
+  // 🛠️ Verificar se tabela existe
   const checkTableExists = async (): Promise<boolean> => {
     try {
-      const { data, error } = await supabase
-        .from('patient_forms')
-        .select('id')
-        .limit(1);
-
+      const { error } = await supabase.from('patient_forms').select('id').limit(1);
       if (error) {
-        if (error.code === '42P01') {
-          return false;
-        }
+        if ((error as any).code === '42P01') return false;
         return false;
       }
-      
       return true;
     } catch (error) {
       console.error('Erro ao verificar tabela:', error);
@@ -69,7 +65,15 @@ const AnamneseScreen: React.FC = () => {
     }
   };
 
-  // 💾 CARREGAR/CRIAR FORMULÁRIO NO LOCALSTORAGE
+  // ✅ Define se dá pra usar Supabase
+  const ensureSupabaseReady = async (): Promise<boolean> => {
+    const exists = await checkTableExists();
+    setTableChecked(true);
+    setUsingLocalStorage(!exists);
+    return exists;
+  };
+
+  // 💾 Carregar/criar form no localStorage
   const loadOrCreateFormLocal = async (): Promise<void> => {
     if (!patientId) return;
 
@@ -89,18 +93,17 @@ const AnamneseScreen: React.FC = () => {
         answers: {},
         created_at: new Date().toISOString(),
         updated_at: new Date().toISOString(),
-        _local: true
+        _local: true,
       };
 
       setFormData(newForm);
-
     } catch (error) {
       console.error('Erro no localStorage:', error);
       throw error;
     }
   };
 
-  // 🔄 SINCRONIZAR COM SUPABASE
+  // 🔄 Buscar último formulário no Supabase
   const syncWithSupabase = async (): Promise<void> => {
     if (!patientId) return;
 
@@ -123,7 +126,7 @@ const AnamneseScreen: React.FC = () => {
     }
   };
 
-  // 🔄 CARREGAR DADOS
+  // 🔄 Carregar dados
   const loadData = async (): Promise<void> => {
     try {
       setLoading(true);
@@ -133,7 +136,7 @@ const AnamneseScreen: React.FC = () => {
         return;
       }
 
-      // 1. Carregar dados do paciente
+      // 1. Carregar paciente
       const { data: patientData, error: patientError } = await supabase
         .from('patients')
         .select('id, name, phone, email')
@@ -148,20 +151,16 @@ const AnamneseScreen: React.FC = () => {
 
       if (patientData) setPatient(patientData);
 
-      // 2. Carregar formulário
+      // 2. Carregar local primeiro (fallback rápido)
       await loadOrCreateFormLocal();
 
-      // 3. Verificar se tabela existe em background
+      // 3. Em background: se supabase existe, sincroniza e troca modo
       setTimeout(async () => {
-        const tableExists = await checkTableExists();
-        setUsingLocalStorage(!tableExists);
-        setTableChecked(true);
-        
-        if (tableExists) {
+        const ok = await ensureSupabaseReady();
+        if (ok) {
           await syncWithSupabase();
         }
-      }, 1000);
-
+      }, 500);
     } catch (error) {
       console.error('Erro ao carregar:', error);
       await loadOrCreateFormLocal();
@@ -172,72 +171,132 @@ const AnamneseScreen: React.FC = () => {
 
   useEffect(() => {
     loadData();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [patientId]);
 
-  // 💾 SALVAR FORMULÁRIO
-  const saveForm = async (newStatus?: 'draft' | 'sent' | 'completed' | 'signed'): Promise<AnamneseFormData | null> => {
+  // 💾 SALVAR (agora: tenta Supabase automaticamente ao clicar em Salvar)
+  const saveForm = async (
+    newStatus?: 'draft' | 'sent' | 'completed' | 'signed'
+  ): Promise<AnamneseFormData | null> => {
     if (!formData || !patientId) return null;
 
     setSaving(true);
     try {
       const status = newStatus || formData.status;
-      const updatedData = {
+      const updatedData: AnamneseFormData = {
         ...formData,
         status,
-        updated_at: new Date().toISOString()
+        updated_at: new Date().toISOString(),
       };
 
-      let savedForm: AnamneseFormData | null = null;
+      // 1) Se ainda não checou tabela, checa agora (tentativa real de nuvem)
+      const supabaseOk = tableChecked ? !usingLocalStorage : await ensureSupabaseReady();
 
-      if (!usingLocalStorage) {
+      // 2) Se Supabase ok e form é local -> MIGRA AUTOMATICAMENTE NO SALVAR
+      if (supabaseOk && (updatedData._local || usingLocalStorage)) {
         try {
-          if (formData.id && !formData._local) {
-            const { data, error } = await supabase
-              .from('patient_forms')
-              .update(updatedData)
-              .eq('id', formData.id)
-              .select()
-              .single();
+          const migrationData = {
+            patient_id: updatedData.patient_id,
+            title: updatedData.title,
+            status: updatedData.status,
+            share_token: (updatedData as any).share_token,
+            share_expires_at: (updatedData as any).share_expires_at,
+            answers: updatedData.answers,
+            created_at: updatedData.created_at || new Date().toISOString(),
+            updated_at: new Date().toISOString(),
+          };
 
-            if (error) throw error;
-            savedForm = data;
-          } else {
-            const { data, error } = await supabase
-              .from('patient_forms')
-              .insert([updatedData])
-              .select()
-              .single();
+          const { data, error } = await supabase
+            .from('patient_forms')
+            .insert([migrationData])
+            .select()
+            .single();
 
-            if (error) throw error;
-            savedForm = data;
-          }
-        } catch (error: any) {
+          if (error) throw error;
+
+          // Migrou e salvou na nuvem ✅
+          localStorage.removeItem(`anamnese_${patientId}`);
+          setUsingLocalStorage(false);
+          setFormData(data);
+          setHasUnsavedChanges(false);
+          toast.success('✅ Salvo na nuvem (Supabase)!');
+          return data;
+        } catch (err) {
+          // Falhou => cai pro local
+          console.warn('Falha ao salvar no Supabase, usando localStorage.', err);
           setUsingLocalStorage(true);
         }
       }
 
-      // Salvar no localStorage (fallback ou primário)
-      if (usingLocalStorage || !savedForm) {
-        const formId = formData.id || generateUUID();
-        const localForm = {
-          ...updatedData,
-          id: formId,
-          _local: true
-        };
+      // 3) Se está em modo Supabase (form já é do banco), atualiza/insere lá
+      if (!usingLocalStorage && supabaseOk) {
+        try {
+          // Se tem id e não é local => update
+          if (updatedData.id && !(updatedData as any)._local) {
+            const { data, error } = await supabase
+              .from('patient_forms')
+              .update({
+                ...updatedData,
+                _local: undefined, // garante que não manda _local pra tabela se existir no tipo
+              })
+              .eq('id', updatedData.id)
+              .select()
+              .single();
 
-        localStorage.setItem(`anamnese_${patientId}`, JSON.stringify(localForm));
-        savedForm = localForm;
+            if (error) throw error;
+
+            setFormData(data);
+            setHasUnsavedChanges(false);
+            toast.success('✅ Atualizado na nuvem!');
+            return data;
+          }
+
+          // Caso não tenha registro ainda (raro), tenta insert
+          const { data, error } = await supabase
+            .from('patient_forms')
+            .insert([
+              {
+                patient_id: updatedData.patient_id,
+                title: updatedData.title,
+                status: updatedData.status,
+                share_token: (updatedData as any).share_token,
+                share_expires_at: (updatedData as any).share_expires_at,
+                answers: updatedData.answers,
+                created_at: updatedData.created_at || new Date().toISOString(),
+                updated_at: new Date().toISOString(),
+              },
+            ])
+            .select()
+            .single();
+
+          if (error) throw error;
+
+          localStorage.removeItem(`anamnese_${patientId}`);
+          setUsingLocalStorage(false);
+          setFormData(data);
+          setHasUnsavedChanges(false);
+          toast.success('✅ Salvo na nuvem (Supabase)!');
+          return data;
+        } catch (err) {
+          console.warn('Erro ao salvar no Supabase, fallback localStorage.', err);
+          setUsingLocalStorage(true);
+        }
       }
 
-      if (savedForm) {
-        setFormData(savedForm);
-        setHasUnsavedChanges(false);
-        toast.success('✅ Formulário salvo com sucesso!');
-        return savedForm;
-      }
+      // 4) Fallback (localStorage)
+      const formId = updatedData.id || generateUUID();
+      const localForm: AnamneseFormData = {
+        ...updatedData,
+        id: formId,
+        _local: true,
+        updated_at: new Date().toISOString(),
+      };
 
-      throw new Error('Erro ao salvar formulário');
-
+      localStorage.setItem(`anamnese_${patientId}`, JSON.stringify(localForm));
+      setFormData(localForm);
+      setHasUnsavedChanges(false);
+      toast.success('✅ Salvo localmente!');
+      return localForm;
     } catch (error) {
       console.error('Erro ao salvar:', error);
       toast.error('❌ Erro ao salvar formulário');
@@ -247,30 +306,92 @@ const AnamneseScreen: React.FC = () => {
     }
   };
 
-  // 📤 COMPARTILHAR FORMULÁRIO
+  // 📋 Copiar clipboard
+  const copyToClipboard = async (text: string): Promise<void> => {
+    try {
+      if (navigator.clipboard && navigator.clipboard.writeText) {
+        await navigator.clipboard.writeText(text);
+        return;
+      }
+
+      const textArea = document.createElement('textarea');
+      textArea.value = text;
+      textArea.style.position = 'fixed';
+      textArea.style.left = '-999999px';
+      textArea.style.top = '-999999px';
+      document.body.appendChild(textArea);
+      textArea.focus();
+      textArea.select();
+
+      try {
+        document.execCommand('copy');
+      } catch (err) {
+        prompt('Copie o link abaixo:', text);
+      } finally {
+        document.body.removeChild(textArea);
+      }
+    } catch (error) {
+      prompt('Copie o link abaixo:', text);
+    }
+  };
+
+  // 🎯 Alterar resposta (sem salvar automaticamente)
+  const handleAnswerChange = (field: string, value: any): void => {
+    if (!formData) return;
+
+    const updatedFormData: AnamneseFormData = {
+      ...formData,
+      answers: {
+        ...formData.answers,
+        [field]: value,
+      },
+      updated_at: new Date().toISOString(),
+    };
+
+    setFormData(updatedFormData);
+    setHasUnsavedChanges(true);
+  };
+
+  // 📤 Compartilhar (garante que está no Supabase)
   const shareForm = async (): Promise<void> => {
     try {
       let formToShare = formData;
-      if (!formToShare?.id) {
+
+      // se tem alterações, salva antes
+      if (hasUnsavedChanges) {
+        formToShare = await saveForm();
+      } else if (!formToShare?.id) {
         formToShare = await saveForm();
       }
 
       if (!formToShare) throw new Error('Formulário não disponível');
 
+      // garantir supabase
+      const ok = await ensureSupabaseReady();
+      if (!ok) {
+        toast.error('❌ Supabase indisponível. Salve e tente novamente.');
+        return;
+      }
+
+      // Se ainda está local, o saveForm acima já migrou. Se não migrou, força salvar.
+      if ((formToShare as any)._local || usingLocalStorage) {
+        const migrated = await saveForm('draft');
+        if (!migrated || (migrated as any)._local) {
+          toast.error('❌ Não foi possível salvar na nuvem para compartilhar.');
+          return;
+        }
+        formToShare = migrated;
+      }
+
       const newShareToken = generateUUID();
       const shareExpiresAt = new Date();
       shareExpiresAt.setDate(shareExpiresAt.getDate() + 30);
 
-      if (usingLocalStorage) {
-        await migrateToSupabase();
-      }
-
       const updatedData = {
-        ...formToShare,
         share_token: newShareToken,
         share_expires_at: shareExpiresAt.toISOString(),
         status: 'sent' as const,
-        updated_at: new Date().toISOString()
+        updated_at: new Date().toISOString(),
       };
 
       const { data, error } = await supabase
@@ -287,118 +408,19 @@ const AnamneseScreen: React.FC = () => {
 
       const baseUrl = window.location.origin;
       const shareUrl = `${baseUrl}/patient-form/${newShareToken}`;
-      
+
       setShowShareModal(true);
       await copyToClipboard(shareUrl);
-      
       toast.success('📋 Link copiado! Envie para o paciente.');
-
     } catch (error) {
       console.error('Erro ao compartilhar:', error);
       toast.error('❌ Erro ao compartilhar formulário');
     }
   };
 
-  // 📋 COPIAR PARA CLIPBOARD
-  const copyToClipboard = async (text: string): Promise<void> => {
-    try {
-      if (navigator.clipboard && navigator.clipboard.writeText) {
-        await navigator.clipboard.writeText(text);
-        return;
-      }
-      
-      const textArea = document.createElement('textarea');
-      textArea.value = text;
-      textArea.style.position = 'fixed';
-      textArea.style.left = '-999999px';
-      textArea.style.top = '-999999px';
-      document.body.appendChild(textArea);
-      textArea.focus();
-      textArea.select();
-      
-      try {
-        document.execCommand('copy');
-      } catch (err) {
-        prompt('Copie o link abaixo:', text);
-      } finally {
-        document.body.removeChild(textArea);
-      }
-    } catch (error) {
-      prompt('Copie o link abaixo:', text);
-    }
-  };
-
-  // 🎯 FUNÇÃO CORRIGIDA PARA MUDAR RESPOSTA (SEM SALVAMENTO AUTOMÁTICO)
-  const handleAnswerChange = (field: string, value: any): void => {
-    if (!formData) return;
-
-    const updatedFormData = {
-      ...formData,
-      answers: {
-        ...formData.answers,
-        [field]: value
-      },
-      updated_at: new Date().toISOString()
-    };
-
-    setFormData(updatedFormData);
-    setHasUnsavedChanges(true);
-  };
-
-  // 🔄 MIGRAR PARA SUPABASE
-  const migrateToSupabase = async (): Promise<void> => {
-    if (!formData || !patientId) return;
-
-    try {
-      setSaving(true);
-      const loadingToast = toast.loading('Migrando para nuvem...');
-      
-      const tableExists = await checkTableExists();
-      if (!tableExists) {
-        toast.dismiss(loadingToast);
-        toast.error('❌ Tabela não existe no Supabase.');
-        return;
-      }
-
-      const migrationData = {
-        patient_id: formData.patient_id,
-        title: formData.title,
-        status: formData.status,
-        share_token: formData.share_token,
-        share_expires_at: formData.share_expires_at,
-        answers: formData.answers,
-        created_at: formData.created_at || new Date().toISOString(),
-        updated_at: new Date().toISOString()
-      };
-
-      const { data, error } = await supabase
-        .from('patient_forms')
-        .insert([migrationData])
-        .select()
-        .single();
-
-      if (error) throw error;
-
-      setFormData(data);
-      setUsingLocalStorage(false);
-      setHasUnsavedChanges(false);
-      
-      localStorage.removeItem(`anamnese_${patientId}`);
-      
-      toast.dismiss(loadingToast);
-      toast.success('✅ Migrado para Supabase com sucesso!');
-
-    } catch (error) {
-      console.error('Erro na migração:', error);
-      toast.error('❌ Erro ao migrar para Supabase');
-    } finally {
-      setSaving(false);
-    }
-  };
-
-  // 🎯 FUNÇÃO PARA NAVEGAR ENTRE CATEGORIAS
+  // 🎯 Navegar entre categorias
   const goToNextCategory = (): void => {
-    const currentIndex = categories.findIndex(cat => cat.id === activeCategory);
+    const currentIndex = categories.findIndex((cat) => cat.id === activeCategory);
     if (currentIndex < categories.length - 1) {
       const nextCategory = categories[currentIndex + 1];
       setActiveCategory(nextCategory.id);
@@ -407,7 +429,7 @@ const AnamneseScreen: React.FC = () => {
   };
 
   const goToPrevCategory = (): void => {
-    const currentIndex = categories.findIndex(cat => cat.id === activeCategory);
+    const currentIndex = categories.findIndex((cat) => cat.id === activeCategory);
     if (currentIndex > 0) {
       const prevCategory = categories[currentIndex - 1];
       setActiveCategory(prevCategory.id);
@@ -415,269 +437,266 @@ const AnamneseScreen: React.FC = () => {
     }
   };
 
-  // 🎯 FUNÇÃO PARA FILTRAR PERGUNTAS VISÍVEIS (OCULTAR PERGUNTAS QUANDO RESPOSTA É "NÃO")
-  const getVisibleQuestions = () => {
-    return questions.filter(question => {
-      // Sempre mostrar se não tem condição
-      if (!question.showIf) return true;
-      
-      // Verificar se a pergunta condicional foi respondida como "true"
-      const shouldShow = formData?.answers[question.showIf] === true;
-      return shouldShow;
-    }).filter(q => q.category === activeCategory);
-  };
+  // 🎯 Perguntas visíveis (condicionais)
+  const visibleQuestions = useMemo(() => {
+    return questions
+      .filter((question) => {
+        if (!question.showIf) return true;
+        return formData?.answers[question.showIf] === true;
+      })
+      .filter((q) => q.category === activeCategory);
+  }, [activeCategory, formData]);
 
-  // 🎯 CALCULAR PROGRESSO REAL (APENAS PERGUNTAS VISÍVEIS)
-  const calculateRealProgress = (): number => {
+  // 🎯 Progresso real (todas visíveis)
+  const progress = useMemo((): number => {
     if (!formData) return 0;
 
-    const allVisibleQuestions = questions.filter(question => {
+    const allVisibleQuestions = questions.filter((question) => {
       if (!question.showIf) return true;
       return formData.answers[question.showIf] === true;
     });
 
-    const answeredQuestions = allVisibleQuestions.filter(question => {
+    const answeredQuestions = allVisibleQuestions.filter((question) => {
       const answer = formData.answers[question.field];
       return answer !== undefined && answer !== '' && answer !== null;
     });
 
-    return allVisibleQuestions.length > 0 
+    return allVisibleQuestions.length > 0
       ? Math.round((answeredQuestions.length / allVisibleQuestions.length) * 100)
       : 0;
-  };
+  }, [formData]);
 
-  const visibleQuestions = getVisibleQuestions();
-  const progress = calculateRealProgress();
-
-  // 🎯 VERIFICAR SE CATEGORIA ATUAL ESTÁ COMPLETA
   const isCurrentCategoryComplete = (): boolean => {
-    const currentQuestions = getVisibleQuestions();
-    const answeredQuestions = currentQuestions.filter(q => 
-      formData?.answers[q.field] !== undefined && 
-      formData?.answers[q.field] !== '' && 
-      formData?.answers[q.field] !== null
+    const currentQuestions = visibleQuestions;
+    const answeredQuestions = currentQuestions.filter(
+      (q) =>
+        formData?.answers[q.field] !== undefined &&
+        formData?.answers[q.field] !== '' &&
+        formData?.answers[q.field] !== null
     );
     return answeredQuestions.length === currentQuestions.length;
   };
 
   if (loading) {
     return (
-      <div className="min-h-screen bg-gray-50 flex items-center justify-center p-4">
-        <div className="text-center">
-          <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-600 mx-auto"></div>
-          <p className="mt-4 text-gray-600">Carregando formulário...</p>
+      <AppLayout title="Anamnese">
+        <div className="flex items-center justify-center h-96">
+          <div className="text-center">
+            <div className="relative">
+              <LoadingSpinner size="lg" className="text-blue-500" />
+              <Sparkles className="absolute -top-2 -right-2 text-purple-500 animate-pulse" size={20} />
+            </div>
+            <p className="mt-4 text-gray-300">Carregando formulário...</p>
+          </div>
         </div>
-      </div>
+      </AppLayout>
     );
   }
 
   return (
-    <div className="min-h-screen bg-gray-50">
-      {/* Header */}
-      <div className="bg-white shadow-sm border-b">
-        <div className="max-w-6xl mx-auto px-4 py-4">
-          <div className="flex flex-col lg:flex-row lg:items-center lg:justify-between space-y-4 lg:space-y-0">
-            <div className="flex items-center space-x-3">
-              <button
-                onClick={() => navigate(-1)}
-                className="p-2 hover:bg-gray-100 rounded-lg transition-colors"
-              >
-                <ArrowLeft size={20} />
-              </button>
-              
-              <div className="flex-1 min-w-0">
-                <h1 className="text-lg lg:text-xl font-semibold text-gray-900 truncate">
-                  {formData?.title || 'Formulário de Anamnese'}
-                </h1>
-                <div className="flex flex-wrap items-center gap-2 mt-1">
-                  <div className={`inline-flex items-center px-2 py-1 rounded-full text-xs font-medium ${
-                    formData?.status === 'draft' ? 'bg-yellow-100 text-yellow-800' :
-                    formData?.status === 'sent' ? 'bg-blue-100 text-blue-800' :
-                    formData?.status === 'completed' ? 'bg-green-100 text-green-800' :
-                    'bg-purple-100 text-purple-800'
-                  }`}>
-                    {formData?.status === 'draft' && <Clock size={12} className="mr-1" />}
-                    {formData?.status === 'sent' && <Send size={12} className="mr-1" />}
-                    {formData?.status === 'completed' && <CheckCircle size={12} className="mr-1" />}
-                    {formData?.status === 'signed' && <FileText size={12} className="mr-1" />}
-                    {formData?.status === 'draft' ? 'Rascunho' :
-                     formData?.status === 'sent' ? 'Enviado' :
-                     formData?.status === 'completed' ? 'Concluído' : 'Assinado'}
-                  </div>
-                  
-                  {patient && (
-                    <div className="flex items-center text-sm text-gray-600">
-                      <User size={14} className="mr-1" />
-                      <span className="truncate">{patient.name}</span>
-                    </div>
-                  )}
+    <AppLayout title="Anamnese">
+      <div className="space-y-6">
+        {/* Header futurista */}
+        <div className="glass-card p-6 relative overflow-hidden">
+          <div className="absolute inset-0 bg-gradient-to-br from-blue-500/10 via-purple-500/10 to-cyan-500/10" />
+          <div className="relative z-10">
+            <div className="flex flex-col lg:flex-row lg:items-center lg:justify-between gap-4">
+              <div className="flex items-start gap-3">
+                <button
+                  onClick={() => navigate(-1)}
+                  className="p-3 bg-white/5 hover:bg-white/10 rounded-2xl backdrop-blur-sm transition-all duration-300 border border-white/10"
+                >
+                  <ArrowLeft size={18} className="text-white" />
+                </button>
 
-                  <div className={`inline-flex items-center px-2 py-1 rounded-full text-xs font-medium ${
-                    usingLocalStorage ? 'bg-orange-100 text-orange-800' : 'bg-green-100 text-green-800'
-                  }`}>
-                    <Database size={12} className="mr-1" />
-                    {usingLocalStorage ? 'Local' : 'Supabase'}
-                  </div>
+                <div className="min-w-0">
+                  <h1 className="text-xl lg:text-2xl font-bold glow-text truncate">
+                    {formData?.title || 'Formulário de Anamnese'}
+                  </h1>
 
-                  {hasUnsavedChanges && (
-                    <div className="inline-flex items-center px-2 py-1 rounded-full text-xs font-medium bg-yellow-100 text-yellow-800">
-                      <Edit3 size={12} className="mr-1" />
-                      Alterações não salvas
+                  <div className="flex flex-wrap items-center gap-2 mt-2">
+                    {/* Status */}
+                    <div
+                      className={`inline-flex items-center px-3 py-1 rounded-full text-xs font-medium border ${
+                        formData?.status === 'draft'
+                          ? 'bg-yellow-500/10 text-yellow-200 border-yellow-400/30'
+                          : formData?.status === 'sent'
+                          ? 'bg-blue-500/10 text-blue-200 border-blue-400/30'
+                          : formData?.status === 'completed'
+                          ? 'bg-green-500/10 text-green-200 border-green-400/30'
+                          : 'bg-purple-500/10 text-purple-200 border-purple-400/30'
+                      }`}
+                    >
+                      {formData?.status === 'draft' && <Clock size={12} className="mr-1" />}
+                      {formData?.status === 'sent' && <Send size={12} className="mr-1" />}
+                      {formData?.status === 'completed' && <CheckCircle size={12} className="mr-1" />}
+                      {formData?.status === 'signed' && <FileText size={12} className="mr-1" />}
+                      {formData?.status === 'draft'
+                        ? 'Rascunho'
+                        : formData?.status === 'sent'
+                        ? 'Enviado'
+                        : formData?.status === 'completed'
+                        ? 'Concluído'
+                        : 'Assinado'}
                     </div>
-                  )}
+
+                    {/* Paciente */}
+                    {patient && (
+                      <div className="inline-flex items-center px-3 py-1 rounded-full text-xs font-medium bg-white/5 text-gray-200 border border-white/10">
+                        <User size={12} className="mr-1" />
+                        <span className="truncate max-w-[220px]">{patient.name}</span>
+                      </div>
+                    )}
+
+                    {/* Storage mode */}
+                    <div
+                      className={`inline-flex items-center px-3 py-1 rounded-full text-xs font-medium border ${
+                        usingLocalStorage
+                          ? 'bg-orange-500/10 text-orange-200 border-orange-400/30'
+                          : 'bg-green-500/10 text-green-200 border-green-400/30'
+                      }`}
+                    >
+                      <Database size={12} className="mr-1" />
+                      {usingLocalStorage ? 'Local (fallback)' : 'Supabase (nuvem)'}
+                    </div>
+
+                    {/* Unsaved */}
+                    {hasUnsavedChanges && (
+                      <div className="inline-flex items-center px-3 py-1 rounded-full text-xs font-medium bg-yellow-500/10 text-yellow-200 border border-yellow-400/30">
+                        <Edit3 size={12} className="mr-1" />
+                        Alterações não salvas
+                      </div>
+                    )}
+                  </div>
                 </div>
+              </div>
+
+              {/* Actions */}
+              <div className="flex flex-wrap gap-3">
+                <button
+                  onClick={() => saveForm()}
+                  disabled={saving}
+                  className="neon-button"
+                >
+                  <Edit3 size={20} className="mr-3" />
+                  {saving ? 'Salvando...' : 'Salvar'}
+                </button>
+
+                <button
+                  onClick={shareForm}
+                  disabled={saving || hasUnsavedChanges}
+                  className="neon-button"
+                >
+                  <Share2 size={20} className="mr-3" />
+                  Enviar
+                </button>
               </div>
             </div>
 
-            <div className="flex flex-wrap gap-2">
-              {usingLocalStorage && (
-                <button
-                  onClick={migrateToSupabase}
-                  disabled={saving}
-                  className="px-3 py-2 bg-purple-600 text-white rounded-lg hover:bg-purple-700 disabled:opacity-50 flex items-center space-x-2 text-sm"
-                >
-                  <Cloud size={14} />
-                  <span>{saving ? 'Migrando...' : 'Migrar'}</span>
-                </button>
-              )}
-
-              <button
-                onClick={() => saveForm()}
-                disabled={saving}
-                className="px-3 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:opacity-50 flex items-center space-x-2 text-sm"
-              >
-                <Edit3 size={14} />
-                <span>{saving ? 'Salvando...' : 'Salvar'}</span>
-              </button>
-              
-              <button
-                onClick={shareForm}
-                disabled={saving || hasUnsavedChanges}
-                className="px-3 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 disabled:opacity-50 flex items-center space-x-2 text-sm"
-              >
-                <Share2 size={14} />
-                <span>Enviar</span>
-              </button>
-            </div>
-          </div>
-
-          {/* Barra de Progresso */}
-          <div className="mt-4">
-            <div className="flex justify-between items-center mb-2">
-              <span className="text-sm font-medium text-gray-700">
-                {progress}% completo
-              </span>
-              <span className="text-sm text-gray-500">
-                {visibleQuestions.filter(q => formData?.answers[q.field]).length}/{visibleQuestions.length} perguntas
-              </span>
-            </div>
-            <div className="w-full bg-gray-200 rounded-full h-2">
-              <div
-                className="bg-blue-600 h-2 rounded-full transition-all duration-300"
-                style={{ width: `${progress}%` }}
-              ></div>
+            {/* Progress */}
+            <div className="mt-6">
+              <div className="flex justify-between items-center mb-2">
+                <span className="text-sm font-medium text-gray-200">{progress}% completo</span>
+                <span className="text-sm text-gray-400">
+                  {visibleQuestions.filter((q) => formData?.answers[q.field]).length}/{visibleQuestions.length} perguntas
+                </span>
+              </div>
+              <div className="w-full bg-white/10 rounded-full h-2">
+                <div
+                  className="bg-gradient-to-r from-purple-500 to-cyan-500 h-2 rounded-full transition-all duration-300"
+                  style={{ width: `${progress}%` }}
+                />
+              </div>
             </div>
           </div>
         </div>
-      </div>
 
-      {/* Conteúdo */}
-      <div className="max-w-6xl mx-auto px-4 py-6">
-        {/* Aviso de LocalStorage */}
+        {/* Avisos (agora em glass) */}
         {usingLocalStorage && (
-          <div className="bg-orange-50 border border-orange-200 rounded-lg p-4 mb-6">
+          <div className="glass-card p-4 border border-orange-400/30 bg-orange-500/10">
             <div className="flex items-start">
-              <Database className="text-orange-500 mr-2 mt-0.5 flex-shrink-0" size={18} />
+              <Database className="text-orange-300 mr-2 mt-0.5 flex-shrink-0" size={18} />
               <div className="min-w-0">
-                <p className="text-orange-800 font-medium text-sm">
-                  Modo Local Ativo
-                </p>
-                <p className="text-orange-600 text-xs mt-1">
-                  Os dados estão sendo salvos localmente. Clique em "Migrar" para usar o Supabase.
+                <p className="text-orange-100 font-semibold text-sm">Modo Local (fallback) ativo</p>
+                <p className="text-orange-200/80 text-xs mt-1">
+                  Ao clicar em <strong>Salvar</strong>, o sistema tenta salvar no Supabase automaticamente.
+                  Se falhar, salva localmente.
                 </p>
               </div>
             </div>
           </div>
         )}
 
-        {/* Aviso de Alterações Não Salvas */}
         {hasUnsavedChanges && (
-          <div className="bg-yellow-50 border border-yellow-200 rounded-lg p-4 mb-6">
+          <div className="glass-card p-4 border border-yellow-400/30 bg-yellow-500/10">
             <div className="flex items-start">
-              <Edit3 className="text-yellow-500 mr-2 mt-0.5 flex-shrink-0" size={18} />
+              <Edit3 className="text-yellow-300 mr-2 mt-0.5 flex-shrink-0" size={18} />
               <div className="min-w-0">
-                <p className="text-yellow-800 font-medium text-sm">
-                  Alterações não salvas
-                </p>
-                <p className="text-yellow-600 text-xs mt-1">
-                  Clique em "Salvar" para guardar suas alterações.
-                </p>
+                <p className="text-yellow-100 font-semibold text-sm">Alterações não salvas</p>
+                <p className="text-yellow-200/80 text-xs mt-1">Clique em “Salvar” para guardar suas alterações.</p>
               </div>
             </div>
           </div>
         )}
 
-        {/* Navegação por Categorias - Mobile Responsivo */}
-        <div className="bg-white rounded-lg shadow-sm border mb-6">
-          <div className="flex items-center justify-between p-4 border-b">
+        {/* Navegação categorias */}
+        <div className="glass-card border border-white/10">
+          <div className="flex items-center justify-between p-4 border-b border-white/10">
             <button
               onClick={goToPrevCategory}
               disabled={activeCategory === categories[0].id}
-              className="flex items-center space-x-2 px-3 py-2 text-sm disabled:opacity-30 disabled:cursor-not-allowed text-gray-600 hover:text-gray-800"
+              className="flex items-center space-x-2 px-3 py-2 text-sm disabled:opacity-30 disabled:cursor-not-allowed text-gray-300 hover:text-white"
             >
               <ChevronLeft size={16} />
               <span className="hidden sm:inline">Anterior</span>
             </button>
 
             <div className="flex-1 text-center">
-              <h2 className="text-lg font-semibold text-gray-900">
-                {categories.find(cat => cat.id === activeCategory)?.name}
+              <h2 className="text-lg font-semibold text-white">
+                {categories.find((cat) => cat.id === activeCategory)?.name}
               </h2>
-              <p className="text-sm text-gray-500 mt-1">
-                Categoria {categories.findIndex(cat => cat.id === activeCategory) + 1} de {categories.length}
+              <p className="text-sm text-gray-400 mt-1">
+                Categoria {categories.findIndex((cat) => cat.id === activeCategory) + 1} de {categories.length}
               </p>
             </div>
 
             <button
               onClick={goToNextCategory}
               disabled={activeCategory === categories[categories.length - 1].id}
-              className="flex items-center space-x-2 px-3 py-2 text-sm disabled:opacity-30 disabled:cursor-not-allowed text-gray-600 hover:text-gray-800"
+              className="flex items-center space-x-2 px-3 py-2 text-sm disabled:opacity-30 disabled:cursor-not-allowed text-gray-300 hover:text-white"
             >
               <span className="hidden sm:inline">Próxima</span>
               <ChevronRight size={16} />
             </button>
           </div>
 
-          {/* Indicadores de Categorias */}
           <div className="flex overflow-x-auto p-3 space-x-2">
             {categories.map((category, index) => (
               <button
                 key={category.id}
                 onClick={() => setActiveCategory(category.id)}
-                className={`flex-shrink-0 px-3 py-2 rounded-lg flex items-center space-x-2 transition-colors ${
+                className={`flex-shrink-0 px-3 py-2 rounded-xl flex items-center space-x-2 transition-all border ${
                   activeCategory === category.id
-                    ? "bg-blue-600 text-white shadow-md"
-                    : "bg-gray-100 text-gray-700 hover:bg-gray-200"
+                    ? 'bg-blue-500/20 text-white border-blue-400/30'
+                    : 'bg-white/5 text-gray-300 hover:bg-white/10 border-white/10'
                 }`}
               >
                 <span className="text-sm">{category.icon}</span>
-                <span className="whitespace-nowrap text-sm hidden sm:block">
-                  {category.name}
-                </span>
-                <span className="text-xs">({index + 1})</span>
+                <span className="whitespace-nowrap text-sm hidden sm:block">{category.name}</span>
+                <span className="text-xs opacity-80">({index + 1})</span>
               </button>
             ))}
           </div>
         </div>
 
-        {/* Formulário de Perguntas */}
+        {/* Perguntas */}
         <div className="space-y-4">
           {visibleQuestions.map((question) => {
             const currentValue = formData?.answers[question.field];
 
             return (
-              <div key={question.id} className="bg-white rounded-lg shadow-sm border p-4 sm:p-6">
-                <label className="block text-base sm:text-lg font-semibold text-gray-800 mb-4">
+              <div key={question.id} className="glass-card p-6 hover-lift border border-white/10">
+                <label className="block text-base sm:text-lg font-semibold text-white mb-4">
                   {question.question}
                 </label>
 
@@ -686,10 +705,10 @@ const AnamneseScreen: React.FC = () => {
                     <button
                       type="button"
                       onClick={() => handleAnswerChange(question.field, true)}
-                      className={`flex-1 py-3 px-4 rounded-lg border-2 text-base font-medium transition-all ${
+                      className={`flex-1 py-3 px-4 rounded-xl border text-base font-medium transition-all ${
                         currentValue === true
-                          ? "bg-green-500 text-white border-green-500 shadow-md"
-                          : "bg-white text-gray-700 border-gray-300 hover:border-green-400 hover:bg-green-50"
+                          ? 'bg-green-500/20 text-green-100 border-green-400/40 shadow-md'
+                          : 'bg-white/5 text-gray-200 border-white/10 hover:border-green-400/40 hover:bg-green-500/10'
                       }`}
                     >
                       Sim
@@ -697,10 +716,10 @@ const AnamneseScreen: React.FC = () => {
                     <button
                       type="button"
                       onClick={() => handleAnswerChange(question.field, false)}
-                      className={`flex-1 py-3 px-4 rounded-lg border-2 text-base font-medium transition-all ${
+                      className={`flex-1 py-3 px-4 rounded-xl border text-base font-medium transition-all ${
                         currentValue === false
-                          ? "bg-red-500 text-white border-red-500 shadow-md"
-                          : "bg-white text-gray-700 border-gray-300 hover:border-red-400 hover:bg-red-50"
+                          ? 'bg-red-500/20 text-red-100 border-red-400/40 shadow-md'
+                          : 'bg-white/5 text-gray-200 border-white/10 hover:border-red-400/40 hover:bg-red-500/10'
                       }`}
                     >
                       Não
@@ -712,7 +731,7 @@ const AnamneseScreen: React.FC = () => {
                   <textarea
                     value={currentValue || ''}
                     onChange={(e) => handleAnswerChange(question.field, e.target.value)}
-                    className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 resize-vertical min-h-[100px] text-sm sm:text-base"
+                    className="w-full px-4 py-3 border border-white/10 rounded-xl bg-white/5 text-white placeholder:text-gray-400 focus:ring-2 focus:ring-cyan-500 focus:border-cyan-500 resize-vertical min-h-[110px] text-sm sm:text-base outline-none"
                     placeholder="Digite sua resposta aqui..."
                   />
                 )}
@@ -721,11 +740,13 @@ const AnamneseScreen: React.FC = () => {
                   <select
                     value={currentValue || ''}
                     onChange={(e) => handleAnswerChange(question.field, e.target.value)}
-                    className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 text-sm sm:text-base"
+                    className="w-full px-4 py-3 border border-white/10 rounded-xl bg-white/5 text-white focus:ring-2 focus:ring-cyan-500 focus:border-cyan-500 text-sm sm:text-base outline-none"
                   >
-                    <option value="">Selecione uma opção</option>
+                    <option value="" className="text-black">
+                      Selecione uma opção
+                    </option>
                     {question.options.map((option, index) => (
-                      <option key={index} value={option}>
+                      <option key={index} value={option} className="text-black">
                         {option}
                       </option>
                     ))}
@@ -736,19 +757,19 @@ const AnamneseScreen: React.FC = () => {
           })}
         </div>
 
-        {/* Botões de Navegação Inferiores */}
+        {/* Navegação inferior */}
         <div className="flex justify-between items-center mt-8 pb-8">
           <button
             onClick={goToPrevCategory}
             disabled={activeCategory === categories[0].id}
-            className="flex items-center space-x-2 px-4 py-3 bg-gray-600 text-white rounded-lg hover:bg-gray-700 disabled:opacity-30 disabled:cursor-not-allowed transition-colors"
+            className="px-4 py-3 rounded-xl border border-white/10 bg-white/5 hover:bg-white/10 text-white disabled:opacity-30 disabled:cursor-not-allowed transition-all flex items-center space-x-2"
           >
             <ChevronLeft size={18} />
             <span>Voltar</span>
           </button>
 
           <div className="text-center">
-            <p className="text-sm text-gray-600">
+            <p className="text-sm text-gray-300">
               {isCurrentCategoryComplete() ? '✅ Categoria completa!' : '⏳ Complete esta categoria'}
             </p>
           </div>
@@ -756,54 +777,54 @@ const AnamneseScreen: React.FC = () => {
           <button
             onClick={goToNextCategory}
             disabled={activeCategory === categories[categories.length - 1].id}
-            className="flex items-center space-x-2 px-4 py-3 bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:opacity-30 disabled:cursor-not-allowed transition-colors"
+            className="neon-button"
           >
-            <span>Próxima</span>
+            <span className="mr-3">Próxima</span>
             <ChevronRight size={18} />
           </button>
         </div>
-      </div>
 
-      {/* Modal de Compartilhamento */}
-      {showShareModal && formData?.share_token && (
-        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center p-4 z-50">
-          <div className="bg-white rounded-lg p-6 max-w-md w-full mx-auto">
-            <h3 className="text-lg font-semibold mb-4">📤 Enviar para Paciente</h3>
-            
-            <div className="space-y-4">
-              <p className="text-gray-600 text-sm">
-                Copie o link abaixo e envie para o paciente:
-              </p>
-              
-              <div className="bg-gray-100 p-3 rounded-lg break-all text-xs font-mono">
-                {`${window.location.origin}/patient-form/${formData.share_token}`}
-              </div>
+        {/* Modal Compartilhamento */}
+        {showShareModal && (formData as any)?.share_token && (
+          <div className="fixed inset-0 bg-black/70 flex items-center justify-center p-4 z-50">
+            <div className="glass-card p-6 max-w-md w-full mx-auto border border-white/10">
+              <h3 className="text-lg font-semibold mb-4 text-white">📤 Enviar para Paciente</h3>
 
-              <div className="bg-yellow-50 border border-yellow-200 rounded-lg p-3">
-                <p className="text-yellow-800 text-xs">
-                  <strong>💡 Dica:</strong> Envie por WhatsApp com uma mensagem amigável!
-                </p>
-              </div>
+              <div className="space-y-4">
+                <p className="text-gray-300 text-sm">Copie o link abaixo e envie para o paciente:</p>
 
-              <div className="flex flex-col sm:flex-row space-y-2 sm:space-y-0 sm:space-x-3">
-                <button
-                  onClick={() => setShowShareModal(false)}
-                  className="flex-1 px-4 py-2 border border-gray-300 rounded-lg hover:bg-gray-50 transition-colors text-sm"
-                >
-                  Fechar
-                </button>
-                <button
-                  onClick={() => copyToClipboard(`${window.location.origin}/patient-form/${formData.share_token}`)}
-                  className="flex-1 px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors text-sm"
-                >
-                  Copiar Link
-                </button>
+                <div className="bg-white/10 p-3 rounded-lg break-all text-xs font-mono text-gray-100 border border-white/10">
+                  {`${window.location.origin}/patient-form/${(formData as any).share_token}`}
+                </div>
+
+                <div className="bg-yellow-500/10 border border-yellow-400/30 rounded-lg p-3">
+                  <p className="text-yellow-100 text-xs">
+                    <strong>💡 Dica:</strong> Envie por WhatsApp com uma mensagem amigável!
+                  </p>
+                </div>
+
+                <div className="flex flex-col sm:flex-row space-y-2 sm:space-y-0 sm:space-x-3">
+                  <button
+                    onClick={() => setShowShareModal(false)}
+                    className="flex-1 px-4 py-2 border border-white/10 rounded-xl bg-white/5 hover:bg-white/10 transition-all text-sm text-white"
+                  >
+                    Fechar
+                  </button>
+                  <button
+                    onClick={() =>
+                      copyToClipboard(`${window.location.origin}/patient-form/${(formData as any).share_token}`)
+                    }
+                    className="flex-1 neon-button"
+                  >
+                    Copiar Link
+                  </button>
+                </div>
               </div>
             </div>
           </div>
-        </div>
-      )}
-    </div>
+        )}
+      </div>
+    </AppLayout>
   );
 };
 
