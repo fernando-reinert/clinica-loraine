@@ -1,0 +1,216 @@
+/* src/styles/futurist.css - DESIGN SYSTEM FUTURISTA */
+:root {
+  /* 🌌 Cores Nebula - Paleta Futurista */
+  --cosmic-primary: #6366f1;
+  --cosmic-secondary: #8b5cf6;
+  --cosmic-accent: #06b6d4;
+  --cosmic-neon: #00ff88;
+  --cosmic-deep: #0f0f23;
+  --cosmic-mid: #1a1b2f;
+  --cosmic-light: #2a2b45;
+  --cosmic-glow: rgba(99, 102, 241, 0.15);
+  
+  /* ✨ Efeitos Visuais */
+  --glow-intensity: 0.6;
+  --blur-intensity: 12px;
+}
+
+/* 🎯 Reset Futurista */
+* {
+  box-sizing: border-box;
+  margin: 0;
+  padding: 0;
+}
+
+body {
+  background: linear-gradient(135deg, var(--cosmic-deep) 0%, var(--cosmic-mid) 50%, var(--cosmic-deep) 100%);
+  color: #ffffff;
+  font-family: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
+  overflow-x: hidden;
+}
+
+/* 🌠 Efeitos de Partículas Animadas */
+.cosmic-bg {
+  position: fixed;
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: 100%;
+  background: 
+    radial-gradient(circle at 20% 80%, rgba(99, 102, 241, 0.1) 0%, transparent 50%),
+    radial-gradient(circle at 80% 20%, rgba(139, 92, 246, 0.1) 0%, transparent 50%),
+    radial-gradient(circle at 40% 40%, rgba(6, 182, 212, 0.05) 0%, transparent 50%);
+  animation: cosmicFloat 20s ease-in-out infinite;
+  z-index: -1;
+}
+
+@keyframes cosmicFloat {
+  0%, 100% { transform: translate(0, 0) scale(1); }
+  50% { transform: translate(-10px, -10px) scale(1.02); }
+}
+
+/* 🚀 Componentes Core Futuristas */
+.glass-card {
+  background: rgba(42, 43, 69, 0.7);
+  backdrop-filter: blur(var(--blur-intensity));
+  border: 1px solid rgba(99, 102, 241, 0.2);
+  border-radius: 24px;
+  box-shadow: 
+    0 8px 32px rgba(0, 0, 0, 0.3),
+    0 0 0 1px rgba(99, 102, 241, 0.1),
+    inset 0 1px 0 rgba(255, 255, 255, 0.1);
+  transition: all 0.4s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+.glass-card:hover {
+  border-color: rgba(99, 102, 241, 0.4);
+  box-shadow: 
+    0 20px 40px rgba(0, 0, 0, 0.4),
+    0 0 30px var(--cosmic-glow),
+    inset 0 1px 0 rgba(255, 255, 255, 0.2);
+  transform: translateY(-4px);
+}
+
+.neon-button {
+  background: linear-gradient(135deg, var(--cosmic-primary), var(--cosmic-secondary));
+  border: none;
+  border-radius: 16px;
+  color: white;
+  font-weight: 600;
+  padding: 14px 28px;
+  position: relative;
+  overflow: hidden;
+  transition: all 0.3s ease;
+  box-shadow: 
+    0 4px 20px rgba(99, 102, 241, 0.3),
+    0 0 0 1px rgba(255, 255, 255, 0.1);
+}
+
+.neon-button::before {
+  content: '';
+  position: absolute;
+  top: 0;
+  left: -100%;
+  width: 100%;
+  height: 100%;
+  background: linear-gradient(90deg, transparent, rgba(255, 255, 255, 0.2), transparent);
+  transition: left 0.5s;
+}
+
+.neon-button:hover::before {
+  left: 100%;
+}
+
+.neon-button:hover {
+  box-shadow: 
+    0 8px 30px rgba(99, 102, 241, 0.5),
+    0 0 20px rgba(99, 102, 241, 0.4);
+  transform: translateY(-2px);
+}
+
+/* 🌈 Inputs Holográficos */
+.holo-input {
+  background: rgba(42, 43, 69, 0.6);
+  border: 1px solid rgba(99, 102, 241, 0.3);
+  border-radius: 16px;
+  color: white;
+  padding: 16px;
+  font-size: 16px;
+  transition: all 0.3s ease;
+  backdrop-filter: blur(10px);
+}
+
+.holo-input::placeholder {
+  color: rgba(156, 163, 175, 0.6);
+}
+
+.holo-input:focus {
+  outline: none;
+  border-color: var(--cosmic-primary);
+  box-shadow: 
+    0 0 0 3px rgba(99, 102, 241, 0.1),
+    0 0 20px rgba(99, 102, 241, 0.2);
+  background: rgba(42, 43, 69, 0.8);
+}
+
+/* ✨ Efeitos de Brilho e Animação */
+.glow-text {
+  background: linear-gradient(135deg, #ffffff, #a5b4fc);
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  background-clip: text;
+  text-shadow: 0 0 30px rgba(99, 102, 241, 0.5);
+}
+
+.pulse-glow {
+  animation: pulseGlow 2s ease-in-out infinite alternate;
+}
+
+@keyframes pulseGlow {
+  from {
+    box-shadow: 0 0 20px rgba(99, 102, 241, 0.4);
+  }
+  to {
+    box-shadow: 0 0 30px rgba(99, 102, 241, 0.8), 0 0 40px rgba(99, 102, 241, 0.4);
+  }
+}
+
+/* 📱 Layout Responsivo Avançado */
+.dashboard-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
+  gap: 24px;
+  padding: 24px;
+}
+
+.sidebar-futurist {
+  background: rgba(26, 27, 47, 0.9);
+  backdrop-filter: blur(20px);
+  border-right: 1px solid rgba(99, 102, 241, 0.2);
+  box-shadow: 4px 0 20px rgba(0, 0, 0, 0.3);
+}
+
+/* 🎮 Animações de Entrada */
+.slide-in-up {
+  animation: slideInUp 0.6s cubic-bezier(0.4, 0, 0.2, 1) forwards;
+  opacity: 0;
+  transform: translateY(30px);
+}
+
+@keyframes slideInUp {
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.stagger-animation > * {
+  opacity: 0;
+  animation: slideInUp 0.6s cubic-bezier(0.4, 0, 0.2, 1) forwards;
+}
+
+.stagger-animation > *:nth-child(1) { animation-delay: 0.1s; }
+.stagger-animation > *:nth-child(2) { animation-delay: 0.2s; }
+.stagger-animation > *:nth-child(3) { animation-delay: 0.3s; }
+.stagger-animation > *:nth-child(4) { animation-delay: 0.4s; }
+
+/* 🎯 Utilitários de Cor para Tailwind */
+.bg-blue-500\/20 { background-color: rgba(59, 130, 246, 0.2); }
+.border-blue-400\/30 { border-color: rgba(96, 165, 250, 0.3); }
+.text-blue-300 { color: rgb(147, 197, 253); }
+
+.bg-purple-500\/20 { background-color: rgba(139, 92, 246, 0.2); }
+.border-purple-400\/30 { border-color: rgba(167, 139, 250, 0.3); }
+.text-purple-300 { color: rgb(196, 181, 253); }
+
+.bg-cyan-500\/20 { background-color: rgba(6, 182, 212, 0.2); }
+.border-cyan-400\/30 { border-color: rgba(34, 211, 238, 0.3); }
+.text-cyan-300 { color: rgb(103, 232, 249); }
+
+.bg-green-500\/20 { background-color: rgba(16, 185, 129, 0.2); }
+.border-green-400\/30 { border-color: rgba(52, 211, 153, 0.3); }
+.text-green-300 { color: rgb(110, 231, 183); }
+
+.bg-amber-500\/20 { background-color: rgba(245, 158, 11, 0.2); }
+.border-amber-400\/30 { border-color: rgba(251, 191, 36, 0.3); }
+.text-amber-300 { color: rgb(252, 211, 77); }

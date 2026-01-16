@@ -1,0 +1,31 @@
+import { createClient } from '@supabase/supabase-js'
+import { Database } from '../../types/database'
+
+const supabaseUrl = import.meta.env.VITE_SUPABASE_URL
+const supabaseAnonKey = import.meta.env.VITE_SUPABASE_ANON_KEY
+
+if (!supabaseUrl || !supabaseAnonKey) {
+  throw new Error(
+    'Missing Supabase env vars. Set VITE_SUPABASE_URL and VITE_SUPABASE_ANON_KEY in the .env file'
+  )
+}
+
+export const supabase = createClient<Database>(supabaseUrl, supabaseAnonKey, {
+  auth: {
+    autoRefreshToken: true,
+    persistSession: true,
+    detectSessionInUrl: true
+  },
+  realtime: {
+    params: {
+      eventsPerSecond: 10
+    }
+  }
+})
+
+// Storage buckets constants
+export const STORAGE_BUCKETS = {
+  PATIENT_PHOTOS: 'patient-photos',
+  SIGNATURES: 'signatures',
+  BEFORE_AFTER: 'before_after'
+} as const

@@ -1,0 +1,165 @@
+{
+  "schema_version": "2025-01-25",
+  "tables": {
+    "professionals": {
+      "columns": {
+        "id": { "type": "uuid", "primary_key": true, "default": "gen_random_uuid()" },
+        "user_id": { "type": "uuid", "not_null": true, "unique": true },
+        "email": { "type": "text", "not_null": true, "unique": true },
+        "name": { "type": "text", "not_null": true },
+        "profession": { "type": "text", "not_null": true },
+        "license": { "type": "text", "not_null": true },
+        "phone": { "type": "text", "nullable": true },
+        "address": { "type": "text", "nullable": true },
+        "created_at": { "type": "timestamptz", "default": "now()" },
+        "updated_at": { "type": "timestamptz", "default": "now()" }
+      },
+      "notes": "⚠️ NÃO TEM: specialty (é profession), license_number (é license)"
+    },
+    "patients": {
+      "columns": {
+        "id": { "type": "uuid", "primary_key": true, "default": "gen_random_uuid()" },
+        "name": { "type": "text", "not_null": true },
+        "email": { "type": "text", "nullable": true },
+        "phone": { "type": "text", "not_null": true },
+        "cpf": { "type": "text", "not_null": true },
+        "birth_date": { "type": "date", "not_null": true },
+        "address": { "type": "text", "nullable": true },
+        "photo_url": { "type": "text", "nullable": true },
+        "professional_id": { "type": "uuid", "not_null": true, "foreign_key": "professionals(id)" },
+        "created_at": { "type": "timestamptz", "default": "now()" },
+        "updated_at": { "type": "timestamptz", "default": "now()" }
+      }
+    },
+    "procedures": {
+      "columns": {
+        "id": { "type": "uuid", "primary_key": true, "default": "gen_random_uuid()" },
+        "name": { "type": "text", "not_null": true },
+        "description": { "type": "text", "nullable": true },
+        "category": { "type": "text", "not_null": true },
+        "consent_template_id": { "type": "uuid", "nullable": true, "foreign_key": "consent_templates(id)" },
+        "is_active": { "type": "boolean", "default": true },
+        "created_at": { "type": "timestamptz", "default": "now()" },
+        "updated_at": { "type": "timestamptz", "default": "now()" }
+      },
+      "notes": "⚠️ CATÁLOGO - NÃO TEM: procedure_type, client_name, total_amount, patient_id (essas são de tabela financeira, se existir)"
+    },
+    "consent_templates": {
+      "columns": {
+        "id": { "type": "uuid", "primary_key": true, "default": "gen_random_uuid()" },
+        "procedure_key": { "type": "text", "not_null": true },
+        "title": { "type": "text", "not_null": true },
+        "content": { "type": "text", "not_null": true },
+        "created_at": { "type": "timestamptz", "default": "now()" }
+      },
+      "notes": "⚠️ NÃO TEM: procedure_name (é procedure_key), version, is_active, updated_at"
+    },
+    "consent_forms": {
+      "columns": {
+        "id": { "type": "uuid", "primary_key": true, "default": "gen_random_uuid()" },
+        "visit_procedure_id": { "type": "uuid", "nullable": true, "foreign_key": "visit_procedures(id)" },
+        "procedure_key": { "type": "text", "not_null": true },
+        "template_id": { "type": "uuid", "nullable": true, "foreign_key": "consent_templates(id)" },
+        "content_snapshot": { "type": "text", "not_null": true },
+        "filled_content": { "type": "text", "nullable": true },
+        "patient_signature_url": { "type": "text", "nullable": true },
+        "professional_signature_url": { "type": "text", "nullable": true },
+        "image_authorization": { "type": "boolean", "not_null": true },
+        "signed_location": { "type": "text", "not_null": true },
+        "signed_at": { "type": "timestamptz", "not_null": true, "default": "now()" },
+        "patient_id": { "type": "uuid", "not_null": true, "foreign_key": "patients(id)" },
+        "professional_id": { "type": "uuid", "not_null": true, "foreign_key": "professionals(id)" },
+        "created_at": { "type": "timestamptz", "default": "now()" },
+        "updated_at": { "type": "timestamptz", "default": "now()" }
+      }
+    },
+    "visits": {
+      "columns": {
+        "id": { "type": "uuid", "primary_key": true, "default": "gen_random_uuid()" },
+        "appointment_id": { "type": "uuid", "nullable": true, "foreign_key": "appointments(id)" },
+        "patient_id": { "type": "uuid", "not_null": true, "foreign_key": "patients(id)" },
+        "professional_id": { "type": "uuid", "not_null": true, "foreign_key": "professionals(id)" },
+        "visit_date": { "type": "timestamptz", "not_null": true, "default": "now()" },
+        "status": { "type": "text", "not_null": true, "check": "IN ('scheduled', 'in_progress', 'completed', 'cancelled')" },
+        "notes": { "type": "text", "nullable": true },
+        "created_at": { "type": "timestamptz", "default": "now()" },
+        "updated_at": { "type": "timestamptz", "default": "now()" }
+      }
+    },
+    "visit_procedures": {
+      "columns": {
+        "id": { "type": "uuid", "primary_key": true, "default": "gen_random_uuid()" },
+        "visit_id": { "type": "uuid", "not_null": true, "foreign_key": "visits(id)" },
+        "procedure_id": { "type": "uuid", "nullable": true, "foreign_key": "procedures(id)" },
+        "procedure_name": { "type": "text", "not_null": true },
+        "performed_at": { "type": "timestamptz", "not_null": true, "default": "now()" },
+        "professional_id": { "type": "uuid", "not_null": true, "foreign_key": "professionals(id)" },
+        "units": { "type": "integer", "default": 1 },
+        "lot_number": { "type": "text", "nullable": true },
+        "brand": { "type": "text", "nullable": true },
+        "observations": { "type": "text", "nullable": true },
+        "created_at": { "type": "timestamptz", "default": "now()" },
+        "updated_at": { "type": "timestamptz", "default": "now()" }
+      }
+    },
+    "procedure_attachments": {
+      "columns": {
+        "id": { "type": "uuid", "primary_key": true, "default": "gen_random_uuid()" },
+        "visit_procedure_id": { "type": "uuid", "not_null": true, "foreign_key": "visit_procedures(id)" },
+        "attachment_type": { "type": "text", "not_null": true, "check": "IN ('sticker', 'photo', 'document')" },
+        "file_url": { "type": "text", "not_null": true },
+        "file_name": { "type": "text", "nullable": true },
+        "file_size": { "type": "integer", "nullable": true },
+        "mime_type": { "type": "text", "nullable": true },
+        "metadata": { "type": "jsonb", "default": "{}" },
+        "created_at": { "type": "timestamptz", "default": "now()" }
+      }
+    },
+    "appointments": {
+      "columns": {
+        "id": { "type": "uuid", "primary_key": true, "default": "gen_random_uuid()" },
+        "patient_id": { "type": "uuid", "not_null": true, "foreign_key": "patients(id)" },
+        "professional_id": { "type": "uuid", "not_null": true, "foreign_key": "professionals(id)" },
+        "title": { "type": "text", "not_null": true },
+        "description": { "type": "text", "nullable": true },
+        "start_time": { "type": "timestamptz", "not_null": true },
+        "end_time": { "type": "timestamptz", "not_null": true },
+        "status": { "type": "text", "not_null": true, "check": "IN ('scheduled', 'confirmed', 'completed', 'cancelled')" },
+        "google_event_id": { "type": "text", "nullable": true },
+        "created_at": { "type": "timestamptz", "default": "now()" },
+        "updated_at": { "type": "timestamptz", "default": "now()" }
+      }
+    },
+    "aesthetic_procedures": {
+      "columns": {
+        "id": { "type": "uuid", "primary_key": true, "default": "gen_random_uuid()" },
+        "name": { "type": "text", "not_null": true },
+        "description": { "type": "text", "nullable": true },
+        "category": { "type": "text", "not_null": true },
+        "default_units": { "type": "integer", "nullable": true, "default": 1 },
+        "created_at": { "type": "timestamptz", "default": "now()" }
+      },
+      "notes": "Catálogo alternativo de procedimentos"
+    }
+  },
+  "storage_buckets": {
+    "signatures": {
+      "type": "private",
+      "purpose": "Armazenar assinaturas de termos de consentimento",
+      "path_pattern": "signatures/{patient_id}/consents/{visitId}/{signatureType}-{timestamp}.png"
+    },
+    "before_after": {
+      "type": "private",
+      "purpose": "Armazenar fotos de adesivos de produtos e antes/depois",
+      "path_pattern": "before_after/{patient_id}/consents/{visitId}/stickers/{procedureName}-{timestamp}.{ext}"
+    },
+    "patient_photos": {
+      "type": "public",
+      "purpose": "Fotos de perfil dos pacientes"
+    }
+  },
+  "warnings": [
+    "⚠️ FinancialControl.tsx usa 'procedures' como tabela financeira, mas schema mostra 'procedures' como catálogo",
+    "⚠️ Verificar se existe tabela financeira separada ou se FinancialControl precisa ser ajustado"
+  ]
+}

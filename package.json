@@ -1,0 +1,37 @@
+{
+  "name": "loraine-vilela-clinic",
+  "private": true,
+  "version": "1.0.0",
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "build": "tsc && vite build",
+    "preview": "vite preview"
+  },
+  "dependencies": {
+    "@mui/material": "^5.0.0",
+    "@mui/x-date-pickers": "^5.0.0",
+    "@supabase/supabase-js": "^2.39.0",
+    "@types/react": "^18.2.43",
+    "@types/react-dom": "^18.2.17",
+    "date-fns": "^2.30.0",
+    "framer-motion": "^10.16.16",
+    "lucide-react": "^0.294.0",
+    "react": "^18.2.0",
+    "react-dom": "^18.2.0",
+    "react-hot-toast": "^2.4.1",
+    "react-image-crop": "^11.0.5",
+    "react-router-dom": "^6.20.1",
+    "react-signature-canvas": "^1.0.6"
+  },
+  "devDependencies": {
+    "@types/node": "^20.10.4",
+    "@vitejs/plugin-react": "^4.2.1",
+    "autoprefixer": "^10.4.16",
+    "postcss": "^8.4.32",
+    "tailwindcss": "^3.3.6",
+    "typescript": "^5.2.2",
+    "vite": "^5.4.19",
+    "vite-plugin-pwa": "^0.17.4"
+  }
+}
