@@ -3,9 +3,11 @@
 import { supabase } from '../supabase/client';
 import { uploadSignature } from '../storage/storageService';
 import { slugifyProcedure } from '../../utils/slug';
-import { getProcedureDisplayName, procedureNameToKey } from '../../utils/mappers';
+import { getProcedureDisplayName, procedureNameToKey, normalizeProcedure } from '../../utils/mappers';
 import logger from '../../utils/logger';
 import type { SignatureData } from '../components/SignaturePad';
+import { renderTermo, getCanonicalTermos } from '../../termos/registry';
+import type { TermoContext, TermoDefinition } from '../../termos/types';
 
 export interface ConsentTemplate {
   id: string;
@@ -249,16 +251,51 @@ const formatDateTime = (date: Date | string | null | undefined): { date: string;
 };
 
 /**
+ * Formatar licença profissional (COREN/CRM)
+ * Extrai sigla + número do formato "COREN 344168" ou "CRM 12345"
+ * Retorna no formato "COREN: 344168" ou "CRM: 12345"
+ */
+const formatProfessionalLicense = (license: string | null | undefined): string => {
+  if (!license) return '';
+  
+  const trimmed = license.trim();
+  
+  // Tentar extrair sigla e número
+  // Padrões: "COREN 344168", "CRM 12345", "COREN: 344168", etc.
+  const match = trimmed.match(/^([A-Z]+)\s*:?\s*(\d+)$/i);
+  if (match) {
+    const sigla = match[1].toUpperCase();
+    const numero = match[2];
+    return `${sigla}: ${numero}`;
+  }
+  
+  // Se não conseguir extrair, retornar formatado
+  // Se já tem ":", retornar como está
+  if (trimmed.includes(':')) {
+    return trimmed;
+  }
+  
+  // Se não tem ":", adicionar
+  const parts = trimmed.split(/\s+/);
+  if (parts.length >= 2) {
+    return `${parts[0].toUpperCase()}: ${parts.slice(1).join(' ')}`;
+  }
+  
+  return trimmed;
+};
+
+/**
  * Remover seções desnecessárias do template
+ * Remove campos manuais de assinatura e data que não devem aparecer no texto final
  */
 const removeUnnecessarySections = (content: string): string => {
   let cleaned = content;
   
-  // Remover "Local e Data: {{signed_at_location_date}}" ou variações
-  cleaned = cleaned.replace(/Local\s+e\s+Data[:\s]*\{\{signed_at_location_date\}\}[^\n]*/gi, '');
+  // Remover "Local e Data: ____" ou variações
+  cleaned = cleaned.replace(/Local\s+e\s+Data[:\s]*[_\-\s]*/gi, '');
   cleaned = cleaned.replace(/Local\s+e\s+Data[:\s]*[^\n]*/gi, '');
   
-  // Remover linhas de assinatura em texto
+  // Remover linhas de assinatura em texto (campos manuais)
   cleaned = cleaned.replace(/Assinatura\s+do\s+Paciente[:\s]*[_\-\s]*/gi, '');
   cleaned = cleaned.replace(/Assinatura\s+do\s+Profissional[:\s]*[_\-\s]*/gi, '');
   cleaned = cleaned.replace(/Assinatura\s+do\s+Paciente[:\s]*[^\n]*/gi, '');
@@ -306,7 +343,8 @@ export const renderConsentTemplate = (
   const patientBirthDate = formatBirthDate(ctx.patient?.birth_date);
   
   const professionalName = ctx.professional?.name?.trim() || '';
-  const professionalLicense = ctx.professional?.license?.trim() || '';
+  const professionalLicenseRaw = ctx.professional?.license?.trim() || '';
+  const professionalLicenseFormatted = formatProfessionalLicense(professionalLicenseRaw);
   
   const procedureName = ctx.procedureName || (ctx.procedureKey ? getProcedureDisplayName(ctx.procedureKey) : '');
   
@@ -322,7 +360,8 @@ export const renderConsentTemplate = (
 
   // Substituir placeholders do profissional
   rendered = rendered.replace(/\{\{professional_name\}\}/gi, professionalName);
-  rendered = rendered.replace(/\{\{professional_license\}\}/gi, professionalLicense);
+  rendered = rendered.replace(/\{\{professional_license\}\}/gi, professionalLicenseRaw); // Mantido para compatibilidade
+  rendered = rendered.replace(/\{\{professional_license_formatted\}\}/gi, professionalLicenseFormatted); // Novo formato
 
   // Substituir placeholders de procedimento
   rendered = rendered.replace(/\{\{procedure_name\}\}/gi, procedureName);
@@ -331,7 +370,16 @@ export const renderConsentTemplate = (
   rendered = rendered.replace(/\{\{signed_at_full\}\}/gi, signedAtDateTimeStr);
   rendered = rendered.replace(/\{\{signed_at\}\}/gi, signedAtDateStr);
 
-  // Substituir placeholder de autorização de imagem
+  // Substituir placeholder de autorização de imagem com checkboxes
+  let imageAuthCheckbox = '';
+  if (ctx.imageAuthorization === true) {
+    imageAuthCheckbox = '( X ) SIM, autorizo o uso de minhas imagens para fins de documentação clínica e divulgação científica.\n(   ) NÃO, não autorizo o uso de minhas imagens para qualquer finalidade.';
+  } else if (ctx.imageAuthorization === false) {
+    imageAuthCheckbox = '(   ) SIM, autorizo o uso de minhas imagens para fins de documentação clínica e divulgação científica.\n( X ) NÃO, não autorizo o uso de minhas imagens para qualquer finalidade.';
+  }
+  rendered = rendered.replace(/\{\{image_authorization_checkbox\}\}/gi, imageAuthCheckbox);
+
+  // Substituir placeholder antigo de autorização (compatibilidade)
   let imageAuthText = '';
   if (ctx.imageAuthorization === true) {
     imageAuthText = 'Autorizo o uso de minhas imagens para fins de documentação clínica e divulgação científica.';
@@ -344,7 +392,7 @@ export const renderConsentTemplate = (
   rendered = rendered.replace(/\{\{signed_at_location_date\}\}/gi, signedAtDateStr);
   rendered = rendered.replace(/\{\{image_authorization\}\}/gi, imageAuthText);
 
-  // Remover seções desnecessárias
+  // Remover seções desnecessárias (campos manuais de assinatura e data)
   rendered = removeUnnecessarySections(rendered);
 
   // REMOVER TODOS OS TOKENS NÃO RESOLVIDOS (qualquer {{...}} restante)
@@ -375,6 +423,8 @@ export const renderConsentTemplate = (
 /**
  * Preencher template com dados do paciente e profissional
  * Nunca lança erro - retorna objeto com status
+ * 
+ * ATUALIZADO: Usa novo sistema de termos (src/termos/) se disponível, senão usa template do banco
  */
 export const fillConsentTemplate = (
   template: ConsentTemplate,
@@ -386,7 +436,65 @@ export const fillConsentTemplate = (
 ): FillTemplateResult => {
   const missingFields: string[] = [];
 
-  // 1. Validar template.content
+  // 1. Tentar usar novo sistema de termos primeiro
+  if (procedureKey) {
+    try {
+      const termoContext: TermoContext = {
+        patient: {
+          name: patient.name,
+          cpf: patient.cpf,
+          birth_date: patient.birth_date,
+        },
+        professional: professional ? {
+          name: professional.name || '',
+          license: professional.license || '',
+        } : {
+          name: '',
+          license: '',
+        },
+        signedAt: signedAt || new Date(),
+        procedureLabel: getProcedureDisplayName(procedureKey),
+        imageAuthorization: imageAuthorization === true,
+      };
+
+      const termoResult = renderTermo(procedureKey, termoContext);
+      
+      if (termoResult) {
+        if (termoResult.missingFields.length > 0) {
+          // Converter campos faltantes para formato antigo
+          const convertedMissing = termoResult.missingFields.map(field => {
+            const map: Record<string, string> = {
+              'patient_name': 'patient_name',
+              'patient_cpf': 'patient_cpf',
+              'patient_birth_date': 'patient_birth_date',
+              'professional_name': 'professional_name',
+              'professional_license': 'professional_license',
+              'signed_at': 'signed_at',
+              'image_authorization': 'image_authorization',
+              'procedure_label': 'procedure_key',
+            };
+            return map[field] || field;
+          });
+          
+          return {
+            ok: false,
+            previewContent: termoResult.content,
+            missingFields: convertedMissing,
+          };
+        }
+        
+        logger.debug('[CONSENT] Usando novo sistema de termos', { procedureKey });
+        return {
+          ok: true,
+          filledContent: termoResult.content,
+        };
+      }
+    } catch (error: any) {
+      logger.warn('[CONSENT] Erro ao usar novo sistema de termos, usando fallback:', error.message);
+    }
+  }
+  
+  // 2. Fallback: usar template do banco (sistema antigo)
   if (!template.content || template.content.trim() === '') {
     missingFields.push('template_content_missing');
     return {
@@ -395,6 +503,9 @@ export const fillConsentTemplate = (
       missingFields,
     };
   }
+  
+  const templateContent = template.content;
+  logger.debug('[CONSENT] Usando template do banco de dados (fallback)', { procedureKey });
 
   // 2. Validar dados do paciente
   if (!patient?.name || patient.name.trim() === '') {
@@ -491,7 +602,7 @@ export const fillConsentTemplate = (
 
   logger.debug('[CONSENT] context', ctx);
 
-  const filledContent = renderConsentTemplate(template.content, ctx);
+  const filledContent = renderConsentTemplate(templateContent, ctx);
 
   // Validar que o conteúdo final não está vazio
   if (!filledContent || filledContent.trim() === '') {
@@ -567,17 +678,16 @@ const normalizeProcedures = (procedures: Array<{ id: string; procedure_type: str
  * 3. Se não houver dados, usar fallback hardcoded
  */
 export const getProcedures = async (): Promise<ProcedureOption[]> => {
-  // Fallback: lista padrão de procedimentos principais
-  const fallbackProcedures: ProcedureOption[] = [
-    { value: 'botox', label: 'Botox', procedure_type: 'Botox' },
-    { value: 'preenchimento-labial', label: 'Preenchimento Labial', procedure_type: 'Preenchimento Labial' },
-    { value: 'preenchimento-facial', label: 'Preenchimento Facial', procedure_type: 'Preenchimento Facial' },
-    { value: 'toxina-botulinica', label: 'Toxina Botulínica', procedure_type: 'Toxina Botulínica' },
-    { value: 'acido-hialuronico', label: 'Ácido Hialurônico', procedure_type: 'Ácido Hialurônico' },
-    { value: 'endermoterapia-vacuoterapia', label: 'Endermoterapia / Vacuoterapia', procedure_type: 'Endermoterapia / Vacuoterapia' },
-    { value: 'limpeza-de-pele', label: 'Limpeza de Pele', procedure_type: 'Limpeza de Pele' },
-    { value: 'microagulhamento', label: 'Microagulhamento', procedure_type: 'Microagulhamento' },
-  ];
+  // Obter apenas termos canônicos únicos do registry (fonte da verdade)
+  // Isso garante que todos os termos do registry apareçam na lista
+  const canonicalTermos = getCanonicalTermos();
+  
+  // Criar lista base a partir dos termos canônicos do registry
+  const registryProcedures: ProcedureOption[] = canonicalTermos.map(termo => ({
+    value: termo.key,
+    label: termo.label,
+    procedure_type: termo.label,
+  }));
 
   try {
     // Buscar do banco usando schema real
@@ -589,48 +699,63 @@ export const getProcedures = async (): Promise<ProcedureOption[]> => {
 
     if (error) {
       logger.warn('[CONSENT] Erro ao buscar procedures:', error.message);
-      return fallbackProcedures;
+      // Retornar apenas termos do registry se erro no banco
+      return registryProcedures.sort((a, b) => a.label.localeCompare(b.label));
     }
 
     if (!data || data.length === 0) {
-      logger.debug('[CONSENT] Nenhum procedimento no banco, usando fallback');
-      return fallbackProcedures;
+      logger.debug('[CONSENT] Nenhum procedimento no banco, usando termos do registry');
+      return registryProcedures.sort((a, b) => a.label.localeCompare(b.label));
     }
 
-    // Normalizar e deduplicar
+    // Normalizar e deduplicar procedimentos do banco
     const normalized = normalizeProcedures(data);
 
-    // Converter para ProcedureOption
-    const options: ProcedureOption[] = normalized.map((proc) => {
-      // Garantir key único: se colidir, usar primeiro ID
-      const uniqueKey = proc.sourceIds.length > 1 
-        ? `${proc.key}-${proc.sourceIds[0]}` 
-        : proc.key;
-
-      return {
-        value: uniqueKey,
-        label: proc.label,
-        procedure_type: proc.procedure_type,
-      };
-    });
-
-    // Adicionar fallbacks que não existem no banco
-    const existingKeys = new Set(options.map(o => o.value));
-    for (const fallback of fallbackProcedures) {
-      if (!existingKeys.has(fallback.value)) {
-        options.push(fallback);
+    // Converter para ProcedureOption e normalizar para termos canônicos
+    const canonicalMap = new Map<string, ProcedureOption>();
+    
+    for (const proc of normalized) {
+      const key = proc.key;
+      const label = proc.label;
+      
+      // Normalizar para termo canônico
+      const canonical = normalizeProcedure(key, label);
+      
+      // Se já existe um procedimento com o mesmo canonicalKey, pular (dedupe)
+      if (!canonicalMap.has(canonical.canonicalKey)) {
+        canonicalMap.set(canonical.canonicalKey, {
+          value: canonical.canonicalKey,
+          label: canonical.canonicalLabel,
+          procedure_type: canonical.canonicalLabel,
+        });
       }
     }
+
+    // Adicionar todos os termos do registry (prioridade - são a fonte da verdade)
+    // Isso garante que todos os termos do registry apareçam, mesmo que não estejam no banco
+    for (const registryProc of registryProcedures) {
+      // Sempre usar o termo do registry (mais atualizado e completo)
+      canonicalMap.set(registryProc.value, registryProc);
+    }
+
+    // Converter Map para Array
+    const options: ProcedureOption[] = Array.from(canonicalMap.values());
 
     // Ordenar
     options.sort((a, b) => a.label.localeCompare(b.label));
 
-    logger.debug('[CONSENT] Procedimentos carregados:', { count: options.length });
+    logger.debug('[CONSENT] Procedimentos carregados (registry + banco):', { 
+      count: options.length,
+      fromRegistry: registryProcedures.length,
+      fromDatabase: normalized.length
+    });
+    
     return options;
 
   } catch (error: any) {
-    logger.warn('[CONSENT] Erro ao buscar procedures, usando fallback:', error.message);
-    return fallbackProcedures;
+    logger.warn('[CONSENT] Erro ao buscar procedures, usando termos do registry:', error.message);
+    // Em caso de erro, retornar termos do registry (sempre disponíveis)
+    return registryProcedures.sort((a, b) => a.label.localeCompare(b.label));
   }
 };
 

@@ -3,11 +3,21 @@
 import { supabase } from '../supabase/client';
 import { normalizeStoragePath } from '../../utils/storageUtils';
 
+// Buckets do Supabase Storage
+// Suporta variável de ambiente com fallback para valores padrão
+const getBucketName = (envVar: string | undefined, defaultValue: string): string => {
+  return envVar || defaultValue;
+};
+
 export const STORAGE_BUCKETS = {
   CONSENT_ATTACHMENTS: 'consent-attachments',
   PATIENT_PHOTOS: 'patient-photos',
   SIGNATURES: 'signatures',
   BEFORE_AFTER: 'before_after',
+  CONSULTATION_ATTACHMENTS: getBucketName(
+    import.meta.env.VITE_SUPABASE_BUCKET_CONSULTATION_ATTACHMENTS,
+    'consultation-attachments'
+  ),
 } as const;
 
 export interface UploadFileParams {
@@ -37,6 +47,13 @@ export interface UploadStickerPhotoParams {
   timestamp?: number;
 }
 
+export interface UploadConsultationPhotoParams {
+  patientId: string;
+  consultationId: string;
+  file: File;
+  timestamp?: number;
+}
+
 /**
  * Upload genérico de arquivo
  * ⚠️ ATUALIZADO: Retorna path (para compatibilidade com buckets privados)
@@ -58,10 +75,25 @@ export const uploadFile = async ({
     });
 
   if (error) {
-    // Tratamento especial para "Bucket not found"
-    if (error.message?.includes('Bucket not found') || error.message?.includes('not found')) {
-      throw new Error(`BUCKET_NOT_FOUND: O bucket "${bucket}" não foi encontrado. Por favor, crie o bucket "${bucket}" em Supabase > Storage.`);
+    // Tratamento especial para "Bucket not found" (apenas logar uma vez, não repetir)
+    if (error.message?.includes('Bucket not found') || 
+        error.message?.includes('not found') ||
+        (error.statusCode === 400 && error.message?.toLowerCase().includes('bucket'))) {
+      // Log único e claro para dev/admin (sem repetir)
+      if (!(window as any).__bucketErrorLogged?.[bucket]) {
+        console.error('[STORAGE] ❌ Bucket não encontrado:', {
+          bucket,
+          error: error.message,
+          statusCode: error.statusCode,
+          solucao: `Criar bucket "${bucket}" no Supabase Dashboard > Storage`,
+        });
+        (window as any).__bucketErrorLogged = (window as any).__bucketErrorLogged || {};
+        (window as any).__bucketErrorLogged[bucket] = true;
+      }
+      
+      throw new Error(`BUCKET_NOT_FOUND: O bucket "${bucket}" não foi encontrado no Supabase Storage. Por favor, crie o bucket "${bucket}" em Supabase Dashboard > Storage.`);
     }
+    // Outros erros de upload
     throw new Error(`Erro ao fazer upload: ${error.message}`);
   }
 
@@ -204,6 +236,94 @@ export const uploadStickerPhoto = async ({
 };
 
 /**
+ * Upload de foto de produto utilizada em consulta
+ * Usa bucket "consultation-attachments" organizado por patient_id/consultation_id
+ * 
+ * @returns Objeto com path e url (se bucket for público)
+ */
+/**
+ * Sanitizar nome de arquivo para evitar duplicação de extensão e caracteres inválidos
+ * 
+ * @param fileName - Nome original do arquivo
+ * @returns Nome sanitizado sem extensão duplicada
+ */
+function sanitizeFileName(fileName: string): { name: string; ext: string } {
+  // Remover espaços extras e normalizar
+  let cleanName = fileName.trim();
+  
+  // Extrair extensão (última ocorrência de ponto)
+  const lastDotIndex = cleanName.lastIndexOf('.');
+  let ext = 'jpg'; // fallback
+  let nameWithoutExt = cleanName;
+  
+  if (lastDotIndex > 0 && lastDotIndex < cleanName.length - 1) {
+    // Tem extensão válida
+    ext = cleanName.substring(lastDotIndex + 1).toLowerCase();
+    nameWithoutExt = cleanName.substring(0, lastDotIndex);
+  }
+  
+  // Normalizar nome: remover caracteres especiais, espaços -> underscore
+  const sanitized = nameWithoutExt
+    .replace(/[^a-zA-Z0-9._-]/g, '_') // Manter apenas alfanuméricos, pontos, underscores e hífens
+    .replace(/\s+/g, '_') // Espaços -> underscore
+    .replace(/_{2,}/g, '_') // Múltiplos underscores -> um só
+    .replace(/^_+|_+$/g, '') // Remover underscores no início/fim
+    .substring(0, 50); // Limitar tamanho
+  
+  // Se ficou vazio após sanitização, usar nome padrão
+  const finalName = sanitized || 'foto';
+  
+  return { name: finalName, ext };
+}
+
+/**
+ * Upload de foto de produto utilizada em consulta
+ * Usa bucket "consultation-attachments" organizado por patient_id/consultation_id
+ * 
+ * ⚠️ IMPORTANTE: Se o upload falhar (ex: bucket não existe), lança erro tratável
+ * 
+ * @returns Objeto com path e url (se bucket for público)
+ * @throws Error com mensagem clara se bucket não existir ou upload falhar
+ */
+export const uploadConsultationPhoto = async ({
+  patientId,
+  consultationId,
+  file,
+  timestamp = Date.now(),
+}: UploadConsultationPhotoParams): Promise<{ path: string; url: string | null }> => {
+  // Sanitizar nome do arquivo (evitar .jpg.jpg)
+  const { name, ext } = sanitizeFileName(file.name);
+  const safeFileName = `${timestamp}-${name}.${ext}`;
+  const path = `${patientId}/consultations/${consultationId}/${safeFileName}`;
+
+  try {
+    const result = await uploadFile({
+      bucket: STORAGE_BUCKETS.CONSULTATION_ATTACHMENTS,
+      file,
+      path,
+      options: {
+        contentType: file.type || `image/${ext === 'jpg' ? 'jpeg' : ext}`,
+        cacheControl: '31536000', // 1 ano
+        upsert: false,
+      },
+    });
+
+    return {
+      path: result.path,
+      url: result.url,
+    };
+  } catch (error: any) {
+    // Re-lançar erro com contexto adicional (apenas se for erro de bucket)
+    if (error.message?.includes('BUCKET_NOT_FOUND') || 
+        error.message?.includes('Bucket not found') ||
+        error.statusCode === 400) {
+      throw new Error(`Não foi possível fazer upload da foto "${file.name}". O bucket de anexos não está configurado. Entre em contato com o administrador do sistema.`);
+    }
+    throw error;
+  }
+};
+
+/**
  * Deletar arquivo do Storage
  */
 export const deleteFile = async (bucket: string, path: string): Promise<void> => {
@@ -225,16 +345,18 @@ export const getPublicUrl = (bucket: string, path: string): string => {
 /**
  * Obter URL visualizável para um arquivo (path ou URL)
  * 
- * Tenta primeiro getPublicUrl (se bucket for público)
- * Se falhar ou retornar vazio, gera signed URL (para buckets privados)
+ * Para buckets privados, sempre gera signed URL (não tenta public URL primeiro)
+ * Para buckets públicos, tenta public URL primeiro
  * 
  * @param bucket - Nome do bucket
  * @param pathOrUrl - Path do arquivo ou URL completa
+ * @param expiresIn - Tempo de expiração da signed URL em segundos (padrão: 1 hora)
  * @returns URL que pode ser usada diretamente em <img src>
  */
 export const getViewableUrl = async (
   bucket: string,
-  pathOrUrl: string
+  pathOrUrl: string,
+  expiresIn: number = 3600 // 1 hora padrão
 ): Promise<string> => {
   // Se já é URL completa e não é do Supabase Storage, retornar direto
   if (pathOrUrl.startsWith('http://') || pathOrUrl.startsWith('https://')) {
@@ -254,36 +376,57 @@ export const getViewableUrl = async (
   // Agora pathOrUrl é um path
   const path = pathOrUrl;
 
-  // Tentar primeiro getPublicUrl (pode funcionar se bucket for público)
+  // Para consultation-attachments (bucket privado), sempre usar signed URL
+  if (bucket === STORAGE_BUCKETS.CONSULTATION_ATTACHMENTS) {
+    try {
+      const { data, error } = await supabase.storage
+        .from(bucket)
+        .createSignedUrl(path, expiresIn);
+
+      if (error) {
+        // Log apenas uma vez por path para evitar spam
+        const errorKey = `${bucket}:${path}`;
+        if (!(window as any).__signedUrlErrorLogged?.[errorKey]) {
+          console.warn('[STORAGE] Erro ao gerar signed URL:', {
+            bucket,
+            path,
+            errorCode: error.statusCode,
+            errorMessage: error.message,
+          });
+          (window as any).__signedUrlErrorLogged = (window as any).__signedUrlErrorLogged || {};
+          (window as any).__signedUrlErrorLogged[errorKey] = true;
+        }
+        throw new Error(`Erro ao gerar signed URL: ${error.message}`);
+      }
+
+      if (!data?.signedUrl) {
+        throw new Error('Signed URL vazia');
+      }
+
+      return data.signedUrl;
+    } catch (error: any) {
+      throw new Error(`Não foi possível obter URL visualizável: ${error.message}`);
+    }
+  }
+
+  // Para outros buckets, tentar public URL primeiro
   try {
     const publicUrl = getPublicUrl(bucket, path);
-    
-    // Verificar se a URL pública é válida (não vazia)
     if (publicUrl && publicUrl.trim() !== '') {
-      // Testar se a URL funciona (opcional - pode ser custoso)
-      // Por enquanto, assumir que se retornou, funciona
       return publicUrl;
     }
   } catch (error) {
     // getPublicUrl falhou, continuar para signed URL
   }
 
-  // PASSO 4: Gerar signed URL (para buckets privados)
+  // Fallback: gerar signed URL
   try {
     const { data, error } = await supabase.storage
       .from(bucket)
-      .createSignedUrl(path, 60 * 60); // 1 hora
+      .createSignedUrl(path, expiresIn);
 
     if (error) {
-      // PASSO 4: Log completo do erro
-      console.error('[STORAGE] Erro ao gerar signed URL:', {
-        bucket,
-        path,
-        errorCode: error.statusCode,
-        errorMessage: error.message,
-        errorDetails: error,
-      });
-      throw new Error(`Erro ao gerar signed URL: ${error.message} (status: ${error.statusCode || 'unknown'})`);
+      throw new Error(`Erro ao gerar signed URL: ${error.message}`);
     }
 
     if (!data?.signedUrl) {
@@ -292,13 +435,6 @@ export const getViewableUrl = async (
 
     return data.signedUrl;
   } catch (error: any) {
-    // Se tudo falhar, logar detalhes completos
-    console.error('[STORAGE] Falha completa ao obter URL visualizável:', {
-      bucket,
-      path,
-      originalPathOrUrl: pathOrUrl,
-      error: error.message,
-    });
     throw new Error(`Não foi possível obter URL visualizável: ${error.message}`);
   }
 };

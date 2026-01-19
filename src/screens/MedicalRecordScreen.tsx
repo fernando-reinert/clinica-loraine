@@ -12,6 +12,7 @@ import LoadingSpinner from '../components/LoadingSpinner';
 import ConsentFormViewer from '../components/ConsentFormViewer';
 import ProcedureSelector from '../components/ProcedureSelector';
 import SignaturePad from '../components/SignaturePad';
+import ImageLightbox from '../components/ImageLightbox';
 import { getPatientMedicalHistory } from '../services/medical-record/medicalRecordService';
 import { 
   getConsentFormsByPatient, 
@@ -23,12 +24,16 @@ import {
   FillTemplateResult,
   ProcedureOption
 } from '../services/consents/consentService';
+import { getTermByProcedureKey, renderTermo, hasTermo } from '../termos/registry';
+import { getProcedureDisplayName, normalizeProcedure } from '../utils/mappers';
+import type { TermoContext } from '../termos/types';
 import { useAuth } from '../contexts/AuthContext';
 import { useProfessional } from '../hooks/useProfessional';
 import ProfessionalSetupModal from '../components/ProfessionalSetupModal';
-import { uploadSignature } from '../services/storage/storageService';
+import { uploadSignature, uploadConsultationPhoto, getViewableUrl, deleteFile, STORAGE_BUCKETS } from '../services/storage/storageService';
 import { upsertProfessional, ensureDefaultProfessionalProfile } from '../services/professionals/professionalService';
 import { deleteConsentForm } from '../services/consents/consentService';
+import { createConsultation, updateConsultation } from '../services/consultations/consultationService';
 import logger from '../utils/logger';
 import toast from 'react-hot-toast';
 import ConfirmDialog from '../components/ConfirmDialog';
@@ -55,6 +60,20 @@ const MedicalRecordScreen: React.FC = () => {
     consentId: null,
     isLoading: false,
   });
+  
+  // Estado para controlar edição de consulta
+  const [editingConsultationId, setEditingConsultationId] = useState<string | null>(null);
+  
+  // Estado para modal de confirmação de exclusão de consulta
+  const [deleteConsultationModal, setDeleteConsultationModal] = useState<{
+    isOpen: boolean;
+    consultationId: string | null;
+    isLoading: boolean;
+  }>({
+    isOpen: false,
+    consultationId: null,
+    isLoading: false,
+  });
   const [selectedProcedureForConsent, setSelectedProcedureForConsent] = useState<string | null>(null);
   const [selectedProcedureLabel, setSelectedProcedureLabel] = useState<string | null>(null);
   const [consentTemplate, setConsentTemplate] = useState<any>(null);
@@ -76,14 +95,48 @@ const MedicalRecordScreen: React.FC = () => {
   const [exams, setExams] = useState<any[]>([]);
 
   // Novo formulário de consulta
-  const [newConsultation, setNewConsultation] = useState({
-    date: new Date().toISOString().split('T')[0],
+  // Inicializar campos de data como null (não string vazia)
+  const [newConsultation, setNewConsultation] = useState<{
+    date: string | null;
+    reason: string;
+    symptoms: string;
+    diagnosis: string;
+    treatment: string;
+    notes: string;
+    next_appointment: string | null;
+  }>({
+    date: new Date().toISOString().split('T')[0], // Data inicial válida
     reason: '',
     symptoms: '',
     diagnosis: '',
     treatment: '',
     notes: '',
-    next_appointment: ''
+    next_appointment: null // null em vez de ''
+  });
+
+  // Fotos do procedimento (antes de salvar)
+  const [consultationPhotos, setConsultationPhotos] = useState<Array<{
+    id: string;
+    file: File;
+    preview: string;
+  }>>([]);
+  
+  // Fotos já salvas (para consultas existentes)
+  const [consultationAttachments, setConsultationAttachments] = useState<Record<string, any[]>>({});
+  // URLs visualizáveis das imagens (cache)
+  const [imageUrls, setImageUrls] = useState<Record<string, string>>({});
+  // Rastrear imagens que falharam ao carregar (para mostrar placeholder)
+  const [imageErrors, setImageErrors] = useState<Record<string, boolean>>({});
+  
+  // Lightbox para visualizar imagens
+  const [lightboxState, setLightboxState] = useState<{
+    isOpen: boolean;
+    images: Array<{ id: string; url: string; name?: string }>;
+    currentIndex: number;
+  }>({
+    isOpen: false,
+    images: [],
+    currentIndex: 0,
   });
 
   useEffect(() => {
@@ -107,12 +160,14 @@ const MedicalRecordScreen: React.FC = () => {
       setPatient(patientData);
 
       // Carregar histórico médico completo (visits + procedures + consents)
-      const history = await getPatientMedicalHistory(id);
-      setMedicalHistory(history);
+      if (id) {
+        const history = await getPatientMedicalHistory(id);
+        setMedicalHistory(history);
 
-      // Carregar todos os termos de consentimento do paciente
-      const allConsents = await getConsentFormsByPatient(id);
-      setConsentForms(allConsents);
+        // Carregar todos os termos de consentimento do paciente
+        const allConsents = await getConsentFormsByPatient(id);
+        setConsentForms(allConsents);
+      }
 
       // Carregar consultas (legado)
       const { data: consultationsData } = await supabase
@@ -121,7 +176,94 @@ const MedicalRecordScreen: React.FC = () => {
         .eq('patient_id', id)
         .order('date', { ascending: false });
 
-      if (consultationsData) setConsultations(consultationsData);
+      if (consultationsData) {
+        setConsultations(consultationsData);
+        
+        // Carregar anexos de cada consulta
+        const attachmentsMap: Record<string, any[]> = {};
+        const urlsMap: Record<string, string> = {};
+        
+        // Verificar se já sabemos que a tabela não existe
+        const tableMissing = (window as any).__consultationAttachmentsTableMissing;
+        
+        // Se já sabemos que a tabela não existe, pular todas as requisições
+        if (!tableMissing) {
+          for (const consultation of consultationsData) {
+            // Tentar buscar anexos
+            const { data: attachments, error: attachmentsError } = await supabase
+              .from('consultation_attachments')
+              .select('*')
+              .eq('consultation_id', consultation.id)
+              .order('created_at', { ascending: false });
+            
+            // Se erro 404 (tabela não existe), marcar e parar
+            if (attachmentsError) {
+              // Verificar se é erro 404 (tabela não existe)
+              const is404Error = attachmentsError.code === 'PGRST116' || 
+                                 attachmentsError.message?.includes('404') || 
+                                 attachmentsError.message?.includes('does not exist');
+              
+              if (is404Error) {
+                // Tabela não existe - marcar e parar todas as requisições
+                (window as any).__consultationAttachmentsTableMissing = true;
+                if (!tableMissing) {
+                  logger.warn('[MEDICAL_RECORD] Tabela consultation_attachments não encontrada. Execute a migration 20250125000011_consultation_attachments.sql');
+                  console.warn('[MEDICAL_RECORD] ⚠️ Tabela consultation_attachments não existe. Execute a migration no Supabase.');
+                }
+                break; // Parar loop - não fazer mais requisições
+              } else {
+                // Outro tipo de erro - logar normalmente
+                logger.error('[MEDICAL_RECORD] Erro ao buscar anexos:', attachmentsError);
+              }
+              continue;
+            }
+            
+            if (attachments && attachments.length > 0) {
+              attachmentsMap[consultation.id] = attachments;
+              
+              // Carregar URLs visualizáveis (signed URLs para buckets privados)
+              for (const attachment of attachments) {
+                // Priorizar 'path' se existir, senão 'file_path', senão 'file_url'
+                const pathToUse = (attachment as any).path || attachment.file_path || attachment.file_url || '';
+                
+                if (pathToUse) {
+                  try {
+                    // Sempre usar getViewableUrl para gerar signed URL (bucket é privado)
+                    const viewableUrl = await getViewableUrl(
+                      STORAGE_BUCKETS.CONSULTATION_ATTACHMENTS,
+                      pathToUse,
+                      3600 // 1 hora de expiração
+                    );
+                    urlsMap[attachment.id] = viewableUrl;
+                  } catch (error) {
+                    // Log apenas uma vez por attachment para evitar spam
+                    if (!(window as any).__attachmentUrlErrorLogged?.[attachment.id]) {
+                      logger.warn('[MEDICAL_RECORD] Erro ao obter URL visualizável da imagem:', {
+                        attachmentId: attachment.id,
+                        path: pathToUse,
+                        error: error instanceof Error ? error.message : String(error),
+                      });
+                      (window as any).__attachmentUrlErrorLogged = (window as any).__attachmentUrlErrorLogged || {};
+                      (window as any).__attachmentUrlErrorLogged[attachment.id] = true;
+                    }
+                    // Fallback para file_url se getViewableUrl falhar
+                    urlsMap[attachment.id] = attachment.file_url || '';
+                  }
+                } else {
+                  // Fallback se não houver path
+                  urlsMap[attachment.id] = attachment.file_url || '';
+                }
+              }
+            }
+          }
+        }
+        
+        // Só atualizar state se tiver dados
+        if (Object.keys(attachmentsMap).length > 0) {
+          setConsultationAttachments(attachmentsMap);
+          setImageUrls(urlsMap);
+        }
+      }
 
     } catch (error) {
       logger.error('[MEDICAL_RECORD] Erro ao carregar dados:', error);
@@ -129,6 +271,82 @@ const MedicalRecordScreen: React.FC = () => {
     } finally {
       setLoading(false);
     }
+  };
+
+  const handlePhotoSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const files = Array.from(e.target.files || []);
+    
+    files.forEach((file) => {
+      if (!file.type.startsWith('image/')) {
+        toast.error(`${file.name} não é uma imagem válida`);
+        return;
+      }
+      
+      if (file.size > 5 * 1024 * 1024) { // 5MB
+        toast.error(`${file.name} é muito grande (máximo 5MB)`);
+        return;
+      }
+      
+      const reader = new FileReader();
+      reader.onload = (e) => {
+        const preview = e.target?.result as string;
+        setConsultationPhotos(prev => [...prev, {
+          id: `${Date.now()}-${Math.random()}`,
+          file,
+          preview,
+        }]);
+      };
+      reader.readAsDataURL(file);
+    });
+    
+    // Limpar input para permitir selecionar o mesmo arquivo novamente
+    e.target.value = '';
+  };
+
+  const removePhoto = (photoId: string) => {
+    setConsultationPhotos(prev => prev.filter(p => p.id !== photoId));
+  };
+
+  // Função para editar consulta (preencher formulário)
+  const handleEditConsultation = (consultation: any) => {
+    setEditingConsultationId(consultation.id);
+    setNewConsultation({
+      date: consultation.date ? new Date(consultation.date).toISOString().split('T')[0] : null,
+      reason: consultation.reason || '',
+      symptoms: consultation.symptoms || '',
+      diagnosis: consultation.diagnosis || '',
+      treatment: consultation.treatment || '',
+      notes: consultation.notes || '',
+      next_appointment: consultation.next_appointment ? new Date(consultation.next_appointment).toISOString().split('T')[0] : null,
+    });
+    // Limpar fotos selecionadas (fotos existentes já estão em consultationAttachments)
+    setConsultationPhotos([]);
+    // Scroll para o formulário
+    document.getElementById('consultation-form')?.scrollIntoView({ behavior: 'smooth' });
+  };
+
+  // Função para cancelar edição
+  const handleCancelEdit = () => {
+    setEditingConsultationId(null);
+    setNewConsultation({
+      date: new Date().toISOString().split('T')[0],
+      reason: '',
+      symptoms: '',
+      diagnosis: '',
+      treatment: '',
+      notes: '',
+      next_appointment: null,
+    });
+    setConsultationPhotos([]);
+  };
+
+  // Função para excluir consulta
+  const handleDeleteConsultation = (consultationId: string) => {
+    setDeleteConsultationModal({
+      isOpen: true,
+      consultationId,
+      isLoading: false,
+    });
   };
 
   const addConsultation = async () => {
@@ -139,20 +357,271 @@ const MedicalRecordScreen: React.FC = () => {
 
     setSaving(true);
     try {
-      const { data, error } = await supabase
-        .from('consultations')
-        .insert([
-          {
-            patient_id: id,
-            ...newConsultation
+      let consultationData;
+      
+      // Se estiver editando, atualizar; senão, criar nova
+      if (editingConsultationId) {
+        consultationData = await updateConsultation(editingConsultationId, {
+          ...newConsultation
+        });
+        toast.success('Consulta atualizada com sucesso!');
+      } else {
+        // Criar consulta primeiro (necessário para ter consultationId)
+        consultationData = await createConsultation({
+          patient_id: id!,
+          ...newConsultation
+        });
+      }
+
+      // Upload das fotos se houver (agora com consultationId real)
+      if (consultationPhotos.length > 0) {
+        const failedUploads: string[] = [];
+        const uploadedPaths: string[] = [];
+        
+        for (const photo of consultationPhotos) {
+          try {
+            const uploadResult = await uploadConsultationPhoto({
+              patientId: id!,
+              consultationId: consultationData.id,
+              file: photo.file,
+            });
+
+            // Garantir que path seja sempre uma string válida
+            const path = uploadResult.path;
+            if (!path || typeof path !== 'string' || path.trim() === '') {
+              throw new Error(`Path inválido retornado do upload para o arquivo ${photo.file.name}`);
+            }
+
+            // Gerar URL visualizável (signed URL se bucket privado, public URL se público)
+            let viewableUrl: string | null = null;
+            try {
+              viewableUrl = await getViewableUrl(
+                STORAGE_BUCKETS.CONSULTATION_ATTACHMENTS,
+                path,
+                3600 // 1 hora
+              );
+            } catch (urlError) {
+              // Se falhar, usar url pública se disponível
+              viewableUrl = uploadResult.url || null;
+              logger.warn('[MEDICAL_RECORD] Erro ao gerar signed URL, usando URL pública:', urlError);
+            }
+
+            // Salvar anexo no banco - usar apenas colunas básicas que existem
+            // Colunas obrigatórias: consultation_id, patient_id, path (ou file_path)
+            // Enviar ambos 'path' e 'file_path' para compatibilidade com diferentes schemas
+            const attachmentData: Record<string, any> = {
+              consultation_id: consultationData.id,
+              patient_id: id,
+              path: path, // Coluna obrigatória (NOT NULL)
+              file_path: path, // Também enviar como file_path (compatibilidade)
+            };
+
+            // Adicionar colunas opcionais se disponíveis
+            if (photo.file.name) {
+              attachmentData.file_name = photo.file.name;
+            }
+            if (photo.file.type) {
+              attachmentData.mime_type = photo.file.type;
+            }
+            if (viewableUrl) {
+              attachmentData.file_url = viewableUrl;
+            }
+            
+            const { error: attachmentError, data: insertedAttachment } = await supabase
+              .from('consultation_attachments')
+              .insert([attachmentData])
+              .select()
+              .single();
+
+            if (attachmentError) {
+              // Tratar diferentes tipos de erro
+              const isTableMissing = attachmentError.code === 'PGRST116' || 
+                                     attachmentError.message?.includes('404') || 
+                                     attachmentError.message?.includes('does not exist');
+              
+              const isColumnMissing = attachmentError.code === 'PGRST204' ||
+                                      attachmentError.message?.includes('Could not find') ||
+                                      attachmentError.message?.includes('column');
+              
+              if (isTableMissing || isColumnMissing) {
+                // Tabela não existe ou coluna não encontrada
+                if (!(window as any).__consultationAttachmentsTableMissing) {
+                  const errorMsg = isColumnMissing 
+                    ? 'Schema da tabela consultation_attachments incompatível. Verifique se a migration foi executada corretamente.'
+                    : 'Tabela consultation_attachments não encontrada. Execute a migration 20250125000011_consultation_attachments.sql';
+                  
+                  logger.error('[MEDICAL_RECORD] Erro ao salvar anexo:', {
+                    error: attachmentError.message,
+                    code: attachmentError.code,
+                    message: errorMsg,
+                  });
+                  toast.error('Erro ao salvar foto no banco. Foto enviada para storage mas não salva. Verifique o schema da tabela.');
+                  (window as any).__consultationAttachmentsTableMissing = true;
+                }
+                // Foto foi enviada para storage, mas não foi salva no DB
+                // Continuar sem salvar no banco
+              } else {
+                // Outro tipo de erro - logar e adicionar à lista de falhas
+                if (!failedUploads.includes(photo.file.name)) {
+                  logger.error('[MEDICAL_RECORD] Erro ao salvar anexo no banco:', {
+                    error: attachmentError.message,
+                    code: attachmentError.code,
+                    fileName: photo.file.name,
+                  });
+                  toast.error(`Erro ao salvar ${photo.file.name}: ${attachmentError.message}`);
+                }
+                failedUploads.push(photo.file.name);
+              }
+            } else if (insertedAttachment) {
+              uploadedPaths.push(path);
+              
+              // Cachear URL visualizável (já foi gerada acima)
+              if (viewableUrl) {
+                setImageUrls(prev => ({
+                  ...prev,
+                  [insertedAttachment.id]: viewableUrl!,
+                }));
+              } else {
+                // Se não tiver URL, tentar gerar novamente
+                try {
+                  const generatedUrl = await getViewableUrl(
+                    STORAGE_BUCKETS.CONSULTATION_ATTACHMENTS,
+                    path,
+                    3600 // 1 hora
+                  );
+                  setImageUrls(prev => ({
+                    ...prev,
+                    [insertedAttachment.id]: generatedUrl,
+                  }));
+                } catch (urlError) {
+                  logger.warn('[MEDICAL_RECORD] Erro ao gerar signed URL:', urlError);
+                  // Usar file_url do banco se disponível
+                  if (insertedAttachment.file_url) {
+                    setImageUrls(prev => ({
+                      ...prev,
+                      [insertedAttachment.id]: insertedAttachment.file_url,
+                    }));
+                  }
+                }
+              }
+            }
+          } catch (uploadError: any) {
+            // Log apenas uma vez por arquivo
+            if (!failedUploads.includes(photo.file.name)) {
+              logger.error('[MEDICAL_RECORD] Erro ao fazer upload da foto:', uploadError);
+            }
+            failedUploads.push(photo.file.name);
+            
+            // ⚠️ ESTRATÉGIA: Se upload falhar (especialmente BUCKET_NOT_FOUND), deletar consulta e bloquear
+            // Nota: Bucket já existe, então esse erro não deve ocorrer, mas mantemos o tratamento
+            if (uploadError.message?.includes('BUCKET_NOT_FOUND') || 
+                uploadError.message?.includes('Bucket not found')) {
+              // Deletar consulta criada (rollback)
+              try {
+                await supabase
+                  .from('consultations')
+                  .delete()
+                  .eq('id', consultationData.id);
+              } catch (deleteError) {
+                logger.error('[MEDICAL_RECORD] Erro ao fazer rollback (deletar consulta):', deleteError);
+              }
+              
+              toast.error(`Não foi possível enviar a(s) foto(s). ${uploadError.message || 'Verifique a configuração do storage.'} A consulta não foi salva.`);
+              setSaving(false);
+              return; // Bloquear salvamento
+            }
+            
+            // Outros erros de upload - avisar mas não bloquear salvamento da consulta
+            toast.error(`Erro ao fazer upload de ${photo.file.name}: ${uploadError.message || 'Erro desconhecido'}`);
           }
-        ])
-        .select()
-        .single();
+        }
 
-      if (error) throw error;
+        // Se algum upload falhou (mas não foi erro de bucket), avisar mas manter consulta
+        if (failedUploads.length > 0 && failedUploads.length < consultationPhotos.length) {
+          toast.error(`Algumas fotos não puderam ser enviadas: ${failedUploads.join(', ')}`);
+        }
 
-      setConsultations(prev => [data, ...prev]);
+        // Recarregar todos os anexos da consulta (incluindo os recém-criados)
+        // Isso garante que os anexos apareçam imediatamente após salvar
+        const tableMissingCheck = (window as any).__consultationAttachmentsTableMissing;
+        if (!tableMissingCheck) {
+          const { data: savedAttachments, error: reloadError } = await supabase
+            .from('consultation_attachments')
+            .select('*')
+            .eq('consultation_id', consultationData.id)
+            .order('created_at', { ascending: false });
+          
+          // Se erro 404 ou PGRST204 (tabela/coluna não existe), apenas continuar sem anexos
+          if (reloadError) {
+            if (reloadError.code === 'PGRST116' || 
+                reloadError.code === 'PGRST204' ||
+                reloadError.message?.includes('404') || 
+                reloadError.message?.includes('does not exist') ||
+                reloadError.message?.includes('Could not find')) {
+              // Tabela não existe ou coluna não encontrada - marcar e continuar
+              const wasMissing = (window as any).__consultationAttachmentsTableMissing;
+              (window as any).__consultationAttachmentsTableMissing = true;
+              if (!wasMissing) {
+                logger.warn('[MEDICAL_RECORD] Tabela consultation_attachments não encontrada ou schema incompatível. Execute a migration 20250125000011_consultation_attachments.sql');
+              }
+            } else {
+              logger.error('[MEDICAL_RECORD] Erro ao recarregar anexos:', reloadError);
+            }
+          } else if (savedAttachments && savedAttachments.length > 0) {
+            // Atualizar state com anexos salvos
+            setConsultationAttachments(prev => ({
+              ...prev,
+              [consultationData.id]: savedAttachments,
+            }));
+            
+            // Gerar signed URLs para todos os anexos (apenas os que ainda não têm URL cacheada)
+            const urlsMap: Record<string, string> = {};
+            for (const attachment of savedAttachments) {
+              // Se já tem URL cacheada, usar ela
+              if (imageUrls[attachment.id]) {
+                urlsMap[attachment.id] = imageUrls[attachment.id];
+                continue;
+              }
+              
+              // Gerar signed URL para o anexo
+              // Usar 'path' se existir, senão 'file_path', senão 'file_url'
+              const pathToUse = (attachment as any).path || attachment.file_path || attachment.file_url || '';
+              if (pathToUse) {
+                try {
+                  const viewableUrl = await getViewableUrl(
+                    STORAGE_BUCKETS.CONSULTATION_ATTACHMENTS,
+                    pathToUse,
+                    3600 // 1 hora
+                  );
+                  urlsMap[attachment.id] = viewableUrl;
+                } catch (error) {
+                  // Fallback para file_url se signed URL falhar
+                  urlsMap[attachment.id] = attachment.file_url || '';
+                }
+              } else {
+                urlsMap[attachment.id] = attachment.file_url || '';
+              }
+            }
+            setImageUrls(prev => ({ ...prev, ...urlsMap }));
+          }
+        }
+      }
+
+      // Se não estava editando, adicionar nova consulta no início da lista
+      if (!editingConsultationId) {
+        setConsultations(prev => [consultationData, ...prev]);
+      }
+      
+      // Mensagem de sucesso (com contagem de fotos)
+      const photosCount = consultationPhotos.length;
+      if (photosCount > 0) {
+        toast.success(`${editingConsultationId ? 'Consulta atualizada' : 'Consulta registrada'} com sucesso! ${photosCount} foto${photosCount > 1 ? 's' : ''} anexada${photosCount > 1 ? 's' : ''}.`);
+      } else if (!editingConsultationId) {
+        // Só mostrar mensagem simples se não estava editando e não tinha fotos
+        toast.success('Consulta registrada com sucesso!');
+      }
+
+      // Limpar formulário e resetar estado
       setNewConsultation({
         date: new Date().toISOString().split('T')[0],
         reason: '',
@@ -160,15 +629,95 @@ const MedicalRecordScreen: React.FC = () => {
         diagnosis: '',
         treatment: '',
         notes: '',
-        next_appointment: ''
+        next_appointment: null,
       });
-      
-      toast.success('Consulta registrada com sucesso!');
-    } catch (error) {
-      logger.error('[MEDICAL_RECORD] Erro ao salvar consulta:', error);
-      toast.error('Erro ao registrar consulta');
+      setConsultationPhotos([]);
+      setEditingConsultationId(null);
+
+      // Recarregar consultas para atualizar lista
+      await loadPatientAndRecord();
+    } catch (error: any) {
+      // Ignorar erro do Chrome Extension (não-bloqueante)
+      if (error?.message?.includes('message channel closed') || 
+          error?.message?.includes('listener indicated an asynchronous response')) {
+        // Erro do Chrome Extension - não afeta a funcionalidade, apenas logar em debug
+        logger.debug('[MEDICAL_RECORD] Erro do Chrome Extension ignorado:', error.message);
+        // Continuar normalmente - não mostrar erro ao usuário
+      } else {
+        logger.error('[MEDICAL_RECORD] Erro ao salvar consulta:', error);
+        toast.error(`Erro ao ${editingConsultationId ? 'atualizar' : 'registrar'} consulta: ${error.message}`);
+      }
     } finally {
       setSaving(false);
+    }
+  };
+
+  // Função para excluir consulta (chamada pelo modal de confirmação)
+  const confirmDeleteConsultation = async () => {
+    if (!deleteConsultationModal.consultationId) return;
+
+    setDeleteConsultationModal(prev => ({ ...prev, isLoading: true }));
+
+    try {
+      // Deletar anexos primeiro (se existirem)
+      const attachments = consultationAttachments[deleteConsultationModal.consultationId] || [];
+      if (attachments.length > 0) {
+        for (const attachment of attachments) {
+          const pathToDelete = (attachment as any).path || attachment.file_path;
+          if (pathToDelete) {
+            try {
+              await deleteFile(STORAGE_BUCKETS.CONSULTATION_ATTACHMENTS, pathToDelete);
+            } catch (deleteError) {
+              logger.warn('[MEDICAL_RECORD] Erro ao deletar arquivo do storage:', deleteError);
+              // Continuar mesmo se falhar (pode ser que o arquivo já não exista)
+            }
+          }
+        }
+      }
+
+      // Deletar anexos do banco (se tabela existir)
+      try {
+        await supabase
+          .from('consultation_attachments')
+          .delete()
+          .eq('consultation_id', deleteConsultationModal.consultationId);
+      } catch (attachmentError: any) {
+        // Ignorar se tabela não existir
+        if (attachmentError.code !== 'PGRST116' && !attachmentError.message?.includes('404')) {
+          logger.warn('[MEDICAL_RECORD] Erro ao deletar anexos do banco:', attachmentError);
+        }
+      }
+
+      // Deletar consulta
+      const { error } = await supabase
+        .from('consultations')
+        .delete()
+        .eq('id', deleteConsultationModal.consultationId);
+
+      if (error) throw error;
+
+      toast.success('Consulta excluída com sucesso!');
+
+      // Limpar estados relacionados
+      setConsultationAttachments(prev => {
+        const updated = { ...prev };
+        delete updated[deleteConsultationModal.consultationId!];
+        return updated;
+      });
+
+      // Recarregar consultas
+      await loadPatientAndRecord();
+
+      // Fechar modal
+      setDeleteConsultationModal({
+        isOpen: false,
+        consultationId: null,
+        isLoading: false,
+      });
+    } catch (error: any) {
+      logger.error('[MEDICAL_RECORD] Erro ao excluir consulta:', error);
+      toast.error(`Erro ao excluir consulta: ${error.message}`);
+      setDeleteConsultationModal(prev => ({ ...prev, isLoading: false }));
     }
   };
 
@@ -182,55 +731,141 @@ const MedicalRecordScreen: React.FC = () => {
     });
   };
 
-  const loadConsentTemplate = async (procedureKey: string) => {
-    try {
-      setTemplateNotFound(false);
-      
-      // Buscar template por procedure_key (slug)
-      const template = await getConsentTemplateByProcedureKey(procedureKey);
-      
-      if (!template) {
-        setTemplateNotFound(true);
-        setConsentTemplate(null);
-        return;
-      }
-
-      setConsentTemplate(template);
-      setTemplateNotFound(false);
-      
-      // Preencher template inicial
-      if (patient) {
-        const result = fillConsentTemplate(
-          template,
-          {
-            name: patient.name,
-            cpf: patient.cpf,
-            birth_date: patient.birth_date,
-          },
-          professional ? {
-            name: professional.name,
-            license: professional.license,
-          } : null,
-          selectedProcedureForConsent || undefined,
-          new Date(), // signed_at será atualizado no momento do salvamento
-          consentFormData.imageAuthorization !== null ? consentFormData.imageAuthorization : undefined
-        );
-
-        if (result.ok && result.filledContent) {
-          setConsentFormData(prev => ({ ...prev, filledContent: result.filledContent! }));
-          setFillResult(null);
-          setShowProfessionalConfig(false);
-        } else {
-          // Faltam dados do profissional
-          setFillResult(result);
-          setShowProfessionalConfig(true);
-          setConsentFormData(prev => ({ ...prev, filledContent: result.previewContent || template.content }));
-        }
-      }
-    } catch (error) {
-      logger.error('[CONSENT] Erro ao carregar template:', error);
-      toast.error('Erro ao carregar template de consentimento');
+  /**
+   * Carregar termo de consentimento pelo procedureKey
+   * Usa APENAS o novo sistema de termos (src/termos/)
+   */
+  const loadConsentTerm = (procedureKey: string) => {
+    if (!procedureKey) {
       setTemplateNotFound(true);
+      setConsentTemplate(null);
+      return;
+    }
+
+    // Obter termo do registry
+    const termo = getTermByProcedureKey(procedureKey);
+    
+    if (!termo) {
+      setTemplateNotFound(true);
+      setConsentTemplate(null);
+      return;
+    }
+
+    setTemplateNotFound(false);
+    
+    // Renderizar termo com dados disponíveis
+    if (patient) {
+      const termoContext: TermoContext = {
+        patient: {
+          name: patient.name,
+          cpf: patient.cpf,
+          birth_date: patient.birth_date,
+        },
+        professional: professional ? {
+          name: professional.name,
+          license: professional.license,
+        } : {
+          name: '',
+          license: '',
+        },
+        signedAt: new Date(),
+        procedureLabel: selectedProcedureLabel || getProcedureDisplayName(procedureKey),
+        imageAuthorization: consentFormData.imageAuthorization === true,
+      };
+
+      const termoResult = termo.render(termoContext);
+      
+      // Criar template fake para compatibilidade com código existente
+      const fakeTemplate = {
+        id: '',
+        procedure_key: procedureKey,
+        title: termoResult.title, // Usar título renderizado
+        content: '', // Não usar mais
+        created_at: '',
+      };
+      
+      setConsentTemplate(fakeTemplate);
+      
+      if (termoResult.missingFields.length > 0) {
+        // Faltam dados obrigatórios
+        setFillResult({
+          ok: false,
+          previewContent: termoResult.content,
+          missingFields: termoResult.missingFields,
+        });
+        setShowProfessionalConfig(true);
+        setConsentFormData(prev => ({ ...prev, filledContent: termoResult.content }));
+      } else {
+        // Tudo preenchido
+        setConsentFormData(prev => ({ ...prev, filledContent: termoResult.content }));
+        setFillResult(null);
+        setShowProfessionalConfig(false);
+      }
+    } else {
+      // Criar template fake mesmo sem paciente (para exibir título)
+      // Renderizar termo mínimo para obter título
+      const termoContext: TermoContext = {
+        patient: {
+          name: '',
+          cpf: '',
+          birth_date: '',
+        },
+        professional: {
+          name: '',
+          license: '',
+        },
+        signedAt: new Date(),
+        procedureLabel: selectedProcedureLabel || getProcedureDisplayName(procedureKey),
+        imageAuthorization: false,
+      };
+      const termoResult = termo.render(termoContext);
+      
+      const fakeTemplate = {
+        id: '',
+        procedure_key: procedureKey,
+        title: termoResult.title,
+        content: '',
+        created_at: '',
+      };
+      setConsentTemplate(fakeTemplate);
+    }
+  };
+
+  /**
+   * Atualizar preview do termo quando dados mudam
+   */
+  const updateTermoPreview = (imageAuth: boolean | null): void => {
+    if (!patient || !professional || !selectedProcedureForConsent) {
+      return;
+    }
+
+    const termo = getTermByProcedureKey(selectedProcedureForConsent);
+    if (!termo) {
+      return;
+    }
+
+    const termoContext: TermoContext = {
+      patient: {
+        name: patient.name,
+        cpf: patient.cpf,
+        birth_date: patient.birth_date,
+      },
+      professional: {
+        name: professional.name,
+        license: professional.license,
+      },
+      signedAt: new Date(),
+      procedureLabel: selectedProcedureLabel || getProcedureDisplayName(selectedProcedureForConsent),
+      imageAuthorization: imageAuth === true,
+    };
+    
+    const termoResult = termo.render(termoContext);
+    
+    if (termoResult.missingFields.length === 0) {
+      setConsentFormData(prev => ({ ...prev, filledContent: termoResult.content }));
+    } else {
+      // Mesmo com campos faltantes, mostrar preview
+      setConsentFormData(prev => ({ ...prev, filledContent: termoResult.content }));
     }
   };
 
@@ -262,29 +897,9 @@ const MedicalRecordScreen: React.FC = () => {
       // Recarregar profissional
       await refreshProfessional();
       
-      // Tentar preencher template novamente
-      if (patient && consentTemplate) {
-        const result = fillConsentTemplate(
-          consentTemplate,
-          {
-            name: patient.name,
-            cpf: patient.cpf,
-            birth_date: patient.birth_date,
-          },
-          {
-            name: updatedProfessional.name,
-            license: updatedProfessional.license,
-          },
-          selectedProcedureForConsent || undefined,
-          new Date(),
-          consentFormData.imageAuthorization !== null ? consentFormData.imageAuthorization : undefined
-        );
-
-        if (result.ok && result.filledContent) {
-          setConsentFormData(prev => ({ ...prev, filledContent: result.filledContent! }));
-          setFillResult(null);
-          setShowProfessionalConfig(false);
-        }
+      // Recarregar termo com dados atualizados do profissional
+      if (selectedProcedureForConsent) {
+        loadConsentTerm(selectedProcedureForConsent);
       }
     } catch (error) {
       logger.error('[MEDICAL_RECORD] Erro ao salvar perfil profissional:', error);
@@ -292,13 +907,64 @@ const MedicalRecordScreen: React.FC = () => {
     }
   };
 
+  /**
+   * Criar template no banco (fallback para procedimentos sem termo no registry)
+   * Este método só é usado se o procedimento não tiver termo no novo sistema
+   */
   const handleCreateTemplate = async () => {
     if (!selectedProcedureForConsent || !selectedProcedureLabel) {
       toast.error('Selecione um procedimento primeiro');
       return;
     }
 
+    // Verificar se já existe termo no novo sistema
+    if (hasTermo(selectedProcedureForConsent)) {
+      loadConsentTerm(selectedProcedureForConsent);
+      return;
+    }
+
     try {
+      // Verificar se já existe template no banco
+      const existingTemplate = await getConsentTemplateByProcedureKey(selectedProcedureForConsent);
+      
+      if (existingTemplate) {
+        // Template já existe, usar ele
+        setConsentTemplate(existingTemplate);
+        setTemplateNotFound(false);
+        
+        // Preencher template inicial usando sistema antigo
+        if (patient) {
+          const result = fillConsentTemplate(
+            existingTemplate,
+            {
+              name: patient.name,
+              cpf: patient.cpf,
+              birth_date: patient.birth_date,
+            },
+            professional ? {
+              name: professional.name,
+              license: professional.license,
+            } : null,
+            selectedProcedureForConsent || undefined,
+            new Date(),
+            consentFormData.imageAuthorization !== null ? consentFormData.imageAuthorization : undefined
+          );
+
+          if (result.ok && result.filledContent) {
+            setConsentFormData(prev => ({ ...prev, filledContent: result.filledContent! }));
+            setFillResult(null);
+            setShowProfessionalConfig(false);
+          } else {
+            setFillResult(result);
+            setShowProfessionalConfig(true);
+            setConsentFormData(prev => ({ ...prev, filledContent: result.previewContent || existingTemplate.content }));
+          }
+        }
+        
+        toast.success('Template carregado com sucesso!');
+        return;
+      }
+
       // Gerar conteúdo padrão do termo (limpo e profissional)
       const defaultContent = `TERMO DE CONSENTIMENTO LIVRE E ESCLARECIDO
 
@@ -306,7 +972,7 @@ Eu, {{patient_name}}, CPF {{patient_cpf}}, nascido(a) em {{patient_birth_date}},
 
 PROFISSIONAL RESPONSÁVEL:
 Nome: {{professional_name}}
-Coren: {{professional_license}}
+Registro profissional: {{professional_license_formatted}}
 
 INFORMAÇÕES SOBRE O PROCEDIMENTO:
 - O procedimento será realizado conforme protocolo estabelecido
@@ -314,11 +980,11 @@ INFORMAÇÕES SOBRE O PROCEDIMENTO:
 - O resultado pode variar de acordo com cada paciente
 
 AUTORIZAÇÃO DE USO DE IMAGEM:
-{{image_authorization_text}}
+{{image_authorization_checkbox}}
 
 Data: {{signed_at}}`;
 
-      // Criar template
+      // Criar template no banco (fallback)
       const newTemplate = await createConsentTemplate({
         procedure_key: selectedProcedureForConsent,
         title: `Termo de Consentimento - ${selectedProcedureLabel}`,
@@ -327,11 +993,11 @@ Data: {{signed_at}}`;
 
       toast.success('Template criado com sucesso!');
       
-      // Recarregar template e abrir modal de assinatura
+      // Recarregar template
       setConsentTemplate(newTemplate);
       setTemplateNotFound(false);
       
-      // Preencher template inicial
+      // Preencher template inicial usando sistema antigo
       if (patient) {
         const result = fillConsentTemplate(
           newTemplate,
@@ -345,7 +1011,7 @@ Data: {{signed_at}}`;
             license: professional.license,
           } : null,
           selectedProcedureForConsent || undefined,
-          new Date(), // signed_at será atualizado no momento do salvamento
+          new Date(),
           consentFormData.imageAuthorization !== null ? consentFormData.imageAuthorization : undefined
         );
 
@@ -354,84 +1020,79 @@ Data: {{signed_at}}`;
           setFillResult(null);
           setShowProfessionalConfig(false);
         } else {
-          // Faltam dados do profissional
           setFillResult(result);
           setShowProfessionalConfig(true);
           setConsentFormData(prev => ({ ...prev, filledContent: result.previewContent || newTemplate.content }));
         }
       }
-    } catch (error) {
-      logger.error('[CONSENT] Erro ao criar template:', error);
-      toast.error('Erro ao criar template de consentimento');
+    } catch (error: any) {
+      // Se erro for de constraint única, significa que template já existe
+      if (error?.message?.includes('duplicate key') || error?.message?.includes('unique constraint')) {
+        // Tentar buscar template existente
+        try {
+          const existingTemplate = await getConsentTemplateByProcedureKey(selectedProcedureForConsent);
+          if (existingTemplate) {
+            setConsentTemplate(existingTemplate);
+            setTemplateNotFound(false);
+            toast.success('Template já existe e foi carregado');
+            return;
+          }
+        } catch (fetchError) {
+          // Ignorar erro de busca
+        }
+      }
+      
+      toast.error(`Erro ao criar template: ${error?.message || 'Erro desconhecido'}`);
     }
   };
 
   const handleSaveConsentForm = async () => {
-    // Validações específicas com feedback claro
-    const validationState = {
-      selectedProcedureForConsent,
-      consentTemplate: !!consentTemplate,
-      patient: !!patient,
-      professional: !!professional,
-      user: !!user,
-      imageAuthorization: consentFormData.imageAuthorization,
-      patientSignature: !!consentFormData.patientSignature,
-      professionalSignature: !!consentFormData.professionalSignature,
-    };
-
     // 1. Validar procedimento selecionado
     if (!selectedProcedureForConsent) {
-      logger.warn('[CONSENT] validation failed: procedure not selected', validationState);
       toast.error('Selecione um procedimento');
       return;
     }
 
-    // 2. Validar template carregado
-    if (!consentTemplate) {
-      logger.warn('[CONSENT] validation failed: template not loaded', validationState);
-      toast.error('Template de consentimento não carregado. Tente novamente.');
-      return;
-    }
-
-    // 3. Validar paciente
+    // 2. Validar paciente
     if (!patient) {
-      logger.warn('[CONSENT] validation failed: patient not loaded', validationState);
       toast.error('Dados do paciente não carregados');
       return;
     }
 
-    // 4. Validar profissional
+    // 3. Validar profissional
     if (!professional) {
-      logger.warn('[CONSENT] validation failed: professional not loaded', validationState);
       toast.error('Dados do profissional não carregados. Configure seu perfil profissional.');
       return;
     }
 
-    // 5. Validar usuário autenticado
+    // 4. Validar usuário autenticado
     if (!user) {
-      logger.warn('[CONSENT] validation failed: user not authenticated', validationState);
       toast.error('Usuário não autenticado');
       return;
     }
 
-    // 6. Validar autorização de imagem (obrigatório)
+    // 5. Validar autorização de imagem (obrigatório)
     if (consentFormData.imageAuthorization === null) {
-      logger.warn('[CONSENT] validation failed: image authorization not selected', validationState);
       toast.error('Selecione uma opção de autorização de imagem (AUTORIZO ou NÃO AUTORIZO)');
       return;
     }
 
-    // 7. Validar assinatura do paciente
+    // 6. Validar assinatura do paciente
     if (!consentFormData.patientSignature) {
-      logger.warn('[CONSENT] validation failed: patient signature missing', validationState);
       toast.error('Assinatura do paciente é obrigatória. Por favor, assine o termo.');
       return;
     }
 
-    // 8. Validar assinatura do profissional
+    // 7. Validar assinatura do profissional
     if (!consentFormData.professionalSignature) {
-      logger.warn('[CONSENT] validation failed: professional signature missing', validationState);
       toast.error('Assinatura do profissional é obrigatória. Por favor, assine o termo.');
+      return;
+    }
+
+    // 8. Obter termo do novo sistema
+    const termo = getTermByProcedureKey(selectedProcedureForConsent);
+    if (!termo) {
+      toast.error(`Termo de consentimento não encontrado para o procedimento: ${selectedProcedureLabel || selectedProcedureForConsent}`);
       return;
     }
 
@@ -441,22 +1102,12 @@ Data: {{signed_at}}`;
       // Garantir que existe profissional padrão com license preenchido
       let professionalToUse = professional;
       if (!professional || !professional.license || professional.license.trim() === '') {
-        logger.debug('[CONSENT] Ensuring default professional profile', {
-          hasProfessional: !!professional,
-          hasLicense: !!professional?.license,
-        });
-
         try {
           professionalToUse = await ensureDefaultProfessionalProfile({
             id: user.id,
             email: user.email || undefined,
           });
-          logger.debug('[CONSENT] Default professional profile ensured', {
-            name: professionalToUse.name,
-            license: professionalToUse.license,
-          });
         } catch (error: any) {
-          logger.error('[CONSENT] Failed to ensure default professional', error);
           toast.error('Erro ao garantir perfil profissional. Tente novamente.');
           setSaving(false);
           return;
@@ -464,8 +1115,7 @@ Data: {{signed_at}}`;
       }
 
       // Upload das assinaturas
-      // ⚠️ ATUALIZADO: uploadSignature agora retorna PATH, não URL
-      const visitId = `temp-${Date.now()}`; // ID temporário para organização no storage
+      const visitId = `temp-${Date.now()}`;
       
       let patientSignaturePath: string;
       let professionalSignaturePath: string;
@@ -496,11 +1146,10 @@ Data: {{signed_at}}`;
         throw error;
       }
 
-      // Gerar content_snapshot final com signed_at atualizado
+      // Gerar termo final usando novo sistema
       const signedAt = new Date();
       
-      // Log do contexto antes de gerar (apenas em DEV)
-      logger.debug('[CONSENT] Generating final content with context', {
+      const termoContext: TermoContext = {
         patient: {
           name: patient.name,
           cpf: patient.cpf,
@@ -510,110 +1159,68 @@ Data: {{signed_at}}`;
           name: professionalToUse.name,
           license: professionalToUse.license,
         },
-        procedureKey: selectedProcedureForConsent,
-        procedureLabel: selectedProcedureLabel,
-        imageAuthorization: consentFormData.imageAuthorization,
-        signedAt: signedAt.toISOString(),
-      });
-
-      const finalResult = fillConsentTemplate(
-        consentTemplate,
-        {
-          name: patient.name,
-          cpf: patient.cpf,
-          birth_date: patient.birth_date,
-        },
-        {
-          name: professionalToUse.name,
-          license: professionalToUse.license,
-        },
-        selectedProcedureForConsent || undefined,
         signedAt,
-        consentFormData.imageAuthorization
-      );
+        procedureLabel: selectedProcedureLabel || getProcedureDisplayName(selectedProcedureForConsent),
+        imageAuthorization: consentFormData.imageAuthorization === true,
+      };
 
-      if (!finalResult.ok || !finalResult.filledContent) {
-        const missingFields = finalResult.missingFields || [];
+      const termoResult = termo.render(termoContext);
+
+      // Validar campos faltantes
+      if (termoResult.missingFields.length > 0) {
         const missingFieldsLabels: Record<string, string> = {
-          'template_content_missing': 'Conteúdo do template',
           'patient_name': 'Nome do paciente',
           'patient_cpf': 'CPF do paciente',
           'patient_birth_date': 'Data de nascimento do paciente',
           'professional_name': 'Nome do profissional',
           'professional_license': 'Registro do profissional',
-          'procedure_key': 'Procedimento selecionado',
-          'procedure_name': 'Nome do procedimento',
+          'signed_at': 'Data de assinatura',
           'image_authorization': 'Autorização de imagem',
-          'filled_content_empty': 'Conteúdo final vazio',
+          'procedure_label': 'Nome do procedimento',
         };
 
-        const missingLabels = missingFields.map(field => missingFieldsLabels[field] || field);
-        const errorMessage = missingLabels.length > 0
-          ? `Não foi possível salvar o termo. Faltando: ${missingLabels.join(', ')}`
-          : 'Erro ao gerar conteúdo final do termo';
-
-        logger.error('[CONSENT] missingFields:', missingFields);
-        logger.error('[CONSENT] missingLabels:', missingLabels);
-        logger.error('[CONSENT] Failed to generate final content', {
-          ok: finalResult.ok,
-          filledContent: !!finalResult.filledContent,
-          missingFields,
-          missingLabels,
-          context: {
-            patient: {
-              name: patient?.name,
-              cpf: patient?.cpf,
-              birth_date: patient?.birth_date,
-            },
-            professional: {
-              name: professional?.name,
-              license: professional?.license,
-            },
-            procedureKey: selectedProcedureForConsent,
-            procedureLabel: selectedProcedureLabel,
-            imageAuthorization: consentFormData.imageAuthorization,
-          },
-        });
+        const missingLabels = termoResult.missingFields.map(field => missingFieldsLabels[field] || field);
+        const errorMessage = `Não foi possível salvar o termo. Campos faltando: ${missingLabels.join(', ')}`;
         
         toast.error(errorMessage, { duration: 8000 });
         setSaving(false);
         return;
       }
 
-      // Criar consent_form diretamente (visit_procedure_id pode ser null)
+      if (!termoResult.content || termoResult.content.trim() === '') {
+        toast.error('Erro ao gerar conteúdo final do termo');
+        setSaving(false);
+        return;
+      }
+
+      const finalContent = termoResult.content;
+
+      // Criar consent_form com snapshot do termo completo
       const { data: consentData, error: consentError } = await supabase
         .from('consent_forms')
         .insert([
           {
-            visit_procedure_id: null, // Permite criar termo sem visit_procedure
+            visit_procedure_id: null,
             procedure_key: selectedProcedureForConsent, // procedure_key (slug) do procedimento
-            template_id: consentTemplate.id,
-            content_snapshot: finalResult.filledContent, // Usar content_snapshot com signed_at atualizado
-            filled_content: finalResult.filledContent, // Manter por compatibilidade se existir
-            patient_signature_url: patientSignaturePath, // ⚠️ Agora é PATH, não URL
-            professional_signature_url: professionalSignaturePath, // ⚠️ Agora é PATH, não URL
+            template_id: null, // Não usar mais template_id do banco
+            content_snapshot: finalContent, // Texto completo do termo renderizado
+            filled_content: finalContent, // Manter por compatibilidade
+            patient_signature_url: patientSignaturePath,
+            professional_signature_url: professionalSignaturePath,
             image_authorization: consentFormData.imageAuthorization,
-            signed_location: '', // Não usar mais, mas manter campo
+            signed_location: '',
             signed_at: signedAt.toISOString(),
             patient_id: patient.id,
-            professional_id: professionalToUse.id, // Usa o id da tabela professionals (UUID)
+            professional_id: professionalToUse.id,
           },
         ])
         .select()
         .single();
 
       if (consentError) {
-        logger.error('[CONSENT] Database error', consentError);
         throw consentError;
       }
 
-      logger.debug('[CONSENT] Successfully saved', {
-        consentId: consentData.id,
-        procedureKey: selectedProcedureForConsent,
-        imageAuthorization: consentFormData.imageAuthorization,
-      });
-
-      // Atualizar lista
       // Recarregar lista de termos
       const updatedConsents = await getConsentFormsByPatient(patient.id);
       setConsentForms(updatedConsents);
@@ -624,21 +1231,19 @@ Data: {{signed_at}}`;
       setSelectedProcedureLabel(null);
       setConsentTemplate(null);
       setTemplateNotFound(false);
-        setConsentFormData({
-          imageAuthorization: null,
-          location: '',
-          date: new Date().toLocaleDateString('pt-BR'),
-          patientSignature: null,
-          professionalSignature: null,
-          filledContent: '',
-        });
+      setConsentFormData({
+        imageAuthorization: null,
+        location: '',
+        date: new Date().toLocaleDateString('pt-BR'),
+        patientSignature: null,
+        professionalSignature: null,
+        filledContent: '',
+      });
 
       toast.success('Termo de consentimento salvo com sucesso!');
     } catch (error: any) {
-      logger.error('[CONSENT] Save error', error);
       const errorMessage = error?.message || 'Erro desconhecido ao salvar termo';
       
-      // Mensagens específicas para erros comuns
       if (errorMessage.includes('Bucket not found')) {
         toast.error('Bucket de storage não encontrado. Verifique a configuração do Supabase.');
       } else if (errorMessage.includes('null value')) {
@@ -965,12 +1570,14 @@ Data: {{signed_at}}`;
                       selectedProcedures={selectedProcedureForConsent ? [selectedProcedureForConsent] : []}
                       onSelectionChange={(keys) => {
                         if (keys.length > 0) {
+                          // keys[0] já é o canonicalKey (normalizado em getProcedures)
                           setSelectedProcedureForConsent(keys[0]);
-                          loadConsentTemplate(keys[0]);
+                          loadConsentTerm(keys[0]);
                         }
                       }}
                       onProcedureSelect={(procedure) => {
-                        setSelectedProcedureLabel(procedure.procedure_type);
+                        // procedure.value já é o canonicalKey
+                        setSelectedProcedureLabel(procedure.label); // Usar label canônico
                       }}
                       multiSelect={false}
                     />
@@ -1041,33 +1648,8 @@ Data: {{signed_at}}`;
                               checked={consentFormData.imageAuthorization === true}
                               onChange={(e) => {
                                 const newAuth = e.target.value === 'true' ? true : false;
-                                setConsentFormData(prev => {
-                                  const updated = { ...prev, imageAuthorization: newAuth };
-                                  
-                                  // Atualizar preview do termo
-                                  if (patient && consentTemplate && professional) {
-                                    const result = fillConsentTemplate(
-                                      consentTemplate,
-                                      {
-                                        name: patient.name,
-                                        cpf: patient.cpf,
-                                        birth_date: patient.birth_date,
-                                      },
-                                      {
-                                        name: professional.name,
-                                        license: professional.license,
-                                      },
-                                      selectedProcedureForConsent || undefined,
-                                      new Date(),
-                                      newAuth
-                                    );
-                                    if (result.ok && result.filledContent) {
-                                      updated.filledContent = result.filledContent;
-                                    }
-                                  }
-                                  
-                                  return updated;
-                                });
+                                setConsentFormData(prev => ({ ...prev, imageAuthorization: newAuth }));
+                                updateTermoPreview(newAuth);
                               }}
                               className="mt-1 w-5 h-5 border-white/20 bg-white/5 text-cyan-500 focus:ring-cyan-500 focus:ring-2"
                             />
@@ -1091,33 +1673,8 @@ Data: {{signed_at}}`;
                               checked={consentFormData.imageAuthorization === false}
                               onChange={(e) => {
                                 const newAuth = e.target.value === 'true' ? true : false;
-                                setConsentFormData(prev => {
-                                  const updated = { ...prev, imageAuthorization: newAuth };
-                                  
-                                  // Atualizar preview do termo
-                                  if (patient && consentTemplate && professional) {
-                                    const result = fillConsentTemplate(
-                                      consentTemplate,
-                                      {
-                                        name: patient.name,
-                                        cpf: patient.cpf,
-                                        birth_date: patient.birth_date,
-                                      },
-                                      {
-                                        name: professional.name,
-                                        license: professional.license,
-                                      },
-                                      selectedProcedureForConsent || undefined,
-                                      new Date(),
-                                      newAuth
-                                    );
-                                    if (result.ok && result.filledContent) {
-                                      updated.filledContent = result.filledContent;
-                                    }
-                                  }
-                                  
-                                  return updated;
-                                });
+                                setConsentFormData(prev => ({ ...prev, imageAuthorization: newAuth }));
+                                updateTermoPreview(newAuth);
                               }}
                               className="mt-1 w-5 h-5 border-white/20 bg-white/5 text-cyan-500 focus:ring-cyan-500 focus:ring-2"
                             />
@@ -1217,25 +1774,52 @@ Data: {{signed_at}}`;
 
         {activeTab === 'consultas' && (
           <div className="space-y-6">
-            {/* Nova Consulta */}
-            <div className="glass-card p-6 border border-white/10">
-              <h3 className="text-lg font-semibold glow-text mb-4 flex items-center space-x-2">
-                <Plus size={20} className="text-cyan-400" />
-                <span>Nova Consulta</span>
-              </h3>
+            {/* Nova Consulta / Editar Consulta */}
+            <div id="consultation-form" className="glass-card p-6 border border-white/10">
+              <div className="flex justify-between items-center mb-4">
+                <h3 className="text-lg font-semibold glow-text flex items-center space-x-2">
+                  {editingConsultationId ? (
+                    <>
+                      <Edit size={20} className="text-cyan-400" />
+                      <span>Editar Consulta</span>
+                    </>
+                  ) : (
+                    <>
+                      <Plus size={20} className="text-cyan-400" />
+                      <span>Nova Consulta</span>
+                    </>
+                  )}
+                </h3>
+                {editingConsultationId && (
+                  <button
+                    onClick={handleCancelEdit}
+                    className="px-4 py-2 bg-white/5 hover:bg-white/10 border border-white/10 rounded-lg transition-colors text-gray-200 text-sm"
+                  >
+                    Cancelar Edição
+                  </button>
+                )}
+              </div>
               
               <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                 <div>
                   <label className="block text-sm font-medium text-gray-200 mb-1">Data da Consulta</label>
                   <input
                     type="date"
-                    value={newConsultation.date}
-                    onChange={(e) => setNewConsultation(prev => ({ ...prev, date: e.target.value }))}
+                    value={newConsultation.date || ''}
+                    onChange={(e) => {
+                      const value = e.target.value;
+                      // Normalizar: string vazia -> null, senão manter valor
+                      setNewConsultation(prev => ({ 
+                        ...prev, 
+                        date: value === '' ? null : value 
+                      }));
+                    }}
                     className="w-full px-4 py-3 rounded-xl bg-white/5 border border-white/10 text-white focus:ring-2 focus:ring-cyan-500 focus:border-cyan-500 outline-none transition-all"
+                    required
                   />
                 </div>
                 <div>
-                  <label className="block text-sm font-medium text-gray-200 mb-1">Motivo da Consulta</label>
+                  <label className="block text-sm font-medium text-gray-200 mb-1">Procedimento</label>
                   <input
                     type="text"
                     value={newConsultation.reason}
@@ -1245,7 +1829,7 @@ Data: {{signed_at}}`;
                   />
                 </div>
                 <div className="md:col-span-2">
-                  <label className="block text-sm font-medium text-gray-200 mb-1">Sintomas Apresentados</label>
+                  <label className="block text-sm font-medium text-gray-200 mb-1">Descrição do Procedimento</label>
                   <textarea
                     value={newConsultation.symptoms}
                     onChange={(e) => setNewConsultation(prev => ({ ...prev, symptoms: e.target.value }))}
@@ -1253,8 +1837,62 @@ Data: {{signed_at}}`;
                     placeholder="Descreva os sintomas..."
                   />
                 </div>
+                
+                {/* Seção de Fotos do Procedimento */}
                 <div className="md:col-span-2">
-                  <label className="block text-sm font-medium text-gray-200 mb-1">Diagnóstico</label>
+                  <label className="block text-sm font-medium text-gray-200 mb-2 flex items-center gap-2">
+                    <ImageIcon size={18} className="text-cyan-400" />
+                    <span>Fotos do Procedimento / Registro de Produtos Utilizados</span>
+                  </label>
+                  <p className="text-xs text-gray-400 mb-3">
+                    Adicione fotos das etiquetas/lotes dos produtos utilizados (toxina botulínica, ácido hialurônico, bioestimuladores, etc.)
+                  </p>
+                  
+                  {/* Botão de Upload */}
+                  <label className="flex items-center justify-center gap-2 px-4 py-3 rounded-xl bg-white/5 border border-white/10 hover:bg-white/10 hover:border-cyan-400/30 transition-all cursor-pointer">
+                    <input
+                      type="file"
+                      accept="image/*"
+                      multiple
+                      onChange={handlePhotoSelect}
+                      className="hidden"
+                    />
+                    <ImageIcon size={18} className="text-cyan-400" />
+                    <span className="text-sm text-gray-200">Adicionar Fotos</span>
+                  </label>
+                  
+                  {/* Preview das Fotos */}
+                  {consultationPhotos.length > 0 && (
+                    <div className="mt-4">
+                      <div className="grid grid-cols-3 gap-3">
+                        {consultationPhotos.map((photo) => (
+                          <div key={photo.id} className="relative group">
+                            <img
+                              src={photo.preview}
+                              alt="Preview"
+                              className="w-full h-32 object-cover rounded-lg border border-white/10"
+                            />
+                            <button
+                              onClick={() => removePhoto(photo.id)}
+                              className="absolute top-2 right-2 p-1.5 bg-red-500/80 hover:bg-red-500 rounded-full opacity-0 group-hover:opacity-100 transition-opacity"
+                              title="Remover foto"
+                            >
+                              <X size={14} className="text-white" />
+                            </button>
+                            <p className="text-xs text-gray-400 mt-1 truncate" title={photo.file.name}>
+                              {photo.file.name}
+                            </p>
+                          </div>
+                        ))}
+                      </div>
+                      <p className="text-xs text-gray-400 mt-2">
+                        {consultationPhotos.length} foto{consultationPhotos.length !== 1 ? 's' : ''} selecionada{consultationPhotos.length !== 1 ? 's' : ''}
+                      </p>
+                    </div>
+                  )}
+                </div>
+                <div className="md:col-span-2">
+                  <label className="block text-sm font-medium text-gray-200 mb-1">Acompanhamento</label>
                   <textarea
                     value={newConsultation.diagnosis}
                     onChange={(e) => setNewConsultation(prev => ({ ...prev, diagnosis: e.target.value }))}
@@ -1280,7 +1918,7 @@ Data: {{signed_at}}`;
                   className="neon-button disabled:opacity-50 flex items-center space-x-2 px-6 py-3"
                 >
                   {saving ? <LoadingSpinner size="sm" /> : <Save size={18} />}
-                  <span>Registrar Consulta</span>
+                  <span>{editingConsultationId ? 'Salvar Alterações' : 'Registrar Consulta'}</span>
                 </button>
               </div>
             </div>
@@ -1306,10 +1944,18 @@ Data: {{signed_at}}`;
                           </p>
                         </div>
                         <div className="flex space-x-2">
-                          <button className="p-1 text-cyan-400 hover:text-cyan-300">
+                          <button 
+                            onClick={() => handleEditConsultation(consultation)}
+                            className="p-1 text-cyan-400 hover:text-cyan-300 transition-colors"
+                            title="Editar consulta"
+                          >
                             <Edit size={16} />
                           </button>
-                          <button className="p-1 text-red-400 hover:text-red-300">
+                          <button 
+                            onClick={() => handleDeleteConsultation(consultation.id)}
+                            className="p-1 text-red-400 hover:text-red-300 transition-colors"
+                            title="Excluir consulta"
+                          >
                             <Trash2 size={16} />
                           </button>
                         </div>
@@ -1326,6 +1972,76 @@ Data: {{signed_at}}`;
                         <div>
                           <span className="text-sm font-medium text-gray-300">Conduta:</span>
                           <p className="text-sm text-gray-400">{consultation.treatment}</p>
+                        </div>
+                      )}
+                      
+                      {/* Fotos do Procedimento */}
+                      {consultationAttachments[consultation.id] && consultationAttachments[consultation.id].length > 0 && (
+                        <div className="mt-4 pt-4 border-t border-white/10">
+                          <h5 className="text-sm font-medium text-gray-300 mb-3 flex items-center gap-2">
+                            <ImageIcon size={16} className="text-cyan-400" />
+                            Fotos do Procedimento ({consultationAttachments[consultation.id].length})
+                          </h5>
+                          <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-3">
+                            {consultationAttachments[consultation.id].map((attachment, index) => {
+                              const imageUrl = imageUrls[attachment.id] || attachment.file_url || '';
+                              const hasError = imageErrors[attachment.id] || false;
+                              
+                              const openLightbox = () => {
+                                // Preparar todas as imagens para o lightbox
+                                const allImages = consultationAttachments[consultation.id]
+                                  .map((att: any) => ({
+                                    id: att.id,
+                                    url: imageUrls[att.id] || att.file_url || '',
+                                    name: att.file_name || 'Foto do produto',
+                                  }))
+                                  .filter((img: any) => img.url); // Filtrar imagens sem URL
+                                
+                                if (allImages.length > 0) {
+                                  setLightboxState({
+                                    isOpen: true,
+                                    images: allImages,
+                                    currentIndex: Math.min(index, allImages.length - 1),
+                                  });
+                                }
+                              };
+                              
+                              const handleImageError = () => {
+                                // Marcar esta imagem como com erro (sem usar hook)
+                                setImageErrors(prev => ({ ...prev, [attachment.id]: true }));
+                              };
+                              
+                              return (
+                                <div key={attachment.id} className="relative group">
+                                  {!hasError && imageUrl ? (
+                                    <img
+                                      src={imageUrl}
+                                      alt={attachment.file_name || 'Foto do produto'}
+                                      className="w-full h-28 object-cover rounded-lg border border-white/10 cursor-pointer hover:border-cyan-400 transition-all hover:scale-105"
+                                      onClick={openLightbox}
+                                      onError={handleImageError}
+                                      loading="lazy"
+                                    />
+                                  ) : (
+                                    <div className="w-full h-28 rounded-lg border border-white/10 bg-white/5 flex items-center justify-center">
+                                      <div className="text-center">
+                                        <ImageIcon size={24} className="text-gray-500 mx-auto mb-1" />
+                                        <p className="text-xs text-gray-500">Indisponível</p>
+                                      </div>
+                                    </div>
+                                  )}
+                                  <div className="absolute inset-0 bg-black/0 group-hover:bg-black/30 rounded-lg transition-colors flex items-center justify-center pointer-events-none">
+                                    <Eye size={18} className="text-white opacity-0 group-hover:opacity-100 transition-opacity" />
+                                  </div>
+                                  {attachment.file_name && (
+                                    <p className="text-xs text-gray-400 mt-1 truncate" title={attachment.file_name}>
+                                      {attachment.file_name}
+                                    </p>
+                                  )}
+                                </div>
+                              );
+                            })}
+                          </div>
                         </div>
                       )}
                     </div>
@@ -1354,6 +2070,15 @@ Data: {{signed_at}}`;
           </div>
         )}
       </div>
+
+      {/* Lightbox para visualizar imagens */}
+      <ImageLightbox
+        isOpen={lightboxState.isOpen}
+        images={lightboxState.images}
+        currentIndex={lightboxState.currentIndex}
+        onClose={() => setLightboxState({ isOpen: false, images: [], currentIndex: 0 })}
+        onNavigate={(index) => setLightboxState(prev => ({ ...prev, currentIndex: index }))}
+      />
 
       {/* Modal de Visualização do Termo */}
       {selectedConsentForm && patient && (
@@ -1394,6 +2119,7 @@ Data: {{signed_at}}`;
               }}
               patient={patient}
               initialData={{
+                content_snapshot: selectedConsentForm.content_snapshot || undefined, // Priorizar content_snapshot
                 filledContent: selectedConsentForm.content_snapshot || selectedConsentForm.filled_content || '',
                 patientSignatureUrl: selectedConsentForm.patient_signature_url,
                 professionalSignatureUrl: selectedConsentForm.professional_signature_url,
@@ -1459,6 +2185,25 @@ Data: {{signed_at}}`;
           setDeleteConfirmModal({
             isOpen: false,
             consentId: null,
+            isLoading: false,
+          });
+        }}
+      />
+
+      {/* Modal de confirmação para exclusão de consulta */}
+      <ConfirmDialog
+        isOpen={deleteConsultationModal.isOpen}
+        title="Excluir Consulta"
+        message="Deseja excluir esta consulta? Todas as fotos anexadas também serão removidas. Essa ação não pode ser desfeita."
+        confirmLabel="Excluir"
+        cancelLabel="Cancelar"
+        confirmVariant="danger"
+        isLoading={deleteConsultationModal.isLoading}
+        onConfirm={confirmDeleteConsultation}
+        onCancel={() => {
+          setDeleteConsultationModal({
+            isOpen: false,
+            consultationId: null,
             isLoading: false,
           });
         }}

@@ -39,6 +39,7 @@ interface ConsentFormViewerProps {
   }) => void;
   readOnly?: boolean;
   initialData?: {
+    content_snapshot?: string; // Texto completo salvo (prioridade)
     filledContent?: string;
     patientSignatureUrl?: string;
     professionalSignatureUrl?: string;
@@ -91,7 +92,20 @@ const ConsentFormViewer: React.FC<ConsentFormViewerProps> = ({
 
   // Preencher template quando dados mudarem
   useEffect(() => {
-    if (!readOnly && template.content && patient) {
+    // Se for modo somente leitura, priorizar content_snapshot (texto completo já salvo)
+    if (readOnly) {
+      if (initialData?.content_snapshot) {
+        // Usar content_snapshot completo (texto longo já preenchido)
+        setFilledContent(initialData.content_snapshot);
+      } else if (initialData?.filledContent) {
+        // Fallback para filled_content (compatibilidade)
+        setFilledContent(initialData.filledContent);
+      }
+      return;
+    }
+    
+    // Modo edição: preencher template dinamicamente
+    if (template.content && patient) {
       const result = fillConsentTemplate(
         {
           id: template.id,
@@ -119,8 +133,6 @@ const ConsentFormViewer: React.FC<ConsentFormViewerProps> = ({
       } else {
         setFilledContent(result.previewContent || template.content);
       }
-    } else if (readOnly && initialData?.filledContent) {
-      setFilledContent(initialData.filledContent);
     }
   }, [template, patient, professional, readOnly, initialData]);
 
@@ -332,7 +344,7 @@ const ConsentFormViewer: React.FC<ConsentFormViewerProps> = ({
                   lineHeight: '1.6'
                 }}
               >
-                {filledContent || initialData?.filledContent || initialData?.content_snapshot || ''}
+                {filledContent || initialData?.content_snapshot || initialData?.filledContent || ''}
               </div>
             </div>
           </div>

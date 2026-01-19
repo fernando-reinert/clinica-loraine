@@ -55,6 +55,62 @@ export const procedureNameToKey = (procedureName: string): string => {
     .replace(/-+/g, '-');
 };
 
+/**
+ * Mapeamento de sinônimos para termos canônicos
+ */
+const CANONICAL_PROCEDURE_MAP: Record<string, { canonicalKey: string; canonicalLabel: string }> = {
+  // Botox → Toxina Botulínica
+  'botox': { canonicalKey: 'toxina-botulinica', canonicalLabel: 'Toxina Botulínica' },
+  'toxina-botulinica': { canonicalKey: 'toxina-botulinica', canonicalLabel: 'Toxina Botulínica' },
+  'toxina botulinica': { canonicalKey: 'toxina-botulinica', canonicalLabel: 'Toxina Botulínica' },
+  'toxina botulínica': { canonicalKey: 'toxina-botulinica', canonicalLabel: 'Toxina Botulínica' },
+  
+  // Ácido Hialurônico / Preenchimento Labial / Preenchimento Facial → Preenchimento Facial
+  'acido-hialuronico': { canonicalKey: 'preenchimento-facial', canonicalLabel: 'Preenchimento Facial' },
+  'ácido hialurônico': { canonicalKey: 'preenchimento-facial', canonicalLabel: 'Preenchimento Facial' },
+  'acido hialuronico': { canonicalKey: 'preenchimento-facial', canonicalLabel: 'Preenchimento Facial' },
+  'preenchimento-labial': { canonicalKey: 'preenchimento-facial', canonicalLabel: 'Preenchimento Facial' },
+  'preenchimento labial': { canonicalKey: 'preenchimento-facial', canonicalLabel: 'Preenchimento Facial' },
+  'preenchimento-facial': { canonicalKey: 'preenchimento-facial', canonicalLabel: 'Preenchimento Facial' },
+  'preenchimento facial': { canonicalKey: 'preenchimento-facial', canonicalLabel: 'Preenchimento Facial' },
+};
+
+/**
+ * Normalizar procedimento para termo canônico
+ * Remove duplicados mapeando sinônimos para termos canônicos
+ * 
+ * @param procedureKey - Chave do procedimento (slug) ou label
+ * @param procedureLabel - Label do procedimento (opcional, usado como fallback)
+ * @returns Objeto com canonicalKey e canonicalLabel
+ */
+export const normalizeProcedure = (
+  procedureKey: string,
+  procedureLabel?: string
+): { canonicalKey: string; canonicalLabel: string } => {
+  // Normalizar key: remover acentos e converter para lowercase
+  const normalizedKey = procedureKey
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .toLowerCase()
+    .trim();
+  
+  // Verificar se existe mapeamento canônico
+  const canonical = CANONICAL_PROCEDURE_MAP[normalizedKey] || 
+                    CANONICAL_PROCEDURE_MAP[procedureKey.toLowerCase().trim()];
+  
+  if (canonical) {
+    return canonical;
+  }
+  
+  // Se não houver mapeamento, usar o próprio key como canônico
+  // Mas normalizar o label
+  const label = procedureLabel || getProcedureDisplayName(procedureKey);
+  return {
+    canonicalKey: normalizedKey,
+    canonicalLabel: label,
+  };
+};
+
 // ============================================
 // PROFESSIONAL MAPPINGS
 // ============================================
