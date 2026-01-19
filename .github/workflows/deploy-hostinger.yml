@@ -23,6 +23,13 @@ jobs:
       - name: Build
         run: npm run build
 
+      - name: Debug FTP vars
+        run: |
+          echo "FTP_SERVER set? ${{ secrets.FTP_SERVER != '' }}"
+          echo "FTP_USERNAME set? ${{ secrets.FTP_USERNAME != '' }}"
+          echo "FTP_PORT set? ${{ secrets.FTP_PORT != '' }}"
+          echo "FTP_SERVER_DIR set? ${{ secrets.FTP_SERVER_DIR != '' }}"
+
       - name: Deploy via FTP
         uses: SamKirkland/FTP-Deploy-Action@v4.3.5
         with:
@@ -30,6 +37,5 @@ jobs:
           username: ${{ secrets.FTP_USERNAME }}
           password: ${{ secrets.FTP_PASSWORD }}
           port: ${{ secrets.FTP_PORT }}
-          local-dir: dist/
           server-dir: ${{ secrets.FTP_SERVER_DIR }}
-          dangerous-clean-slate: true
+          local-dir: dist/
