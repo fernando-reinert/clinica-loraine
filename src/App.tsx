@@ -25,6 +25,7 @@ import MedicalRecordScreen from "./screens/MedicalRecordScreen";
 import GalleryScreen from "./screens/GalleryScreen";
 import AnamneseScreen from "./screens/AnamneseScreen";
 import AppointmentTreatmentScreen from "./screens/AppointmentTreatmentScreen";
+import ProceduresScreen from "./screens/ProceduresScreen";
 
 import "./styles/futurist.css";
 
@@ -113,6 +114,13 @@ function App() {
                 <Route path="/gallery" element={
                   <ProtectedRoute>
                     <GalleryScreen />
+                  </ProtectedRoute>
+                } />
+
+                {/* Catálogo de Procedimentos */}
+                <Route path="/procedures" element={
+                  <ProtectedRoute>
+                    <ProceduresScreen />
                   </ProtectedRoute>
                 } />
 

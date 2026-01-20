@@ -5,7 +5,7 @@ import { supabase } from '../services/supabase/client';
 import { 
   Save, ArrowLeft, User, FileText, Calendar, 
   Heart, Stethoscope, Pill, AlertTriangle,
-  Clock, Plus, Edit, Trash2, Eye, Image as ImageIcon, CheckCircle, FileCheck, X
+  Clock, Plus, Edit, Trash2, Eye, Image as ImageIcon, CheckCircle, FileCheck, X, GalleryVertical
 } from 'lucide-react';
 import AppLayout from '../components/Layout/AppLayout';
 import LoadingSpinner from '../components/LoadingSpinner';
@@ -1306,8 +1306,23 @@ Data: {{signed_at}}`;
               { id: 'consultas', label: 'Consultas', icon: Stethoscope },
               { id: 'prescricoes', label: 'Prescrições', icon: Pill },
               { id: 'exames', label: 'Exames', icon: Heart },
+              { id: 'galeria', label: 'Galeria', icon: GalleryVertical, isAction: true },
             ].map((tab) => {
               const Icon = tab.icon;
+              // Se for ação (como Galeria), navegar em vez de mudar aba
+              if (tab.isAction) {
+                return (
+                  <button
+                    key={tab.id}
+                    onClick={() => navigate(`/gallery?patientId=${id}`)}
+                    className="flex-1 flex items-center justify-center space-x-2 py-3 px-4 rounded-xl transition-all duration-300 text-gray-300 hover:bg-white/5 hover:text-purple-300"
+                  >
+                    <Icon size={18} />
+                    <span className="font-medium">{tab.label}</span>
+                  </button>
+                );
+              }
+              
               return (
                 <button
                   key={tab.id}

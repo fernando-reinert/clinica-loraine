@@ -44,13 +44,27 @@ export interface Patient {
 // PROCEDURES (Catálogo de Procedimentos)
 // ============================================
 // ⚠️ ATENÇÃO: Esta tabela é CATÁLOGO, não histórico financeiro
-// Colunas: id, name, description, category, consent_template_id, is_active, created_at, updated_at
+// Colunas principais:
+// - id
+// - name
+// - description
+// - category
+// - duration_minutes
+// - cost_price
+// - sale_price
+// - consent_template_id
+// - is_active
+// - created_at
+// - updated_at
 // ⚠️ NÃO TEM: procedure_type, client_name, total_amount, patient_id
 export interface Procedure {
   id: string;
   name: string; // ⚠️ NÃO é "procedure_type"
   description: string | null;
   category: string;
+  duration_minutes: number;
+  cost_price: number;
+  sale_price: number;
   consent_template_id: string | null;
   is_active: boolean;
   created_at: string;

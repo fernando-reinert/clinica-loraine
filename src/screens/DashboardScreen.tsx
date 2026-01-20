@@ -1,6 +1,6 @@
 // src/screens/DashboardScreen.tsx - DESIGN FUTURISTA COMPLETO
 import React from 'react'
-import { Users, Calendar, Camera, Clock, CheckCircle, DollarSign, Plus, TrendingUp, Sparkles, Zap, Activity, Settings } from 'lucide-react'
+import { Users, Calendar, Package, Clock, CheckCircle, DollarSign, Plus, TrendingUp, Sparkles, Zap, Activity, Settings } from 'lucide-react'
 import { useNavigate } from 'react-router-dom'
 import { useAuth } from '../contexts/AuthContext'
 import { useDashboardStats } from '../hooks/useDashboardStats'
@@ -14,7 +14,7 @@ const DashboardScreen: React.FC = () => {
 
   const quickActions = [
     {
-      title: 'Novo Paciente',
+      title: 'Novo ',
       icon: Users,
       gradient: 'from-blue-500 to-cyan-500',
       action: () => navigate('/patients/new')
@@ -26,10 +26,10 @@ const DashboardScreen: React.FC = () => {
       action: () => navigate('/appointments/new')
     },
     {
-      title: 'Galeria',
-      icon: Camera,
+      title: 'Catálogo de Procedimentos',
+      icon: Package,
       gradient: 'from-orange-500 to-red-500',
-      action: () => navigate('/gallery')
+      action: () => navigate('/procedures')
     },
     {
       title: 'Financeiro',

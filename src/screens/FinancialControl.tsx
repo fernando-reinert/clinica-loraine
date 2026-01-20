@@ -16,10 +16,35 @@ import {
   ChevronRight,
   ChevronLeft,
   Sparkles,
+  Plus,
+  Calendar,
+  Package,
+  TrendingUp,
+  Percent,
+  Clock,
 } from "lucide-react";
 
 import AppLayout from "../components/Layout/AppLayout";
 import LoadingSpinner from "../components/LoadingSpinner";
+import AppointmentPlanEditor from "../components/AppointmentPlanEditor";
+import { listActiveProcedures } from "../services/procedures/procedureService";
+import type { Procedure } from "../types/db";
+import type { AppointmentPlanItem } from "../types/appointmentPlan";
+import { calculatePlanTotals } from "../types/appointmentPlan";
+import {
+  createFinancialRecord,
+  listFinancialRecordsWithItems,
+  listInstallmentsByStatus,
+  markInstallmentAsPaid,
+  updatePaymentMethod,
+  type FinancialProcedureItem,
+  type FinancialRecord,
+} from "../services/financial/financialService";
+import {
+  listAppointmentsWithProcedures,
+  markAppointmentStatus,
+  type AppointmentWithProcedures,
+} from "../services/appointments/appointmentService";
 
 interface Patient {
   id: string;
@@ -96,10 +121,58 @@ interface EditPaymentMethodModal {
   selectedMethod: string;
 }
 
+// ComandaItem mantido para compatibilidade interna, mas convertido para AppointmentPlanItem quando necessário
+interface ComandaItem {
+  procedureCatalogId: string;
+  name: string;
+  category: string;
+  costPrice: number;
+  salePrice: number;
+  finalPrice: number;
+  quantity: number;
+  discount: number;
+  profit: number;
+}
+
+// Helper para converter ComandaItem para AppointmentPlanItem
+const comandaItemToPlanItem = (item: ComandaItem): AppointmentPlanItem => ({
+  procedure_catalog_id: item.procedureCatalogId,
+  name: item.name,
+  category: item.category || null,
+  cost_price: item.costPrice,
+  sale_price: item.salePrice,
+  final_price: item.finalPrice,
+  quantity: item.quantity,
+  discount: item.discount,
+});
+
+// Helper para converter AppointmentPlanItem para ComandaItem
+const planItemToComandaItem = (item: AppointmentPlanItem): ComandaItem => {
+  const profit = (item.final_price * item.quantity - item.discount) - (item.cost_price * item.quantity);
+  return {
+    procedureCatalogId: item.procedure_catalog_id,
+    name: item.name,
+    category: item.category || '',
+    costPrice: item.cost_price,
+    salePrice: item.sale_price,
+    finalPrice: item.final_price,
+    quantity: item.quantity,
+    discount: item.discount,
+    profit,
+  };
+};
+
+interface CloseAppointmentModal {
+  isOpen: boolean;
+  appointment: AppointmentWithProcedures | null;
+  items: ComandaItem[];
+}
+
 const FinancialControl: React.FC = () => {
   const { supabase } = useSupabase();
   const navigate = useNavigate();
 
+  // Estados legados (mantidos para compatibilidade)
   const [formData, setFormData] = useState<PaymentFormData>({
     patientId: "",
     patientName: "",
@@ -110,17 +183,32 @@ const FinancialControl: React.FC = () => {
     firstPaymentDate: new Date().toISOString().split("T")[0],
   });
 
+  // Estados novos para comanda
+  const [comandaPatientId, setComandaPatientId] = useState("");
+  const [comandaPatientName, setComandaPatientName] = useState("");
+  const [comandaItems, setComandaItems] = useState<ComandaItem[]>([]);
+  const [comandaInstallments, setComandaInstallments] = useState(1);
+  const [comandaPaymentMethod, setComandaPaymentMethod] = useState("pix");
+  const [comandaFirstPaymentDate, setComandaFirstPaymentDate] = useState(
+    new Date().toISOString().split("T")[0]
+  );
+  const [procedureSearch, setProcedureSearch] = useState("");
+  const [showProcedureDropdown, setShowProcedureDropdown] = useState(false);
+
   const [patients, setPatients] = useState<Patient[]>([]);
   const [filteredPatients, setFilteredPatients] = useState<Patient[]>([]);
   const [showPatientDropdown, setShowPatientDropdown] = useState(false);
+  const [proceduresCatalog, setProceduresCatalog] = useState<Procedure[]>([]);
 
   const [payments, setPayments] = useState<ProcedureData[]>([]);
+  const [financialRecords, setFinancialRecords] = useState<FinancialRecord[]>([]);
   const [installments, setInstallments] = useState<Installment[]>([]);
+  const [appointments, setAppointments] = useState<AppointmentWithProcedures[]>([]);
 
   const [isLoading, setIsLoading] = useState(false);
   const [loadingData, setLoadingData] = useState(true);
 
-  const [activeTab, setActiveTab] = useState<"new" | "pending" | "completed">("new");
+  const [activeTab, setActiveTab] = useState<"new" | "pending" | "completed" | "agenda">("new");
 
   const [calculatedInstallments, setCalculatedInstallments] = useState<CalculatedInstallment[]>([]);
   const [monthlyRevenue, setMonthlyRevenue] = useState<MonthlyRevenue[]>([]);
@@ -138,10 +226,21 @@ const FinancialControl: React.FC = () => {
     selectedMethod: "pix",
   });
 
+  const [closeAppointmentModal, setCloseAppointmentModal] = useState<CloseAppointmentModal>({
+    isOpen: false,
+    appointment: null,
+    items: [],
+  });
+
   useEffect(() => {
     (async () => {
       setLoadingData(true);
-      await Promise.all([fetchPatients(), fetchPayments()]);
+      await Promise.all([
+        fetchPatients(),
+        fetchPayments(),
+        fetchProceduresCatalog(),
+        fetchAppointments(),
+      ]);
       setLoadingData(false);
     })();
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -159,6 +258,21 @@ const FinancialControl: React.FC = () => {
       setShowPatientDropdown(false);
     }
   }, [formData.patientName, patients]);
+
+  // Fechar dropdown de procedimentos ao clicar fora
+  useEffect(() => {
+    const handleClickOutside = (event: MouseEvent) => {
+      const target = event.target as HTMLElement;
+      if (!target.closest('.procedure-dropdown-container')) {
+        setShowProcedureDropdown(false);
+      }
+    };
+
+    if (showProcedureDropdown) {
+      document.addEventListener('mousedown', handleClickOutside);
+      return () => document.removeEventListener('mousedown', handleClickOutside);
+    }
+  }, [showProcedureDropdown]);
 
   useEffect(() => {
     const list = calculateInstallments();
@@ -189,26 +303,60 @@ const FinancialControl: React.FC = () => {
 
   const fetchPayments = async () => {
     try {
-      const { data, error } = await supabase.from("procedures").select("*").order("created_at", { ascending: false });
-      if (error) throw error;
+      // Buscar registros financeiros com itens
+      const records = await listFinancialRecordsWithItems();
+      setFinancialRecords(records);
 
-      const procedures = (data as ProcedureData[]) || [];
+      // Converter para formato legado (compatibilidade)
+      const procedures = records.map((r) => ({
+        id: r.id,
+        patient_id: r.patient_id,
+        client_name: r.client_name,
+        procedure_type: r.procedure_type || (r.items && r.items.length > 0
+          ? r.items.map(i => i.procedure_name_snapshot).join(' + ')
+          : 'Procedimento'),
+        total_amount: r.total_amount,
+        total_installments: r.total_installments,
+        payment_method: r.payment_method,
+        first_payment_date: r.first_payment_date,
+        status: r.status,
+        created_at: r.created_at,
+      })) as ProcedureData[];
       setPayments(procedures);
 
+      // Buscar parcelas
       if (procedures.length > 0) {
-        const { data: installmentsData, error: installmentsError } = await supabase
-          .from("installments")
-          .select("*")
-          .in("procedure_id", procedures.map((p) => p.id));
-
-        if (!installmentsError) {
-          setInstallments((installmentsData || []) as Installment[]);
-        }
+        const allInstallments = await Promise.all([
+          listInstallmentsByStatus('pendente'),
+          listInstallmentsByStatus('pago'),
+        ]);
+        setInstallments([...allInstallments[0], ...allInstallments[1]]);
       } else {
         setInstallments([]);
       }
     } catch (error) {
+      console.error("Erro ao carregar pagamentos:", error);
       toast.error("Erro ao carregar pagamentos!");
+    }
+  };
+
+  const fetchProceduresCatalog = async () => {
+    try {
+      const data = await listActiveProcedures();
+      setProceduresCatalog(data);
+    } catch (error) {
+      console.error("Erro ao carregar catálogo:", error);
+      toast.error("Erro ao carregar catálogo de procedimentos");
+    }
+  };
+
+  const fetchAppointments = async () => {
+    try {
+      const data = await listAppointmentsWithProcedures(30, 30);
+      setAppointments(data.filter(a => a.status === 'scheduled'));
+    } catch (error) {
+      console.error("Erro ao carregar agendamentos:", error);
+      toast.error("Erro ao carregar agendamentos");
     }
   };
 
@@ -325,47 +473,25 @@ const FinancialControl: React.FC = () => {
     if (!paymentModal.installment) return;
 
     try {
-      const updateData: any = {
-        status: "pago",
-        paid_date: new Date().toISOString().split("T")[0],
-        payment_method: paymentModal.selectedMethod,
-      };
-
-      const { error } = await supabase.from("installments").update(updateData).eq("id", paymentModal.installment.id);
-      if (error) throw error;
-
+      await markInstallmentAsPaid(paymentModal.installment.id, paymentModal.selectedMethod);
       toast.success("Parcela marcada como paga!");
-      fetchPayments();
+      await fetchPayments();
       closePaymentModal();
-    } catch (error) {
-      toast.error("Erro ao atualizar parcela!");
+    } catch (error: any) {
+      toast.error(error?.message || "Erro ao atualizar parcela!");
     }
   };
 
-  const updatePaymentMethod = async () => {
+  const handleUpdatePaymentMethod = async () => {
     if (!editMethodModal.procedure) return;
 
     try {
-      const { error } = await supabase
-        .from("procedures")
-        .update({ payment_method: editMethodModal.selectedMethod })
-        .eq("id", editMethodModal.procedure.id);
-
-      if (error) throw error;
-
-      const { error: installmentsError } = await supabase
-        .from("installments")
-        .update({ payment_method: editMethodModal.selectedMethod })
-        .eq("procedure_id", editMethodModal.procedure.id)
-        .eq("status", "pendente");
-
-      if (installmentsError) throw installmentsError;
-
+      await updatePaymentMethod(editMethodModal.procedure.id, editMethodModal.selectedMethod);
       toast.success("Método de pagamento atualizado com sucesso!");
-      fetchPayments();
+      await fetchPayments();
       closeEditMethodModal();
-    } catch (error) {
-      toast.error("Erro ao atualizar método de pagamento!");
+    } catch (error: any) {
+      toast.error(error?.message || "Erro ao atualizar método de pagamento!");
     }
   };
 
@@ -373,6 +499,202 @@ const FinancialControl: React.FC = () => {
     if (monthlyRevenue.length === 0) return 0;
     return Math.max(...monthlyRevenue.map((item) => item.total));
   };
+
+  // ============================================
+  // FUNÇÕES DE COMANDA (NOVO ATENDIMENTO)
+  // ============================================
+
+  const filteredProceduresCatalog = useMemo(() => {
+    if (!procedureSearch.trim()) return proceduresCatalog;
+    const search = procedureSearch.toLowerCase();
+    return proceduresCatalog.filter(
+      (p) => p.name.toLowerCase().includes(search) || (p.category && p.category.toLowerCase().includes(search))
+    );
+  }, [proceduresCatalog, procedureSearch]);
+
+  const handleAddComandaItem = (procedure: Procedure) => {
+    const newPlanItem: AppointmentPlanItem = {
+      procedure_catalog_id: procedure.id,
+      name: procedure.name,
+      category: procedure.category || null,
+      cost_price: procedure.cost_price || 0,
+      sale_price: procedure.sale_price || 0,
+      final_price: procedure.sale_price || 0,
+      quantity: 1,
+      discount: 0,
+    };
+    const newComandaItem = planItemToComandaItem(newPlanItem);
+    setComandaItems([...comandaItems, newComandaItem]);
+    setProcedureSearch('');
+    setShowProcedureDropdown(false);
+  };
+
+  // Converter comandaItems para planItems para o componente
+  const planItems = useMemo(() => {
+    return comandaItems.map(comandaItemToPlanItem);
+  }, [comandaItems]);
+
+  // Handler para mudanças no AppointmentPlanEditor
+  const handlePlanItemsChange = (newPlanItems: AppointmentPlanItem[]) => {
+    const newComandaItems = newPlanItems.map(planItemToComandaItem);
+    setComandaItems(newComandaItems);
+  };
+
+  const comandaTotals = useMemo(() => {
+    return calculatePlanTotals(planItems);
+  }, [planItems]);
+
+  const handleComandaSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!comandaPatientId || comandaItems.length === 0) {
+      toast.error('Selecione um paciente e adicione pelo menos um procedimento');
+      return;
+    }
+
+    setIsLoading(true);
+    try {
+      const items: FinancialProcedureItem[] = comandaItems.map(item => ({
+        procedure_catalog_id: item.procedureCatalogId,
+        procedure_name_snapshot: item.name,
+        cost_price_snapshot: item.costPrice,
+        final_price_snapshot: item.finalPrice,
+        quantity: item.quantity,
+        discount: item.discount,
+        profit_snapshot: item.profit,
+      }));
+
+      const financialResult = await createFinancialRecord({
+        patientId: comandaPatientId,
+        patientName: comandaPatientName,
+        items,
+        installmentsConfig: {
+          count: comandaInstallments,
+          paymentMethod: comandaPaymentMethod,
+          firstPaymentDate: comandaFirstPaymentDate,
+        },
+      });
+
+      toast.success('Atendimento registrado com sucesso!');
+      
+      // Se campos foram removidos, avisar o usuário
+      if (financialResult.removedFields && financialResult.removedFields.length > 0) {
+        const fieldsList = financialResult.removedFields.join(', ');
+        toast(`⚠️ Schema desatualizado: campos ${fieldsList} não existem no banco. Execute a migration 20260121000000_financial_procedure_items.sql no Supabase.`, {
+          duration: 6000,
+          icon: '⚠️',
+        });
+      }
+      // Limpar comanda
+      setComandaPatientId('');
+      setComandaPatientName('');
+      setComandaItems([]);
+      setComandaInstallments(1);
+      setComandaPaymentMethod('pix');
+      setComandaFirstPaymentDate(new Date().toISOString().split('T')[0]);
+      await fetchPayments();
+    } catch (error: any) {
+      toast.error(error?.message || 'Erro ao registrar atendimento');
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  // ============================================
+  // FUNÇÕES DE AGENDA (POTENCIAL)
+  // ============================================
+
+  const handleOpenCloseAppointment = async (appointment: AppointmentWithProcedures) => {
+    const items: ComandaItem[] = await Promise.all(
+      appointment.procedures.map(async (p) => {
+        let costPrice = 0;
+        if (p.procedure_catalog_id) {
+          const catalogItem = proceduresCatalog.find(proc => proc.id === p.procedure_catalog_id);
+          costPrice = catalogItem?.cost_price || 0;
+        }
+        const finalPrice = p.final_price;
+        const quantity = p.quantity || 1;
+        const discount = p.discount || 0;
+        const profit = (finalPrice * quantity - discount) - (costPrice * quantity);
+        
+        return {
+          procedureCatalogId: p.procedure_catalog_id || '',
+          name: p.procedure_name_snapshot,
+          category: '',
+          costPrice,
+          salePrice: finalPrice,
+          finalPrice,
+          quantity,
+          discount,
+          profit,
+        };
+      })
+    );
+    setCloseAppointmentModal({ isOpen: true, appointment, items });
+  };
+
+  const handleCloseAppointment = async () => {
+    if (!closeAppointmentModal.appointment || closeAppointmentModal.items.length === 0) {
+      toast.error('Adicione pelo menos um procedimento');
+      return;
+    }
+
+    setIsLoading(true);
+    try {
+      const items: FinancialProcedureItem[] = closeAppointmentModal.items.map(item => ({
+        procedure_catalog_id: item.procedureCatalogId,
+        procedure_name_snapshot: item.name,
+        cost_price_snapshot: item.costPrice,
+        final_price_snapshot: item.finalPrice,
+        quantity: item.quantity,
+        discount: item.discount,
+        profit_snapshot: item.profit,
+      }));
+
+      const financialResult = await createFinancialRecord({
+        patientId: closeAppointmentModal.appointment.patient_id,
+        patientName: closeAppointmentModal.appointment.patient_name,
+        items,
+        installmentsConfig: {
+          count: comandaInstallments,
+          paymentMethod: comandaPaymentMethod,
+          firstPaymentDate: comandaFirstPaymentDate,
+        },
+        appointmentId: closeAppointmentModal.appointment.id,
+      });
+
+      await markAppointmentStatus(closeAppointmentModal.appointment.id, 'completed_with_sale');
+      toast.success('Atendimento fechado com sucesso!');
+      
+      // Se campos foram removidos, avisar o usuário
+      if (financialResult.removedFields && financialResult.removedFields.length > 0) {
+        const fieldsList = financialResult.removedFields.join(', ');
+        toast(`⚠️ Schema desatualizado: campos ${fieldsList} não existem no banco. Execute a migration 20260121000000_financial_procedure_items.sql no Supabase.`, {
+          duration: 6000,
+          icon: '⚠️',
+        });
+      }
+      setCloseAppointmentModal({ isOpen: false, appointment: null, items: [] });
+      await Promise.all([fetchPayments(), fetchAppointments()]);
+    } catch (error: any) {
+      toast.error(error?.message || 'Erro ao fechar atendimento');
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  const handleMarkNoSale = async (appointmentId: string) => {
+    try {
+      await markAppointmentStatus(appointmentId, 'completed_no_sale');
+      toast.success('Agendamento marcado como não realizado');
+      await fetchAppointments();
+    } catch (error: any) {
+      toast.error(error?.message || 'Erro ao atualizar agendamento');
+    }
+  };
+
+  // ============================================
+  // FUNÇÕES LEGADAS (MANTIDAS)
+  // ============================================
 
   const handlePatientSelect = (patient: Patient) => {
     setFormData({
@@ -478,7 +800,6 @@ const FinancialControl: React.FC = () => {
 
       fetchPayments();
     } catch (error: any) {
-      console.error("Erro ao salvar pagamento:", error);
       toast.error("Erro ao registrar pagamento!");
     } finally {
       setIsLoading(false);
@@ -526,10 +847,42 @@ const FinancialControl: React.FC = () => {
   const pendingInstallments = useMemo(() => installments.filter((i) => i.status === "pendente"), [installments]);
   const completedInstallments = useMemo(() => installments.filter((i) => i.status === "pago"), [installments]);
 
+  // Métricas do dashboard
   const totalRevenue = useMemo(
     () => completedInstallments.reduce((sum, installment) => sum + installment.installment_value, 0),
     [completedInstallments]
   );
+
+  const totalPending = useMemo(
+    () => pendingInstallments.reduce((sum, installment) => sum + installment.installment_value, 0),
+    [pendingInstallments]
+  );
+
+  const totalProfit = useMemo(() => {
+    const currentMonth = new Date().getMonth();
+    const currentYear = new Date().getFullYear();
+    return financialRecords
+      .filter(r => {
+        const recordDate = new Date(r.created_at);
+        return recordDate.getMonth() === currentMonth && recordDate.getFullYear() === currentYear;
+      })
+      .reduce((sum, r) => sum + (r.total_profit || 0), 0);
+  }, [financialRecords]);
+
+  const averageMargin = useMemo(() => {
+    const recordsWithProfit = financialRecords.filter(r => r.total_amount > 0);
+    if (recordsWithProfit.length === 0) return 0;
+    const totalMargin = recordsWithProfit.reduce((sum, r) => sum + (r.profit_margin || 0), 0);
+    return totalMargin / recordsWithProfit.length;
+  }, [financialRecords]);
+
+  // Função para exibir nome do procedimento (compatibilidade legado)
+  const getProcedureDisplayName = (record: FinancialRecord | ProcedureData): string => {
+    if ('items' in record && record.items && record.items.length > 0) {
+      return record.items.map(i => i.procedure_name_snapshot).join(' + ') + ` (${record.items.length} itens)`;
+    }
+    return record.procedure_type || 'Procedimento';
+  };
 
   if (loadingData) {
     return (
@@ -577,7 +930,7 @@ const FinancialControl: React.FC = () => {
                     : "bg-white/5 text-gray-300 border-white/10 hover:bg-white/10"
                 }`}
               >
-                Novo Registro
+                Novo Atendimento
               </button>
               <button
                 onClick={() => setActiveTab("pending")}
@@ -599,37 +952,97 @@ const FinancialControl: React.FC = () => {
               >
                 Realizados ({completedInstallments.length})
               </button>
+              <button
+                onClick={() => setActiveTab("agenda")}
+                className={`px-4 py-2 rounded-xl border transition-all ${
+                  activeTab === "agenda"
+                    ? "bg-blue-500/20 text-white border-blue-400/30"
+                    : "bg-white/5 text-gray-300 border-white/10 hover:bg-white/10"
+                }`}
+              >
+                Agenda (Potencial) ({appointments.length})
+              </button>
             </div>
+          </div>
+        </div>
+
+        {/* Dashboard Cards */}
+        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
+          <div className="glass-card p-6 border border-white/10 hover-lift">
+            <div className="flex items-center justify-between mb-2">
+              <DollarSign className="text-green-400" size={24} />
+              <span className="text-xs text-gray-400">Mês Atual</span>
+            </div>
+            <p className="text-2xl font-bold text-white">{formatCurrency(totalRevenue)}</p>
+            <p className="text-sm text-gray-300 mt-1">Receita Realizada</p>
+          </div>
+
+          <div className="glass-card p-6 border border-white/10 hover-lift">
+            <div className="flex items-center justify-between mb-2">
+              <Clock className="text-yellow-400" size={24} />
+              <span className="text-xs text-gray-400">Pendente</span>
+            </div>
+            <p className="text-2xl font-bold text-white">{formatCurrency(totalPending)}</p>
+            <p className="text-sm text-gray-300 mt-1">Receita Pendente</p>
+          </div>
+
+          <div className="glass-card p-6 border border-white/10 hover-lift">
+            <div className="flex items-center justify-between mb-2">
+              <TrendingUp className="text-cyan-400" size={24} />
+              <span className="text-xs text-gray-400">Mês Atual</span>
+            </div>
+            <p className="text-2xl font-bold text-white">{formatCurrency(totalProfit)}</p>
+            <p className="text-sm text-gray-300 mt-1">Lucro Realizado</p>
+          </div>
+
+          <div className="glass-card p-6 border border-white/10 hover-lift">
+            <div className="flex items-center justify-between mb-2">
+              <Percent className="text-purple-400" size={24} />
+              <span className="text-xs text-gray-400">Média</span>
+            </div>
+            <p className="text-2xl font-bold text-white">{averageMargin.toFixed(1)}%</p>
+            <p className="text-sm text-gray-300 mt-1">Margem de Lucro</p>
           </div>
         </div>
 
         {/* Conteúdo */}
         <div className="glass-card p-6 border border-white/10">
           {activeTab === "new" ? (
-            <form onSubmit={handleSubmit} className="space-y-6">
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-                {/* Paciente autocomplete */}
-                <div className="relative">
+            <div className="space-y-6">
+              <h3 className="text-xl font-bold glow-text mb-4">Novo Atendimento (Comanda)</h3>
+              
+              <form onSubmit={handleComandaSubmit} className="space-y-6">
+                {/* Seleção de Paciente */}
+                <div>
                   <label className="block text-sm font-medium text-gray-200 mb-2">Paciente *</label>
                   <div className="relative">
                     <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" size={20} />
                     <input
                       type="text"
-                      name="patientName"
-                      value={formData.patientName}
-                      onChange={handleInputChange}
+                      value={comandaPatientName}
+                      onChange={(e) => {
+                        setComandaPatientName(e.target.value);
+                        const filtered = patients.filter((p) =>
+                          p.name.toLowerCase().includes(e.target.value.toLowerCase())
+                        );
+                        setFilteredPatients(filtered);
+                        setShowPatientDropdown(e.target.value.length > 0 && filtered.length > 0);
+                      }}
                       placeholder="Buscar paciente..."
                       className="pl-10 px-4 py-3 rounded-xl w-full bg-white/5 border border-white/10 text-white placeholder:text-gray-400 focus:ring-2 focus:ring-cyan-500 focus:border-cyan-500 outline-none"
                       required
                     />
-
                     {showPatientDropdown && filteredPatients.length > 0 && (
                       <div className="absolute z-10 w-full mt-2 rounded-xl overflow-hidden border border-white/10 bg-gray-900/90 backdrop-blur-sm max-h-60 overflow-y-auto">
                         {filteredPatients.map((patient) => (
                           <button
                             type="button"
                             key={patient.id}
-                            onClick={() => handlePatientSelect(patient)}
+                            onClick={() => {
+                              setComandaPatientId(patient.id);
+                              setComandaPatientName(patient.name);
+                              setShowPatientDropdown(false);
+                            }}
                             className="w-full text-left p-3 hover:bg-white/10 transition-all border-b border-white/10 last:border-b-0"
                           >
                             <div className="font-medium text-white">{patient.name}</div>
@@ -641,109 +1054,160 @@ const FinancialControl: React.FC = () => {
                   </div>
                 </div>
 
+                {/* Adicionar Procedimentos */}
                 <div>
-                  <label className="block text-sm font-medium text-gray-200 mb-2">Procedimento *</label>
-                  <input
-                    type="text"
-                    name="procedureType"
-                    value={formData.procedureType}
-                    onChange={handleInputChange}
-                    placeholder="Ex: Botox, Preenchimento..."
-                    className="px-4 py-3 rounded-xl w-full bg-white/5 border border-white/10 text-white placeholder:text-gray-400 focus:ring-2 focus:ring-cyan-500 focus:border-cyan-500 outline-none"
-                    required
-                  />
-                </div>
-
-                <div>
-                  <label className="block text-sm font-medium text-gray-200 mb-2">Valor Total (R$) *</label>
-                  <input
-                    type="number"
-                    name="totalAmount"
-                    value={formData.totalAmount}
-                    onChange={handleInputChange}
-                    placeholder="0,00"
-                    min="0"
-                    step="0.01"
-                    className="px-4 py-3 rounded-xl w-full bg-white/5 border border-white/10 text-white placeholder:text-gray-400 focus:ring-2 focus:ring-cyan-500 focus:border-cyan-500 outline-none"
-                    required
-                  />
-                </div>
-
-                <div>
-                  <label className="block text-sm font-medium text-gray-200 mb-2">Número de Parcelas *</label>
-                  <input
-                    type="number"
-                    name="installments"
-                    value={formData.installments}
-                    onChange={handleInputChange}
-                    min="1"
-                    className="px-4 py-3 rounded-xl w-full bg-white/5 border border-white/10 text-white focus:ring-2 focus:ring-cyan-500 focus:border-cyan-500 outline-none"
-                    required
-                  />
-                </div>
-
-                <div>
-                  <label className="block text-sm font-medium text-gray-200 mb-2">Método de Pagamento *</label>
-                  <select
-                    name="paymentMethod"
-                    value={formData.paymentMethod}
-                    onChange={handleInputChange}
-                    className="px-4 py-3 rounded-xl w-full bg-white/5 border border-white/10 text-white focus:ring-2 focus:ring-cyan-500 focus:border-cyan-500 outline-none"
-                    required
-                  >
-                    <option value="pix" className="text-black">
-                      PIX
-                    </option>
-                    <option value="credit_card" className="text-black">
-                      Cartão de Crédito
-                    </option>
-                    <option value="debit_card" className="text-black">
-                      Cartão de Débito
-                    </option>
-                    <option value="cash" className="text-black">
-                      Dinheiro
-                    </option>
-                    <option value="bank_transfer" className="text-black">
-                      Transferência Bancária
-                    </option>
-                  </select>
-                </div>
-
-                <div>
-                  <label className="block text-sm font-medium text-gray-200 mb-2">Data do Primeiro Pagamento *</label>
-                  <input
-                    type="date"
-                    name="firstPaymentDate"
-                    value={formData.firstPaymentDate}
-                    onChange={handleInputChange}
-                    className="px-4 py-3 rounded-xl w-full bg-white/5 border border-white/10 text-white focus:ring-2 focus:ring-cyan-500 focus:border-cyan-500 outline-none"
-                    required
-                  />
-                </div>
-              </div>
-
-              {/* Preview parcelas */}
-              {calculatedInstallments.length > 0 && (
-                <div className="glass-card p-4 border border-white/10 bg-white/5">
-                  <h4 className="font-semibold text-white mb-3">Preview das Parcelas</h4>
-                  <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3">
-                    {calculatedInstallments.map((inst) => (
-                      <div key={inst.number} className="glass-card p-4 border border-white/10">
-                        <div className="flex justify-between items-center">
-                          <span className="font-semibold text-white">Parcela {inst.number}</span>
-                          <span className="text-green-300 font-bold">{formatCurrency(inst.value)}</span>
-                        </div>
-                        <div className="text-sm text-gray-300 mt-1">Vencimento: {formatDate(inst.dueDate)}</div>
+                  <label className="block text-sm font-medium text-gray-200 mb-2">Adicionar Procedimento</label>
+                  <div className="relative procedure-dropdown-container">
+                    <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" size={20} />
+                    <input
+                      type="text"
+                      value={procedureSearch}
+                      onChange={(e) => {
+                        setProcedureSearch(e.target.value);
+                        setShowProcedureDropdown(true);
+                      }}
+                      onFocus={() => setShowProcedureDropdown(true)}
+                      placeholder="Buscar procedimento do catálogo..."
+                      className="pl-10 px-4 py-3 rounded-xl w-full bg-white/5 border border-white/10 text-white placeholder:text-gray-400 focus:ring-2 focus:ring-cyan-500 focus:border-cyan-500 outline-none"
+                    />
+                    {showProcedureDropdown && filteredProceduresCatalog.length > 0 && (
+                      <div className="absolute z-10 w-full mt-2 rounded-xl overflow-hidden border border-white/10 bg-gray-900/90 backdrop-blur-sm max-h-60 overflow-y-auto">
+                        {filteredProceduresCatalog.map((proc) => (
+                          <button
+                            type="button"
+                            key={proc.id}
+                            onClick={() => handleAddComandaItem(proc)}
+                            className="w-full text-left p-3 hover:bg-white/10 transition-all border-b border-white/10 last:border-b-0"
+                          >
+                            <div className="flex justify-between items-center">
+                              <div>
+                                <div className="font-medium text-white">{proc.name}</div>
+                                {proc.category && <div className="text-xs text-gray-400">{proc.category}</div>}
+                              </div>
+                              <div className="text-right">
+                                <div className="text-sm font-semibold text-green-400">{formatCurrency(proc.sale_price)}</div>
+                                {proc.cost_price > 0 && (
+                                  <div className="text-xs text-gray-400">Custo: {formatCurrency(proc.cost_price)}</div>
+                                )}
+                              </div>
+                            </div>
+                          </button>
+                        ))}
                       </div>
-                    ))}
+                    )}
                   </div>
                 </div>
-              )}
 
-              <button type="submit" disabled={isLoading} className="w-full neon-button">
-                {isLoading ? "Registrando..." : "Registrar Pagamento"}
-              </button>
-            </form>
+                {/* Itens da Comanda - Usando componente reutilizável */}
+                {planItems.length > 0 && (
+                  <AppointmentPlanEditor
+                    items={planItems}
+                    onChange={handlePlanItemsChange}
+                    title="Itens da Comanda"
+                  />
+                )}
+
+                {/* Parcelamento */}
+                <div className="grid grid-cols-1 md:grid-cols-3 gap-4 pt-4 border-t border-white/10">
+                  <div>
+                    <label className="block text-sm font-medium text-gray-200 mb-2">Número de Parcelas *</label>
+                    <input
+                      type="number"
+                      min="1"
+                      value={comandaInstallments}
+                      onChange={(e) => setComandaInstallments(Number(e.target.value))}
+                      className="w-full px-4 py-3 rounded-xl bg-white/5 border border-white/10 text-white"
+                      required
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-sm font-medium text-gray-200 mb-2">Método de Pagamento *</label>
+                    <select
+                      value={comandaPaymentMethod}
+                      onChange={(e) => setComandaPaymentMethod(e.target.value)}
+                      className="w-full px-4 py-3 rounded-xl bg-white/5 border border-white/10 text-white"
+                      required
+                    >
+                      <option value="pix" className="text-black">PIX</option>
+                      <option value="credit_card" className="text-black">Cartão de Crédito</option>
+                      <option value="debit_card" className="text-black">Cartão de Débito</option>
+                      <option value="cash" className="text-black">Dinheiro</option>
+                      <option value="bank_transfer" className="text-black">Transferência Bancária</option>
+                    </select>
+                  </div>
+                  <div>
+                    <label className="block text-sm font-medium text-gray-200 mb-2">Data do Primeiro Pagamento *</label>
+                    <input
+                      type="date"
+                      value={comandaFirstPaymentDate}
+                      onChange={(e) => setComandaFirstPaymentDate(e.target.value)}
+                      className="w-full px-4 py-3 rounded-xl bg-white/5 border border-white/10 text-white"
+                      required
+                    />
+                  </div>
+                </div>
+
+                <button type="submit" disabled={isLoading || comandaItems.length === 0} className="w-full neon-button">
+                  {isLoading ? "Registrando..." : "Registrar Atendimento"}
+                </button>
+              </form>
+
+              {/* Modo Legado (opcional - manter para compatibilidade) */}
+              <div className="pt-6 border-t border-white/10">
+                <details className="glass-card p-4 border border-white/10">
+                  <summary className="cursor-pointer text-sm text-gray-400 hover:text-white">Modo Manual (Legado)</summary>
+                  <form onSubmit={handleSubmit} className="space-y-4 mt-4">
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                      <div>
+                        <label className="block text-xs text-gray-300 mb-1">Paciente</label>
+                        <input
+                          type="text"
+                          name="patientName"
+                          value={formData.patientName}
+                          onChange={handleInputChange}
+                          placeholder="Nome do paciente..."
+                          className="w-full px-3 py-2 rounded-lg bg-white/5 border border-white/10 text-white text-sm"
+                        />
+                      </div>
+                      <div>
+                        <label className="block text-xs text-gray-300 mb-1">Procedimento (texto)</label>
+                        <input
+                          type="text"
+                          name="procedureType"
+                          value={formData.procedureType}
+                          onChange={handleInputChange}
+                          placeholder="Ex: Botox..."
+                          className="w-full px-3 py-2 rounded-lg bg-white/5 border border-white/10 text-white text-sm"
+                        />
+                      </div>
+                      <div>
+                        <label className="block text-xs text-gray-300 mb-1">Valor Total</label>
+                        <input
+                          type="number"
+                          name="totalAmount"
+                          value={formData.totalAmount}
+                          onChange={handleInputChange}
+                          className="w-full px-3 py-2 rounded-lg bg-white/5 border border-white/10 text-white text-sm"
+                        />
+                      </div>
+                      <div>
+                        <label className="block text-xs text-gray-300 mb-1">Parcelas</label>
+                        <input
+                          type="number"
+                          name="installments"
+                          value={formData.installments}
+                          onChange={handleInputChange}
+                          className="w-full px-3 py-2 rounded-lg bg-white/5 border border-white/10 text-white text-sm"
+                        />
+                      </div>
+                    </div>
+                    <button type="submit" disabled={isLoading} className="w-full px-4 py-2 rounded-lg bg-white/10 hover:bg-white/20 text-white text-sm">
+                      Registrar (Modo Manual)
+                    </button>
+                  </form>
+                </details>
+              </div>
+            </div>
           ) : activeTab === "pending" ? (
             <div className="space-y-4">
               <h3 className="text-xl font-bold glow-text">Pagamentos Pendentes ({pendingInstallments.length} parcelas)</h3>
@@ -791,7 +1255,12 @@ const FinancialControl: React.FC = () => {
                               <div key={inst.id} className="p-4 border-b border-white/10 last:border-b-0 bg-white/5">
                                 <div className="flex justify-between items-start mb-3">
                                   <div>
-                                    <p className="font-semibold text-white">{procedure?.procedure_type}</p>
+                                    <p className="font-semibold text-white">
+                                      {(() => {
+                                        const record = financialRecords.find(r => r.id === inst.procedure_id);
+                                        return record ? getProcedureDisplayName(record) : procedure?.procedure_type || 'Procedimento';
+                                      })()}
+                                    </p>
                                     <p className="text-sm text-gray-300">
                                       Parcela {inst.installment_number} de {procedure?.total_installments}
                                     </p>
@@ -856,7 +1325,7 @@ const FinancialControl: React.FC = () => {
                 </div>
               )}
             </div>
-          ) : (
+          ) : activeTab === "completed" ? (
             <div className="space-y-6">
               {/* cards resumo */}
               <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
@@ -944,7 +1413,25 @@ const FinancialControl: React.FC = () => {
                           <div className="flex justify-between items-start mb-3">
                             <div>
                               <h4 className="font-semibold text-white">{procedure?.client_name}</h4>
-                              <p className="text-sm text-gray-300">{procedure?.procedure_type}</p>
+                              <p className="text-sm text-gray-300">
+                                {(() => {
+                                  const record = financialRecords.find(r => r.id === inst.procedure_id);
+                                  if (record) {
+                                    const displayName = getProcedureDisplayName(record);
+                                    return (
+                                      <>
+                                        {displayName}
+                                        {record.total_profit > 0 && (
+                                          <span className="ml-2 text-xs text-green-400">
+                                            • Lucro: {formatCurrency(record.total_profit)} ({record.profit_margin.toFixed(1)}%)
+                                          </span>
+                                        )}
+                                      </>
+                                    );
+                                  }
+                                  return procedure?.procedure_type || 'Procedimento';
+                                })()}
+                              </p>
                             </div>
                             <span className="text-lg font-bold text-white">{formatCurrency(inst.installment_value)}</span>
                           </div>
@@ -974,6 +1461,65 @@ const FinancialControl: React.FC = () => {
                         </div>
                       );
                     })}
+                  </div>
+                )}
+              </div>
+            </div>
+          ) : null}
+
+          {activeTab === "agenda" && (
+            <div className="glass-card p-6 border border-white/10">
+              <div className="space-y-4">
+                <h3 className="text-xl font-bold glow-text">Agenda (Potencial) - {appointments.length} agendamentos</h3>
+
+                {appointments.length === 0 ? (
+                  <div className="text-center py-10 text-gray-300">
+                    <Calendar size={48} className="mx-auto mb-4 text-gray-400" />
+                    <p>Nenhum agendamento na janela de tempo</p>
+                  </div>
+                ) : (
+                  <div className="space-y-3">
+                    {appointments.map((appointment) => (
+                      <div key={appointment.id} className="glass-card p-4 border border-white/10">
+                        <div className="flex justify-between items-start mb-3">
+                          <div className="flex-1">
+                            <h4 className="font-semibold text-white">{appointment.patient_name}</h4>
+                            <p className="text-sm text-gray-300">
+                              {formatDate(appointment.start_time)} • {new Date(appointment.start_time).toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' })}
+                            </p>
+                            {appointment.procedures.length > 0 && (
+                              <div className="mt-2 space-y-1">
+                                {appointment.procedures.map((proc, idx) => (
+                                  <div key={idx} className="text-xs text-gray-400 flex items-center gap-2">
+                                    <Package size={12} />
+                                    <span>{proc.procedure_name_snapshot} - {formatCurrency(proc.final_price)}</span>
+                                  </div>
+                                ))}
+                                <p className="text-sm font-semibold text-green-400 mt-2">
+                                  Total Potencial: {formatCurrency(appointment.totalPotential)}
+                                </p>
+                              </div>
+                            )}
+                          </div>
+                        </div>
+                        <div className="flex gap-2">
+                          <button
+                            type="button"
+                            onClick={() => handleOpenCloseAppointment(appointment)}
+                            className="flex-1 neon-button text-sm"
+                          >
+                            Fechar Atendimento
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => handleMarkNoSale(appointment.id)}
+                            className="px-4 py-2 rounded-xl bg-white/5 hover:bg-white/10 border border-white/10 text-white text-sm"
+                          >
+                            Não Realizou
+                          </button>
+                        </div>
+                      </div>
+                    ))}
                   </div>
                 )}
               </div>
@@ -1113,8 +1659,195 @@ const FinancialControl: React.FC = () => {
                 >
                   Cancelar
                 </button>
-                <button type="button" onClick={updatePaymentMethod} className="flex-1 neon-button">
+                <button type="button" onClick={handleUpdatePaymentMethod} className="flex-1 neon-button">
                   Salvar Alterações
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* Modal Fechar Atendimento */}
+        {closeAppointmentModal.isOpen && closeAppointmentModal.appointment && (
+          <div className="fixed inset-0 bg-black/70 flex items-center justify-center z-50 p-4">
+            <div className="glass-card p-6 max-w-2xl w-full border border-white/10 max-h-[90vh] overflow-y-auto">
+              <div className="flex justify-between items-center mb-4">
+                <h3 className="text-lg font-semibold text-white">Fechar Atendimento</h3>
+                <button
+                  onClick={() => setCloseAppointmentModal({ isOpen: false, appointment: null, items: [] })}
+                  className="p-2 rounded-xl bg-white/5 hover:bg-white/10 border border-white/10 transition-all"
+                >
+                  <X size={18} className="text-white" />
+                </button>
+              </div>
+
+              <div className="mb-4 space-y-2">
+                <p className="text-gray-300">
+                  Paciente: <span className="font-medium text-white">{closeAppointmentModal.appointment.patient_name}</span>
+                </p>
+                <p className="text-gray-300">
+                  Data: <span className="font-medium text-white">{formatDate(closeAppointmentModal.appointment.start_time)}</span>
+                </p>
+              </div>
+
+              <div className="mb-6 space-y-3">
+                <h4 className="font-semibold text-white">Procedimentos</h4>
+                {closeAppointmentModal.items.map((item, index) => (
+                  <div key={index} className="glass-card p-3 border border-white/10">
+                    <div className="flex justify-between items-start mb-2">
+                      <div className="flex-1">
+                        <p className="font-medium text-white">{item.name}</p>
+                        <div className="grid grid-cols-2 md:grid-cols-4 gap-2 mt-2">
+                          <div>
+                            <label className="block text-xs text-gray-300 mb-1">Qtd</label>
+                            <input
+                              type="number"
+                              min="1"
+                              value={item.quantity}
+                              onChange={(e) => {
+                                const updated = [...closeAppointmentModal.items];
+                                updated[index] = { ...updated[index], quantity: Number(e.target.value) };
+                                updated[index].profit = (updated[index].finalPrice * updated[index].quantity - updated[index].discount) - (updated[index].costPrice * updated[index].quantity);
+                                setCloseAppointmentModal({ ...closeAppointmentModal, items: updated });
+                              }}
+                              className="w-full px-2 py-1 rounded-lg bg-white/5 border border-white/10 text-white text-sm"
+                            />
+                          </div>
+                          <div>
+                            <label className="block text-xs text-gray-300 mb-1">Preço Final</label>
+                            <input
+                              type="number"
+                              min="0"
+                              step="0.01"
+                              value={item.finalPrice}
+                              onChange={(e) => {
+                                const updated = [...closeAppointmentModal.items];
+                                updated[index] = { ...updated[index], finalPrice: Number(e.target.value) };
+                                updated[index].profit = (updated[index].finalPrice * updated[index].quantity - updated[index].discount) - (updated[index].costPrice * updated[index].quantity);
+                                setCloseAppointmentModal({ ...closeAppointmentModal, items: updated });
+                              }}
+                              className="w-full px-2 py-1 rounded-lg bg-white/5 border border-white/10 text-white text-sm"
+                            />
+                          </div>
+                          <div>
+                            <label className="block text-xs text-gray-300 mb-1">Desconto</label>
+                            <input
+                              type="number"
+                              min="0"
+                              step="0.01"
+                              value={item.discount}
+                              onChange={(e) => {
+                                const updated = [...closeAppointmentModal.items];
+                                updated[index] = { ...updated[index], discount: Number(e.target.value) };
+                                updated[index].profit = (updated[index].finalPrice * updated[index].quantity - updated[index].discount) - (updated[index].costPrice * updated[index].quantity);
+                                setCloseAppointmentModal({ ...closeAppointmentModal, items: updated });
+                              }}
+                              className="w-full px-2 py-1 rounded-lg bg-white/5 border border-white/10 text-white text-sm"
+                            />
+                          </div>
+                          <div>
+                            <label className="block text-xs text-gray-300 mb-1">Lucro</label>
+                            <p className="text-sm font-semibold text-green-400">{formatCurrency(item.profit)}</p>
+                          </div>
+                        </div>
+                      </div>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          const newItems = closeAppointmentModal.items.filter((_, i) => i !== index);
+                          setCloseAppointmentModal({ ...closeAppointmentModal, items: newItems });
+                        }}
+                        className="p-1.5 hover:bg-white/10 rounded-lg ml-2"
+                      >
+                        <X size={14} className="text-red-400" />
+                      </button>
+                    </div>
+                  </div>
+                ))}
+                
+                {/* Resumo do fechamento */}
+                {closeAppointmentModal.items.length > 0 && (
+                  <div className="glass-card p-4 border border-cyan-500/30 bg-cyan-500/5 mt-4">
+                    <h5 className="font-semibold text-white mb-2">Resumo do Fechamento</h5>
+                    <div className="grid grid-cols-2 md:grid-cols-4 gap-3 text-sm">
+                      <div>
+                        <p className="text-gray-300">Total Final</p>
+                        <p className="text-lg font-bold text-white">
+                          {formatCurrency(closeAppointmentModal.items.reduce((sum, item) => sum + (item.finalPrice * item.quantity - item.discount), 0))}
+                        </p>
+                      </div>
+                      <div>
+                        <p className="text-gray-300">Total Custo</p>
+                        <p className="text-lg font-bold text-gray-300">
+                          {formatCurrency(closeAppointmentModal.items.reduce((sum, item) => sum + (item.costPrice * item.quantity), 0))}
+                        </p>
+                      </div>
+                      <div>
+                        <p className="text-gray-300">Total Lucro</p>
+                        <p className="text-lg font-bold text-green-400">
+                          {formatCurrency(closeAppointmentModal.items.reduce((sum, item) => sum + item.profit, 0))}
+                        </p>
+                      </div>
+                      <div>
+                        <p className="text-gray-300">Margem</p>
+                        <p className="text-lg font-bold text-purple-400">
+                          {(() => {
+                            const totalFinal = closeAppointmentModal.items.reduce((sum, item) => sum + (item.finalPrice * item.quantity - item.discount), 0);
+                            const totalProfit = closeAppointmentModal.items.reduce((sum, item) => sum + item.profit, 0);
+                            return totalFinal > 0 ? ((totalProfit / totalFinal) * 100).toFixed(1) : '0.0';
+                          })()}%
+                        </p>
+                      </div>
+                    </div>
+                  </div>
+                )}
+              </div>
+
+              <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-6">
+                <div>
+                  <label className="block text-xs text-gray-300 mb-1">Parcelas</label>
+                  <input
+                    type="number"
+                    min="1"
+                    value={comandaInstallments}
+                    onChange={(e) => setComandaInstallments(Number(e.target.value))}
+                    className="w-full px-3 py-2 rounded-lg bg-white/5 border border-white/10 text-white text-sm"
+                  />
+                </div>
+                <div>
+                  <label className="block text-xs text-gray-300 mb-1">Método</label>
+                  <select
+                    value={comandaPaymentMethod}
+                    onChange={(e) => setComandaPaymentMethod(e.target.value)}
+                    className="w-full px-3 py-2 rounded-lg bg-white/5 border border-white/10 text-white text-sm"
+                  >
+                    <option value="pix" className="text-black">PIX</option>
+                    <option value="credit_card" className="text-black">Cartão Crédito</option>
+                    <option value="debit_card" className="text-black">Cartão Débito</option>
+                    <option value="cash" className="text-black">Dinheiro</option>
+                  </select>
+                </div>
+                <div>
+                  <label className="block text-xs text-gray-300 mb-1">1º Pagamento</label>
+                  <input
+                    type="date"
+                    value={comandaFirstPaymentDate}
+                    onChange={(e) => setComandaFirstPaymentDate(e.target.value)}
+                    className="w-full px-3 py-2 rounded-lg bg-white/5 border border-white/10 text-white text-sm"
+                  />
+                </div>
+              </div>
+
+              <div className="flex gap-3">
+                <button
+                  type="button"
+                  onClick={() => setCloseAppointmentModal({ isOpen: false, appointment: null, items: [] })}
+                  className="flex-1 px-4 py-2 rounded-xl border border-white/10 bg-white/5 hover:bg-white/10 text-white transition-all"
+                >
+                  Cancelar
+                </button>
+                <button type="button" onClick={handleCloseAppointment} disabled={isLoading} className="flex-1 neon-button">
+                  {isLoading ? "Fechando..." : "Fechar Atendimento"}
                 </button>
               </div>
             </div>

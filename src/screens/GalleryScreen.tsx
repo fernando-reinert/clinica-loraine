@@ -17,6 +17,7 @@ import {
   ZoomIn,
   Save,
 } from "lucide-react";
+import { useSearchParams } from "react-router-dom";
 import Header from "../components/Header";
 //import BottomNavigation from "../components/BottomNavigation";
 import LoadingSpinner from "../components/LoadingSpinner";
@@ -47,6 +48,9 @@ interface Photo {
 }
 
 const GalleryScreen: React.FC = () => {
+  const [searchParams] = useSearchParams();
+  const patientIdFromUrl = searchParams.get('patientId');
+  
   const fileInputRef = useRef<HTMLInputElement>(null);
   const videoRef = useRef<HTMLVideoElement>(null);
   const canvasRef = useRef<HTMLCanvasElement>(null);
@@ -118,6 +122,17 @@ const GalleryScreen: React.FC = () => {
     loadInitialData();
   }, []);
 
+  // Quando pacientes carregarem e houver patientId na URL, selecionar automaticamente
+  useEffect(() => {
+    if (patientIdFromUrl && patients.length > 0 && !selectedPatient) {
+      const patient = patients.find(p => p.id === patientIdFromUrl);
+      if (patient) {
+        setSelectedPatient(patient);
+        setSearchTerm(patient.name);
+      }
+    }
+  }, [patientIdFromUrl, patients, selectedPatient]);
+
   // Recarregar fotos quando filtros mudarem
   useEffect(() => {
     if (!loading) {
@@ -128,7 +143,18 @@ const GalleryScreen: React.FC = () => {
   const loadInitialData = async () => {
     try {
       setLoading(true);
-      await Promise.all([loadPatients(), loadPhotos()]);
+      await loadPatients();
+      
+      // Se houver patientId na URL, selecionar automaticamente
+      if (patientIdFromUrl) {
+        const patient = patients.find(p => p.id === patientIdFromUrl);
+        if (patient) {
+          setSelectedPatient(patient);
+          setSearchTerm(patient.name);
+        }
+      }
+      
+      await loadPhotos();
     } catch (error) {
       console.error("Erro ao carregar dados:", error);
       toast.error("Erro ao carregar dados da galeria");

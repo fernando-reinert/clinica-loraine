@@ -5,7 +5,7 @@ import {
   Users, 
   Calendar, 
   DollarSign, 
-  Camera, 
+  Package, 
   FileText, 
   Settings, 
   UserPlus,
@@ -32,7 +32,7 @@ const Sidebar: React.FC<SidebarProps> = ({ isOpen, onToggle }) => {
     { icon: Stethoscope, label: 'Consultas', href: '/appointments/list' },
     { icon: DollarSign, label: 'Financeiro', href: '/financial-control' },
     { icon: FileText, label: 'Prontuários', href: '/clinical-record' },
-    { icon: Camera, label: 'Galeria', href: '/gallery' },
+    { icon: Package, label: 'Catálogo de Procedimentos', href: '/procedures' },
     { icon: Settings, label: 'Configurações', href: '/profile' },
   ];
 
