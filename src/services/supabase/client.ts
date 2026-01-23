@@ -10,6 +10,9 @@ if (!supabaseUrl || !supabaseAnonKey) {
   )
 }
 
+// Exportar URL para logs
+export const SUPABASE_URL = supabaseUrl
+
 export const supabase = createClient<Database>(supabaseUrl, supabaseAnonKey, {
   auth: {
     autoRefreshToken: true,

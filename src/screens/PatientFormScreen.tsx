@@ -14,6 +14,7 @@ import {
 // Importações centralizadas
 import { questions, categories, calculateProgress } from '../data/anamneseQuestions';
 import { AnamneseFormData, Patient } from '../types';
+import '../styles/patient-form.css';
 
 const PatientFormScreen: React.FC = () => {
   const params = useParams();
@@ -26,6 +27,7 @@ const PatientFormScreen: React.FC = () => {
   const [saving, setSaving] = useState(false);
   const [activeCategory, setActiveCategory] = useState('geral');
   const [hasUnsavedChanges, setHasUnsavedChanges] = useState(false);
+  const [showThankYou, setShowThankYou] = useState(false);
 
   // 🔄 CARREGAR FORMULÁRIO POR SHARE TOKEN (SEM AUTENTICAÇÃO)
   const loadFormByShareToken = async (): Promise<void> => {
@@ -82,6 +84,7 @@ const PatientFormScreen: React.FC = () => {
       }
 
       if (form.status === 'completed') {
+        setShowThankYou(true);
         toast.success('✅ Este formulário já foi preenchido!');
       }
 
@@ -143,12 +146,8 @@ const PatientFormScreen: React.FC = () => {
       if (error) throw error;
 
       setFormData(prev => prev ? { ...prev, status: 'completed' } : null);
+      setShowThankYou(true);
       toast.success('🎉 Formulário enviado com sucesso! Obrigado.');
-
-      // Redirecionar após 3 segundos
-      setTimeout(() => {
-        navigate('/form-success');
-      }, 3000);
 
     } catch (error) {
       console.error('❌ Erro ao completar formulário:', error);
@@ -258,14 +257,15 @@ const PatientFormScreen: React.FC = () => {
     loadFormByShareToken();
   }, [shareToken]);
 
-  const canEdit = formData?.status === 'sent';
+  const canEdit = formData?.status === 'sent' && !showThankYou;
 
+  // ESTADOS DE CARREGAMENTO / ERRO NO TEMA FUTURISTA
   if (loading) {
     return (
-      <div className="min-h-screen bg-gray-50 flex items-center justify-center p-4">
-        <div className="text-center">
-          <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-600 mx-auto"></div>
-          <p className="mt-4 text-gray-600">Carregando formulário...</p>
+      <div className="pf-root flex items-center justify-center">
+        <div className="glass-card px-8 py-6 text-center">
+          <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-indigo-400 mx-auto"></div>
+          <p className="mt-4 text-sm text-slate-200">Carregando formulário...</p>
         </div>
       </div>
     );
@@ -273,20 +273,45 @@ const PatientFormScreen: React.FC = () => {
 
   if (!formData) {
     return (
-      <div className="min-h-screen bg-gray-50 flex items-center justify-center p-4">
-        <div className="text-center">
-          <h1 className="text-2xl font-bold text-gray-900 mb-2">
-            Formulário Não Encontrado
+      <div className="pf-root flex items-center justify-center">
+        <div className="glass-card max-w-md w-full p-8 sm:p-10 text-center border border-white/10">
+          <h1 className="text-2xl font-bold text-slate-50 mb-3">
+            Formulário não encontrado
           </h1>
-          <p className="text-gray-600 mb-4">
+          <p className="text-sm text-slate-300 mb-6">
             O link pode ter expirado ou o formulário não existe mais.
           </p>
           <button
             onClick={() => navigate('/')}
-            className="px-6 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700"
+            className="inline-flex items-center justify-center px-6 py-2.5 rounded-xl text-sm font-medium text-slate-50 bg-indigo-600 hover:bg-indigo-500 transition-colors"
           >
-            Voltar ao Início
+            Voltar ao início
           </button>
+        </div>
+      </div>
+    );
+  }
+
+  // Tela de agradecimento fixo (não redireciona)
+  if (showThankYou || formData?.status === 'completed') {
+    return (
+      <div className="pf-root flex items-center justify-center min-h-screen">
+        <div className="glass-card max-w-md w-full p-8 sm:p-10 text-center border border-white/10">
+          <CheckCircle className="mx-auto text-emerald-400 mb-4" size={64} />
+          <h1 className="text-3xl font-bold text-slate-50 mb-4 glow-text">
+            Obrigado!
+          </h1>
+          <p className="text-lg text-slate-200 mb-2">
+            Formulário enviado com sucesso
+          </p>
+          <p className="text-sm text-slate-300 mb-6">
+            Suas respostas foram recebidas pela clínica. Entraremos em contato em breve.
+          </p>
+          <div className="mt-8 p-4 bg-emerald-500/10 border border-emerald-400/30 rounded-xl">
+            <p className="text-sm text-emerald-200">
+              ✅ Seus dados foram salvos com segurança
+            </p>
+          </div>
         </div>
       </div>
     );
@@ -294,67 +319,68 @@ const PatientFormScreen: React.FC = () => {
 
   if (!canEdit) {
     return (
-      <div className="min-h-screen bg-gray-50 flex items-center justify-center p-4">
-        <div className="text-center">
-          <CheckCircle className="mx-auto text-green-500 mb-4" size={48} />
-          <h1 className="text-2xl font-bold text-gray-900 mb-2">
-            {formData.status === 'completed' ? 'Formulário Já Preenchido' : 'Formulário Indisponível'}
+      <div className="pf-root flex items-center justify-center">
+        <div className="glass-card max-w-md w-full p-8 sm:p-10 text-center border border-white/10">
+          <CheckCircle className="mx-auto text-emerald-400 mb-4" size={48} />
+          <h1 className="text-2xl font-bold text-slate-50 mb-3">
+            Formulário indisponível
           </h1>
-          <p className="text-gray-600 mb-4">
-            {formData.status === 'completed' 
-              ? 'Este formulário já foi preenchido e enviado para a clínica.'
-              : 'Este formulário não está mais disponível para preenchimento.'
-            }
+          <p className="text-sm text-slate-300 mb-6">
+            Este formulário não está mais disponível para preenchimento.
           </p>
           <button
             onClick={() => navigate('/')}
-            className="px-6 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700"
+            className="inline-flex items-center justify-center px-6 py-2.5 rounded-xl text-sm font-medium text-slate-50 bg-indigo-600 hover:bg-indigo-500 transition-colors"
           >
-            Voltar ao Início
+            Voltar ao início
           </button>
         </div>
       </div>
     );
   }
 
+  // LAYOUT PRINCIPAL NO TEMA FUTURISTA
   return (
-    <div className="min-h-screen bg-gray-50">
+    <div className="pf-root">
       {/* Header Simplificado para Paciente */}
-      <div className="bg-white shadow-sm border-b">
-        <div className="max-w-6xl mx-auto px-4 py-4">
-          <div className="flex flex-col lg:flex-row lg:items-center lg:justify-between space-y-4 lg:space-y-0">
-            <div className="flex items-center space-x-3">
+      <div className="pf-header">
+        <div className="pf-header-inner">
+          <div className="pf-header-card">
+            <div className="flex items-center gap-3">
               <button
                 onClick={() => window.history.back()}
-                className="p-2 hover:bg-gray-100 rounded-lg transition-colors"
+                className="inline-flex items-center justify-center p-2 rounded-full border border-slate-600/60 bg-slate-900/60 hover:bg-slate-800/80 transition-colors"
               >
-                <ArrowLeft size={20} />
+                <ArrowLeft size={18} className="text-slate-200" />
               </button>
               
               <div className="flex-1 min-w-0">
-                <h1 className="text-lg lg:text-xl font-semibold text-gray-900 truncate">
-                  Formulário de Anamnese - Clínica Estética
+                <h1 className="pf-title-main truncate">
+                  Formulário de Anamnese
                 </h1>
                 {patient && (
-                  <div className="flex items-center text-sm text-gray-600 mt-1">
-                    <User size={14} className="mr-1" />
+                  <div className="pf-title-sub">
+                    <User size={14} className="text-slate-300" />
                     <span className="truncate">{patient.name}</span>
                   </div>
                 )}
               </div>
             </div>
 
-            <div className="flex flex-wrap gap-2">
-              <div className={`inline-flex items-center px-3 py-1 rounded-full text-sm font-medium ${
-                formData?.status === 'sent' ? 'bg-blue-100 text-blue-800' : 'bg-green-100 text-green-800'
-              }`}>
+            <div className="flex flex-wrap gap-2 justify-start lg:justify-end">
+              <div
+                className={[
+                  'pf-status-pill',
+                  formData?.status === 'completed' ? 'pf-status-pill--completed' : ''
+                ].join(' ')}
+              >
                 {formData?.status === 'sent' && <Clock size={14} className="mr-1" />}
                 {formData?.status === 'completed' && <CheckCircle size={14} className="mr-1" />}
-                {formData?.status === 'sent' ? 'Aguardando Preenchimento' : 'Concluído'}
+                {formData?.status === 'sent' ? 'Aguardando preenchimento' : 'Concluído'}
               </div>
 
               {hasUnsavedChanges && (
-                <div className="inline-flex items-center px-2 py-1 rounded-full text-xs font-medium bg-yellow-100 text-yellow-800">
+                <div className="pf-chip-warning">
                   <Clock size={12} className="mr-1" />
                   Alterações não salvas
                 </div>
@@ -363,7 +389,7 @@ const PatientFormScreen: React.FC = () => {
               <button
                 onClick={completeForm}
                 disabled={saving || !isFormComplete()}
-                className="px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 disabled:opacity-50 flex items-center space-x-2 text-sm"
+                className="inline-flex items-center gap-2 px-4 py-2 rounded-xl text-xs sm:text-sm font-semibold text-emerald-50 bg-emerald-600 hover:bg-emerald-500 disabled:opacity-40 disabled:cursor-not-allowed shadow-lg shadow-emerald-500/40 transition-colors"
               >
                 <CheckCircle size={16} />
                 <span>{saving ? 'Enviando...' : 'Finalizar'}</span>
@@ -372,49 +398,44 @@ const PatientFormScreen: React.FC = () => {
           </div>
 
           {/* Barra de Progresso */}
-          <div className="mt-4">
-            <div className="flex justify-between items-center mb-2">
-              <span className="text-sm font-medium text-gray-700">
+          <div className="pf-progress-wrapper">
+            <div className="pf-progress-header">
+              <span className="font-medium">
                 {progress}% completo
               </span>
-              <span className="text-sm text-gray-500">
+              <span className="text-xs sm:text-sm">
                 {visibleQuestions.filter(q => formData?.answers[q.field]).length}/{visibleQuestions.length} perguntas
               </span>
             </div>
-            <div className="w-full bg-gray-200 rounded-full h-2">
+            <div className="pf-progress-bar">
               <div
-                className="bg-blue-600 h-2 rounded-full transition-all duration-300"
+                className="pf-progress-fill"
                 style={{ width: `${progress}%` }}
               ></div>
             </div>
-            {!isFormComplete() && (
-              <p className="text-sm text-orange-600 mt-2">
-                Complete todas as perguntas para enviar o formulário
-              </p>
-            )}
           </div>
         </div>
       </div>
 
       {/* Conteúdo do Formulário */}
-      <div className="max-w-6xl mx-auto px-4 py-6">
+      <div className="pf-body">
         {/* Navegação por Categorias - Mobile Responsivo */}
-        <div className="bg-white rounded-lg shadow-sm border mb-6">
-          <div className="flex items-center justify-between p-4 border-b">
+        <div className="pf-card-glass pf-card-glass--nav">
+          <div className="flex items-center justify-between p-4 border-b border-slate-700/60">
             <button
               onClick={goToPrevCategory}
               disabled={activeCategory === categories[0].id}
-              className="flex items-center space-x-2 px-3 py-2 text-sm disabled:opacity-30 disabled:cursor-not-allowed text-gray-600 hover:text-gray-800"
+              className="pf-nav-button"
             >
               <ChevronLeft size={16} />
               <span className="hidden sm:inline">Anterior</span>
             </button>
 
             <div className="flex-1 text-center">
-              <h2 className="text-lg font-semibold text-gray-900">
+              <h2 className="pf-category-title">
                 {categories.find(cat => cat.id === activeCategory)?.name}
               </h2>
-              <p className="text-sm text-gray-500 mt-1">
+              <p className="pf-category-subtitle mt-1">
                 Categoria {categories.findIndex(cat => cat.id === activeCategory) + 1} de {categories.length}
               </p>
             </div>
@@ -422,7 +443,7 @@ const PatientFormScreen: React.FC = () => {
             <button
               onClick={goToNextCategory}
               disabled={activeCategory === categories[categories.length - 1].id}
-              className="flex items-center space-x-2 px-3 py-2 text-sm disabled:opacity-30 disabled:cursor-not-allowed text-gray-600 hover:text-gray-800"
+              className="pf-nav-button"
             >
               <span className="hidden sm:inline">Próxima</span>
               <ChevronRight size={16} />
@@ -431,23 +452,25 @@ const PatientFormScreen: React.FC = () => {
 
           {/* Indicadores de Categorias */}
           <div className="flex overflow-x-auto p-3 space-x-2">
-            {categories.map((category, index) => (
-              <button
-                key={category.id}
-                onClick={() => setActiveCategory(category.id)}
-                className={`flex-shrink-0 px-3 py-2 rounded-lg flex items-center space-x-2 transition-colors ${
-                  activeCategory === category.id
-                    ? "bg-blue-600 text-white shadow-md"
-                    : "bg-gray-100 text-gray-700 hover:bg-gray-200"
-                }`}
-              >
-                <span className="text-sm">{category.icon}</span>
-                <span className="whitespace-nowrap text-sm hidden sm:block">
-                  {category.name}
-                </span>
-                <span className="text-xs">({index + 1})</span>
-              </button>
-            ))}
+            {categories.map((category, index) => {
+              const isActive = activeCategory === category.id;
+              return (
+                <button
+                  key={category.id}
+                  onClick={() => setActiveCategory(category.id)}
+                  className={[
+                    'pf-category-chip',
+                    isActive ? 'pf-category-chip--active' : ''
+                  ].join(' ')}
+                >
+                  <span className="text-sm">{category.icon}</span>
+                  <span className="whitespace-nowrap text-sm hidden sm:block">
+                    {category.name}
+                  </span>
+                  <span className="pf-category-chip-index">({index + 1})</span>
+                </button>
+              );
+            })}
           </div>
         </div>
 
@@ -457,32 +480,32 @@ const PatientFormScreen: React.FC = () => {
             const currentValue = formData?.answers[question.field];
 
             return (
-              <div key={question.id} className="bg-white rounded-lg shadow-sm border p-4 sm:p-6">
-                <label className="block text-base sm:text-lg font-semibold text-gray-800 mb-4">
+              <div key={question.id} className="pf-question-card">
+                <label className="pf-question-label">
                   {question.question}
                 </label>
 
                 {question.type === 'boolean' && (
-                  <div className="flex flex-col sm:flex-row space-y-2 sm:space-y-0 sm:space-x-4">
+                  <div className="pf-boolean-row">
                     <button
                       type="button"
                       onClick={() => handleAnswerChange(question.field, true)}
-                      className={`flex-1 py-3 px-4 rounded-lg border-2 text-base font-medium transition-all ${
-                        currentValue === true
-                          ? "bg-green-500 text-white border-green-500 shadow-md"
-                          : "bg-white text-gray-700 border-gray-300 hover:border-green-400 hover:bg-green-50"
-                      }`}
+                      className={[
+                        'pf-boolean-button',
+                        'pf-boolean-button--yes',
+                        currentValue === true ? 'pf-boolean-button--active' : ''
+                      ].join(' ')}
                     >
                       Sim
                     </button>
                     <button
                       type="button"
                       onClick={() => handleAnswerChange(question.field, false)}
-                      className={`flex-1 py-3 px-4 rounded-lg border-2 text-base font-medium transition-all ${
-                        currentValue === false
-                          ? "bg-red-500 text-white border-red-500 shadow-md"
-                          : "bg-white text-gray-700 border-gray-300 hover:border-red-400 hover:bg-red-50"
-                      }`}
+                      className={[
+                        'pf-boolean-button',
+                        'pf-boolean-button--no',
+                        currentValue === false ? 'pf-boolean-button--active' : ''
+                      ].join(' ')}
                     >
                       Não
                     </button>
@@ -493,7 +516,7 @@ const PatientFormScreen: React.FC = () => {
                   <textarea
                     value={currentValue || ''}
                     onChange={(e) => handleAnswerChange(question.field, e.target.value)}
-                    className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 resize-vertical min-h-[100px] text-sm sm:text-base"
+                    className="pf-textarea"
                     placeholder="Digite sua resposta aqui..."
                   />
                 )}
@@ -502,7 +525,7 @@ const PatientFormScreen: React.FC = () => {
                   <select
                     value={currentValue || ''}
                     onChange={(e) => handleAnswerChange(question.field, e.target.value)}
-                    className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 text-sm sm:text-base"
+                    className="pf-select"
                   >
                     <option value="">Selecione uma opção</option>
                     {question.options.map((option, index) => (
@@ -518,18 +541,18 @@ const PatientFormScreen: React.FC = () => {
         </div>
 
         {/* Botões de Navegação Inferiores */}
-        <div className="flex justify-between items-center mt-8 pb-8">
+        <div className="pf-bottom-nav">
           <button
             onClick={goToPrevCategory}
             disabled={activeCategory === categories[0].id}
-            className="flex items-center space-x-2 px-4 py-3 bg-gray-600 text-white rounded-lg hover:bg-gray-700 disabled:opacity-30 disabled:cursor-not-allowed transition-colors"
+            className="pf-bottom-button"
           >
             <ChevronLeft size={18} />
             <span>Voltar</span>
           </button>
 
           <div className="text-center">
-            <p className="text-sm text-gray-600">
+            <p className="pf-bottom-status">
               {isCurrentCategoryComplete() ? '✅ Categoria completa!' : '⏳ Complete esta categoria'}
             </p>
           </div>
@@ -537,19 +560,19 @@ const PatientFormScreen: React.FC = () => {
           <button
             onClick={goToNextCategory}
             disabled={activeCategory === categories[categories.length - 1].id}
-            className="flex items-center space-x-2 px-4 py-3 bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:opacity-30 disabled:cursor-not-allowed transition-colors"
+            className="pf-bottom-button"
           >
             <span>Próxima</span>
             <ChevronRight size={18} />
           </button>
         </div>
 
-        {/* Botão Finalizar Fixo para Mobile */}
-        <div className="fixed bottom-6 right-6 z-10">
+        {/* Botão Finalizar Fixo para Mobile / Geral */}
+        <div className="pf-fab-finalize">
           <button
             onClick={completeForm}
             disabled={saving || !isFormComplete()}
-            className="px-6 py-4 bg-green-600 text-white rounded-full shadow-lg hover:bg-green-700 disabled:opacity-50 flex items-center space-x-3 text-base font-semibold"
+            className="pf-fab-button"
           >
             <CheckCircle size={20} />
             <span>{saving ? 'Enviando...' : 'Finalizar'}</span>

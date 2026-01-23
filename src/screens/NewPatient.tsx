@@ -1,11 +1,13 @@
 // src/screens/NewPatient.tsx
 import React, { useState, useRef } from "react";
 import { useNavigate } from "react-router-dom";
-import { Phone, Mail, Camera, Image as ImageIcon, Trash2, Calendar, User, MapPin, CreditCard, Sparkles } from "lucide-react";
+import { Phone, Mail, Camera, Image as ImageIcon, Trash2, Calendar, User, MapPin, CreditCard, Sparkles, Share2 } from "lucide-react";
 import toast from "react-hot-toast";
 import { supabase } from "../services/supabase/client";
 import AppLayout from "../components/Layout/AppLayout";
 import LoadingSpinner from "../components/LoadingSpinner";
+import { copyToClipboard } from "../utils/clipboard";
+import { createSignupForm } from "../services/signupFormService";
 
 const NewPatient: React.FC = () => {
   const navigate = useNavigate();
@@ -23,46 +25,136 @@ const NewPatient: React.FC = () => {
   const [loading, setLoading] = useState(false);
   const [uploading, setUploading] = useState(false);
 
-  // ✅ Upload da foto para o Supabase Storage (mantém sua lógica)
-  const uploadPhotoToStorage = async (file: File): Promise<string | null> => {
+  // Estados para compartilhar cadastro (mesmo padrão da anamnese)
+  const [showSignupShareModal, setShowSignupShareModal] = useState(false);
+  const [signupShareToken, setSignupShareToken] = useState<string | null>(null);
+
+  /**
+   * Upload da foto do paciente para o Supabase Storage
+   * 
+   * ⚠️ IMPORTANTE: O bucket "patient-photos" deve ser criado previamente no Supabase Dashboard.
+   * Não criar bucket via client (falha por permissões RLS em produção).
+   * 
+   * @param file - Arquivo de imagem a ser enviado
+   * @param patientId - ID do paciente (opcional, usa "temp" se não fornecido)
+   * @returns URL pública da foto ou null em caso de erro
+   */
+  const uploadPhotoToStorage = async (file: File, patientId?: string): Promise<string | null> => {
     try {
       setUploading(true);
 
-      const { data: buckets, error: listError } = await supabase.storage.listBuckets();
-      if (listError) throw listError;
+      // Sanitizar nome do arquivo
+      const fileNameRaw = file.name || "foto-paciente";
+      const lastDotIndex = fileNameRaw.lastIndexOf(".");
+      const ext = lastDotIndex > 0 
+        ? fileNameRaw.substring(lastDotIndex + 1).toLowerCase() 
+        : "jpg";
+      
+      const baseName = lastDotIndex > 0 
+        ? fileNameRaw.substring(0, lastDotIndex) 
+        : fileNameRaw;
 
-      const bucketExists = buckets?.some((bucket) => bucket.name === "patient-photos");
-      if (!bucketExists) {
-        const { error: createError } = await supabase.storage.createBucket("patient-photos", {
-          public: true,
-          fileSizeLimit: 5242880, // 5MB
-        });
-        if (createError) throw createError;
-      }
+      const safeName = baseName
+        .trim()
+        .toLowerCase()
+        .replace(/[^a-z0-9._-]/g, "_")
+        .replace(/\s+/g, "_")
+        .replace(/_{2,}/g, "_")
+        .replace(/^_+|_+$/g, "") || "foto";
 
-      const fileExt = file.name.split(".").pop();
-      const fileName = `patient_${Date.now()}_${Math.random().toString(36).substring(2, 9)}.${fileExt}`;
-      const filePath = fileName;
+      // Path organizado: patients/{patientId || "temp"}/{timestamp}-{random}.{ext}
+      const timestamp = Date.now();
+      const random = Math.random().toString(36).substring(2, 9);
+      const folderId = patientId || "temp";
+      const filePath = `patients/${folderId}/${timestamp}-${random}-${safeName}.${ext}`;
 
-      const { error: uploadError } = await supabase.storage.from("patient-photos").upload(filePath, file, {
-        cacheControl: "3600",
-        upsert: false,
+      console.log("[PATIENT_PHOTO_UPLOAD] Iniciando upload:", {
+        bucket: "patient-photos",
+        path: filePath,
+        fileName: file.name,
+        fileSize: file.size,
+        fileType: file.type,
       });
 
+      // Upload direto (bucket deve existir previamente)
+      const { data: uploadData, error: uploadError } = await supabase.storage
+        .from("patient-photos")
+        .upload(filePath, file, {
+          cacheControl: "3600",
+          upsert: false,
+          contentType: file.type || `image/${ext === "jpg" ? "jpeg" : ext}`,
+        });
+
       if (uploadError) {
-        console.error("Erro no upload:", uploadError);
-        throw uploadError;
+        console.error("[PATIENT_PHOTO_UPLOAD] ❌ Erro no upload:", {
+          message: uploadError.message,
+          statusCode: (uploadError as any).statusCode,
+          name: (uploadError as any).name,
+          error: uploadError,
+        });
+
+        const errorMessage = (uploadError as any).message || "";
+        const statusCode = (uploadError as any).statusCode;
+
+        // Mensagens específicas para diferentes tipos de erro
+        if (
+          errorMessage.toLowerCase().includes("row-level security") ||
+          errorMessage.toLowerCase().includes("violates row-level security") ||
+          errorMessage.toLowerCase().includes("new row violates")
+        ) {
+          toast.error(
+            "Sem permissão para enviar fotos. Verifique as políticas (RLS) do Storage no Supabase Dashboard."
+          );
+        } else if (
+          errorMessage.toLowerCase().includes("bucket") &&
+          (errorMessage.toLowerCase().includes("not found") || statusCode === 400)
+        ) {
+          toast.error(
+            'Bucket "patient-photos" não encontrado. Peça ao administrador para criar esse bucket no Supabase Dashboard > Storage.'
+          );
+        } else if (statusCode === 400) {
+          toast.error(
+            "Erro ao enviar foto para o Storage (código 400). Verifique configuração do bucket e políticas RLS."
+          );
+        } else {
+          toast.error(`Erro ao salvar a foto: ${errorMessage || "Erro desconhecido"}`);
+        }
+
+        return null;
       }
 
-      const {
-        data: { publicUrl },
-      } = supabase.storage.from("patient-photos").getPublicUrl(filePath);
+      if (!uploadData) {
+        console.error("[PATIENT_PHOTO_UPLOAD] ❌ Upload retornou sem dados");
+        toast.error("Erro ao salvar a foto: resposta vazia do servidor");
+        return null;
+      }
+
+      // Obter URL pública (assumindo bucket público)
+      const { data: publicData } = supabase.storage
+        .from("patient-photos")
+        .getPublicUrl(uploadData.path);
+
+      const publicUrl = publicData?.publicUrl || null;
+
+      if (!publicUrl) {
+        console.error("[PATIENT_PHOTO_UPLOAD] ❌ Não foi possível obter URL pública");
+        toast.error("Foto enviada, mas não foi possível obter URL pública");
+        return null;
+      }
+
+      console.log("[PATIENT_PHOTO_UPLOAD] ✅ Upload concluído:", {
+        path: uploadData.path,
+        publicUrl,
+      });
 
       toast.success("Foto salva com sucesso!");
       return publicUrl;
-    } catch (error) {
-      console.error("Erro ao fazer upload da foto:", error);
-      toast.error("Erro ao salvar a foto. Tente novamente.");
+    } catch (error: any) {
+      console.error("[PATIENT_PHOTO_UPLOAD] ❌ Erro inesperado:", {
+        message: error?.message,
+        error,
+      });
+      toast.error(`Erro ao salvar a foto: ${error?.message || "Erro desconhecido"}`);
       return null;
     } finally {
       setUploading(false);
@@ -79,16 +171,21 @@ const NewPatient: React.FC = () => {
     try {
       let finalPhotoUrl = "";
 
+      // Se tiver foto, fazer upload (usando "temp" como folderId já que ainda não temos patientId)
       if (photoFile) {
         const uploadedUrl = await uploadPhotoToStorage(photoFile);
         if (uploadedUrl) {
           finalPhotoUrl = uploadedUrl;
           if (photoUrl.startsWith("blob:")) URL.revokeObjectURL(photoUrl);
         } else {
-          throw new Error("Falha ao salvar a foto");
+          // Upload falhou, mas não bloqueia o cadastro do paciente
+          // O usuário pode tentar adicionar a foto depois
+          console.warn("[PATIENT_CREATE] Upload de foto falhou, mas continuando cadastro sem foto");
+          toast.error("Paciente será cadastrado sem foto. Você pode adicionar a foto depois.");
         }
       }
 
+      // Criar paciente (com ou sem foto)
       const { data, error } = await supabase
         .from("patients")
         .insert([
@@ -115,8 +212,8 @@ const NewPatient: React.FC = () => {
         throw new Error("Nenhum dado retornado após inserção");
       }
     } catch (error: any) {
-      console.error("Erro ao cadastrar paciente:", error);
-      toast.error("Erro ao cadastrar paciente. Tente novamente.");
+      console.error("[PATIENT_CREATE] ❌ Erro ao cadastrar paciente:", error);
+      toast.error(`Erro ao cadastrar paciente: ${error?.message || "Tente novamente"}`);
     } finally {
       setLoading(false);
     }
@@ -188,6 +285,26 @@ const NewPatient: React.FC = () => {
 
   const handlePhoneChange = (e: React.ChangeEvent<HTMLInputElement>) => setPhone(formatPhone(e.target.value));
   const handleCpfChange = (e: React.ChangeEvent<HTMLInputElement>) => setCpf(formatCPF(e.target.value));
+
+  // 📤 Compartilhar cadastro (mesmo padrão da anamnese) - USANDO RPC
+  const shareSignupForm = async (): Promise<void> => {
+    try {
+      const result = await createSignupForm(48); // 48 horas = 2 dias (padrão)
+
+      if (!result) {
+        toast.error('❌ Erro ao gerar link de cadastro');
+        return;
+      }
+
+      setSignupShareToken(result.share_token);
+
+      setShowSignupShareModal(true);
+      await copyToClipboard(result.url);
+      toast.success('📋 Link copiado! Envie para o paciente.');
+    } catch (error: any) {
+      toast.error(`❌ Erro ao compartilhar formulário: ${error?.message || 'Erro desconhecido'}`);
+    }
+  };
 
   return (
     <AppLayout title="Novo Paciente" showBack={true}>
@@ -404,32 +521,83 @@ const NewPatient: React.FC = () => {
               </div>
             </div>
 
-            {/* Botão */}
-            <button
-              type="button"
-              onClick={handleSubmit}
-              disabled={loading || uploading}
-              className="w-full mt-6 neon-button"
-            >
-              {loading ? (
-                <span className="flex items-center justify-center gap-2">
-                  <LoadingSpinner size="sm" className="text-blue-500" />
-                  Cadastrando Paciente...
-                </span>
-              ) : uploading ? (
-                <span className="flex items-center justify-center gap-2">
-                  <LoadingSpinner size="sm" className="text-blue-500" />
-                  Salvando Foto...
-                </span>
-              ) : (
-                <span className="flex items-center justify-center gap-2">
-                  <User size={20} />
-                  Cadastrar Paciente
-                </span>
-              )}
-            </button>
+            {/* Botões */}
+            <div className="flex flex-col sm:flex-row gap-3 mt-6">
+              <button
+                type="button"
+                onClick={handleSubmit}
+                disabled={loading || uploading}
+                className="flex-1 neon-button"
+              >
+                {loading ? (
+                  <span className="flex items-center justify-center gap-2">
+                    <LoadingSpinner size="sm" className="text-blue-500" />
+                    Cadastrando Paciente...
+                  </span>
+                ) : uploading ? (
+                  <span className="flex items-center justify-center gap-2">
+                    <LoadingSpinner size="sm" className="text-blue-500" />
+                    Salvando Foto...
+                  </span>
+                ) : (
+                  <span className="flex items-center justify-center gap-2">
+                    <User size={20} />
+                    Cadastrar Paciente
+                  </span>
+                )}
+              </button>
+
+              <button
+                type="button"
+                onClick={shareSignupForm}
+                className="neon-button"
+              >
+                <Share2 size={20} className="mr-3" />
+                Enviar Cadastro
+              </button>
+            </div>
           </div>
         </div>
+
+        {/* Modal Compartilhamento (mesmo padrão da anamnese) */}
+        {showSignupShareModal && signupShareToken && (
+          <div className="fixed inset-0 bg-black/70 flex items-center justify-center p-4 z-50">
+            <div className="glass-card p-6 max-w-md w-full mx-auto border border-white/10">
+              <h3 className="text-lg font-semibold mb-4 text-white">📤 Enviar Cadastro para Paciente</h3>
+
+              <div className="space-y-4">
+                <p className="text-gray-300 text-sm">Copie o link abaixo e envie para o paciente:</p>
+
+                <div className="bg-white/10 p-3 rounded-lg break-all text-xs font-mono text-gray-100 border border-white/10">
+                  {`${window.location.origin}/patient-signup/${signupShareToken}`}
+                </div>
+
+                <div className="bg-yellow-500/10 border border-yellow-400/30 rounded-lg p-3">
+                  <p className="text-yellow-100 text-xs">
+                    <strong>💡 Dica:</strong> Envie por WhatsApp com uma mensagem amigável!
+                  </p>
+                </div>
+
+                <div className="flex flex-col sm:flex-row space-y-2 sm:space-y-0 sm:space-x-3">
+                  <button
+                    onClick={() => setShowSignupShareModal(false)}
+                    className="flex-1 px-4 py-2 border border-white/10 rounded-xl bg-white/5 hover:bg-white/10 transition-all text-sm text-white"
+                  >
+                    Fechar
+                  </button>
+                  <button
+                    onClick={() =>
+                      copyToClipboard(`${window.location.origin}/patient-signup/${signupShareToken}`)
+                    }
+                    className="flex-1 neon-button"
+                  >
+                    Copiar Link
+                  </button>
+                </div>
+              </div>
+            </div>
+          </div>
+        )}
       </div>
     </AppLayout>
   );

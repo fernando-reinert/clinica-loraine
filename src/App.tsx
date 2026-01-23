@@ -26,6 +26,9 @@ import GalleryScreen from "./screens/GalleryScreen";
 import AnamneseScreen from "./screens/AnamneseScreen";
 import AppointmentTreatmentScreen from "./screens/AppointmentTreatmentScreen";
 import ProceduresScreen from "./screens/ProceduresScreen";
+import PatientFormScreen from "./screens/PatientFormScreen";
+import PatientSignupScreen from "./screens/PatientSignupScreen";
+import NotFoundScreen from "./screens/NotFoundScreen";
 
 import "./styles/futurist.css";
 
@@ -42,6 +45,8 @@ function App() {
               <Routes>
                 {/* ========== ROTAS PÚBLICAS ========== */}
                 <Route path="/login" element={<LoginScreen />} />
+                <Route path="/patient-form/:shareToken" element={<PatientFormScreen />} />
+                <Route path="/patient-signup/:shareToken" element={<PatientSignupScreen />} />
                 
                 {/* ========== ROTAS PROTEGIDAS ========== */}
                 <Route path="/" element={<Navigate to="/dashboard" replace />} />
@@ -142,8 +147,8 @@ function App() {
                 <Route path="/anamnese" element={<Navigate to="/patients" replace />} />
                 <Route path="/clinical-record" element={<Navigate to="/patients" replace />} />
 
-                {/* Fallback */}
-                <Route path="*" element={<Navigate to="/dashboard" replace />} />
+                {/* Fallback - 404 para rotas não encontradas (exceto rotas públicas) */}
+                <Route path="*" element={<NotFoundScreen />} />
               </Routes>
             </div>
 

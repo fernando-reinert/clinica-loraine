@@ -6,6 +6,7 @@ import { useAuth } from '../contexts/AuthContext'
 import { useDashboardStats } from '../hooks/useDashboardStats'
 import AppLayout from '../components/Layout/AppLayout'
 import LoadingSpinner from '../components/LoadingSpinner'
+import { getFormattedVersion } from '../config/version'
 
 const DashboardScreen: React.FC = () => {
   const navigate = useNavigate()
@@ -251,6 +252,17 @@ const DashboardScreen: React.FC = () => {
             </div>
           </div>
         </div>
+
+        {/* Versão do App - Badge fixo no canto inferior direito */}
+        {getFormattedVersion() && (
+          <div className="fixed bottom-4 right-4 z-50">
+            <div className="glass-card px-3 py-1.5 border border-cyan-400/30 bg-cyan-500/10 backdrop-blur-sm">
+              <span className="text-xs font-mono text-cyan-300">
+                {getFormattedVersion()}
+              </span>
+            </div>
+          </div>
+        )}
       </div>
     </AppLayout>
   )
