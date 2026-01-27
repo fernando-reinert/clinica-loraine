@@ -38,6 +38,168 @@ import logger from '../utils/logger';
 import toast from 'react-hot-toast';
 import ConfirmDialog from '../components/ConfirmDialog';
 
+// Registro de injetáveis associado à consulta
+type InjectablesRecord = {
+  botulinumToxin?: {
+    frontalUnits?: number | null;
+    corrugatorUnits?: number | null;
+    procerusUnits?: number | null;
+    orbicularisOculiUnits?: number | null;
+    levatorLabiiSuperiorisUnits?: number | null;
+    depressorAnguliOrisUnits?: number | null;
+    platysmaUnits?: number | null;
+    otherUnits?: number | null;
+    otherDescription?: string | null;
+    totalUnitsInjected?: number | null;
+    expiryDate?: string | null; // ISO (YYYY-MM-DD)
+    lot?: string | null;
+    dilutionVolume?: string | null;
+  };
+  fillers?: Array<{
+    region?: string | null;
+    volume?: string | null;
+    product?: string | null;
+  }>;
+};
+
+const createEmptyInjectablesRecord = (): InjectablesRecord => ({
+  botulinumToxin: {
+    frontalUnits: null,
+    corrugatorUnits: null,
+    procerusUnits: null,
+    orbicularisOculiUnits: null,
+    levatorLabiiSuperiorisUnits: null,
+    depressorAnguliOrisUnits: null,
+    platysmaUnits: null,
+    otherUnits: null,
+    otherDescription: null,
+    totalUnitsInjected: null,
+    expiryDate: null,
+    lot: null,
+    dilutionVolume: null,
+  },
+  fillers: Array.from({ length: 5 }, () => ({
+    region: null,
+    volume: null,
+    product: null,
+  })),
+});
+
+const ensureMinimumFillerRows = (
+  fillers?: InjectablesRecord['fillers']
+): InjectablesRecord['fillers'] => {
+  const current = Array.isArray(fillers) ? [...fillers] : [];
+  if (current.length >= 5) {
+    return current;
+  }
+  const missing = 5 - current.length;
+  for (let i = 0; i < missing; i++) {
+    current.push({
+      region: null,
+      volume: null,
+      product: null,
+    });
+  }
+  return current;
+};
+
+const isFillerRowEmpty = (row: { region?: string | null; volume?: string | null; product?: string | null }) => {
+  const region = row.region ?? '';
+  const volume = row.volume ?? '';
+  const product = row.product ?? '';
+  return region.trim() === '' && volume.trim() === '' && product.trim() === '';
+};
+
+const sanitizeInjectablesForSave = (
+  record: InjectablesRecord | null | undefined
+): InjectablesRecord | null => {
+  if (!record) return null;
+
+  const botox = record.botulinumToxin || {};
+  const fillers = Array.isArray(record.fillers) ? record.fillers : [];
+
+  const cleanedFillers = fillers
+    .map((row) => ({
+      region: row.region === '' ? null : row.region ?? null,
+      volume: row.volume === '' ? null : row.volume ?? null,
+      product: row.product === '' ? null : row.product ?? null,
+    }))
+    .filter((row) => !isFillerRowEmpty(row));
+
+  const cleanedBotox: InjectablesRecord['botulinumToxin'] = {
+    frontalUnits: botox.frontalUnits ?? null,
+    corrugatorUnits: botox.corrugatorUnits ?? null,
+    procerusUnits: botox.procerusUnits ?? null,
+    orbicularisOculiUnits: botox.orbicularisOculiUnits ?? null,
+    levatorLabiiSuperiorisUnits: botox.levatorLabiiSuperiorisUnits ?? null,
+    depressorAnguliOrisUnits: botox.depressorAnguliOrisUnits ?? null,
+    platysmaUnits: botox.platysmaUnits ?? null,
+    otherUnits: botox.otherUnits ?? null,
+    otherDescription: botox.otherDescription === '' ? null : botox.otherDescription ?? null,
+    totalUnitsInjected: botox.totalUnitsInjected ?? null,
+    expiryDate: botox.expiryDate === '' ? null : botox.expiryDate ?? null,
+    lot: botox.lot === '' ? null : botox.lot ?? null,
+    dilutionVolume: botox.dilutionVolume === '' ? null : botox.dilutionVolume ?? null,
+  };
+
+  const hasAnyBotoxValue = Object.values(cleanedBotox || {}).some(
+    (value) => value !== null && value !== undefined
+  );
+
+  const result: InjectablesRecord = {};
+
+  if (hasAnyBotoxValue) {
+    result.botulinumToxin = cleanedBotox;
+  }
+
+  if (cleanedFillers.length > 0) {
+    result.fillers = cleanedFillers;
+  }
+
+  return Object.keys(result).length > 0 ? result : null;
+};
+
+const deserializeInjectablesRecord = (
+  raw: any
+): InjectablesRecord => {
+  if (!raw || typeof raw !== 'object') {
+    return createEmptyInjectablesRecord();
+  }
+
+  const botox = raw.botulinumToxin || raw.botulinum_toxin || {};
+  const fillers = Array.isArray(raw.fillers) ? raw.fillers : [];
+
+  return {
+    botulinumToxin: {
+      frontalUnits: botox.frontalUnits ?? botox.frontal_units ?? null,
+      corrugatorUnits: botox.corrugatorUnits ?? botox.corrugator_units ?? null,
+      procerusUnits: botox.procerusUnits ?? botox.procerus_units ?? null,
+      orbicularisOculiUnits: botox.orbicularisOculiUnits ?? botox.orbicularis_oculi_units ?? null,
+      levatorLabiiSuperiorisUnits:
+        botox.levatorLabiiSuperiorisUnits ?? botox.levator_labii_superioris_units ?? null,
+      depressorAnguliOrisUnits:
+        botox.depressorAnguliOrisUnits ?? botox.depressor_anguli_oris_units ?? null,
+      platysmaUnits: botox.platysmaUnits ?? botox.platysma_units ?? null,
+      otherUnits: botox.otherUnits ?? botox.other_units ?? null,
+      otherDescription: botox.otherDescription ?? botox.other_description ?? null,
+      totalUnitsInjected: botox.totalUnitsInjected ?? botox.total_units_injected ?? null,
+      expiryDate: botox.expiryDate ?? botox.expiry_date ?? null,
+      lot: botox.lot ?? null,
+      dilutionVolume: botox.dilutionVolume ?? botox.dilution_volume ?? null,
+    },
+    fillers: ensureMinimumFillerRows(
+      fillers.map((row: any) => ({
+        region: row.region ?? null,
+        volume: row.volume ?? null,
+        product: row.product ?? null,
+      }))
+    ),
+  };
+};
+
+const formatNumberValue = (value: number | null | undefined): string =>
+  value === null || value === undefined ? '' : String(value);
+
 const MedicalRecordScreen: React.FC = () => {
   const { id } = useParams<{ id: string }>();
   const navigate = useNavigate();
@@ -113,6 +275,11 @@ const MedicalRecordScreen: React.FC = () => {
     notes: '',
     next_appointment: null // null em vez de ''
   });
+
+  // Registro de injetáveis da consulta atual (formulário)
+  const [injectablesRecord, setInjectablesRecord] = useState<InjectablesRecord>(
+    () => createEmptyInjectablesRecord()
+  );
 
   // Fotos do procedimento (antes de salvar)
   const [consultationPhotos, setConsultationPhotos] = useState<Array<{
@@ -319,6 +486,9 @@ const MedicalRecordScreen: React.FC = () => {
       notes: consultation.notes || '',
       next_appointment: consultation.next_appointment ? new Date(consultation.next_appointment).toISOString().split('T')[0] : null,
     });
+    // Carregar registro de injetáveis existente (se houver)
+    const existingInjectables = (consultation as any).injectables_record;
+    setInjectablesRecord(deserializeInjectablesRecord(existingInjectables));
     // Limpar fotos selecionadas (fotos existentes já estão em consultationAttachments)
     setConsultationPhotos([]);
     // Scroll para o formulário
@@ -337,6 +507,7 @@ const MedicalRecordScreen: React.FC = () => {
       notes: '',
       next_appointment: null,
     });
+    setInjectablesRecord(createEmptyInjectablesRecord());
     setConsultationPhotos([]);
   };
 
@@ -358,18 +529,21 @@ const MedicalRecordScreen: React.FC = () => {
     setSaving(true);
     try {
       let consultationData;
+      const injectablesPayload = sanitizeInjectablesForSave(injectablesRecord);
       
       // Se estiver editando, atualizar; senão, criar nova
       if (editingConsultationId) {
         consultationData = await updateConsultation(editingConsultationId, {
-          ...newConsultation
+          ...newConsultation,
+          injectables_record: injectablesPayload,
         });
         toast.success('Consulta atualizada com sucesso!');
       } else {
         // Criar consulta primeiro (necessário para ter consultationId)
         consultationData = await createConsultation({
           patient_id: id!,
-          ...newConsultation
+          ...newConsultation,
+          injectables_record: injectablesPayload,
         });
       }
 
@@ -633,6 +807,7 @@ const MedicalRecordScreen: React.FC = () => {
       });
       setConsultationPhotos([]);
       setEditingConsultationId(null);
+      setInjectablesRecord(createEmptyInjectablesRecord());
 
       // Recarregar consultas para atualizar lista
       await loadPatientAndRecord();
@@ -1906,6 +2081,353 @@ Data: {{signed_at}}`;
                     </div>
                   )}
                 </div>
+
+                {/* Registro de Injetáveis - Toxina Botulinica */}
+                <div className="md:col-span-2 space-y-3">
+                  <h4 className="text-sm font-semibold text-gray-200">Toxina Botulinica:</h4>
+                  <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+                    <div className="flex items-center gap-2">
+                      <input
+                        type="number"
+                        min={0}
+                        value={formatNumberValue(injectablesRecord.botulinumToxin?.frontalUnits)}
+                        onChange={(e) =>
+                          setInjectablesRecord((prev) => ({
+                            ...prev,
+                            botulinumToxin: {
+                              ...prev.botulinumToxin,
+                              frontalUnits: e.target.value === '' ? null : Number(e.target.value),
+                            },
+                          }))
+                        }
+                        className="w-20 px-3 py-2 rounded-lg bg-white/5 border border-white/10 text-white text-sm focus:ring-2 focus:ring-cyan-500 focus:border-cyan-500 outline-none"
+                      />
+                      <span className="text-sm text-gray-200">U Frontal</span>
+                    </div>
+                    <div className="flex items-center gap-2">
+                      <input
+                        type="number"
+                        min={0}
+                        value={formatNumberValue(injectablesRecord.botulinumToxin?.corrugatorUnits)}
+                        onChange={(e) =>
+                          setInjectablesRecord((prev) => ({
+                            ...prev,
+                            botulinumToxin: {
+                              ...prev.botulinumToxin,
+                              corrugatorUnits: e.target.value === '' ? null : Number(e.target.value),
+                            },
+                          }))
+                        }
+                        className="w-24 px-3 py-2 rounded-lg bg-white/5 border border-white/10 text-white text-sm focus:ring-2 focus:ring-cyan-500 focus:border-cyan-500 outline-none"
+                      />
+                      <span className="text-sm text-gray-200">U Conrrugador</span>
+                    </div>
+                    <div className="flex items-center gap-2">
+                      <input
+                        type="number"
+                        min={0}
+                        value={formatNumberValue(injectablesRecord.botulinumToxin?.procerusUnits)}
+                        onChange={(e) =>
+                          setInjectablesRecord((prev) => ({
+                            ...prev,
+                            botulinumToxin: {
+                              ...prev.botulinumToxin,
+                              procerusUnits: e.target.value === '' ? null : Number(e.target.value),
+                            },
+                          }))
+                        }
+                        className="w-24 px-3 py-2 rounded-lg bg-white/5 border border-white/10 text-white text-sm focus:ring-2 focus:ring-cyan-500 focus:border-cyan-500 outline-none"
+                      />
+                      <span className="text-sm text-gray-200">U Prócero</span>
+                    </div>
+                    <div className="flex items-center gap-2">
+                      <input
+                        type="number"
+                        min={0}
+                        value={formatNumberValue(injectablesRecord.botulinumToxin?.orbicularisOculiUnits)}
+                        onChange={(e) =>
+                          setInjectablesRecord((prev) => ({
+                            ...prev,
+                            botulinumToxin: {
+                              ...prev.botulinumToxin,
+                              orbicularisOculiUnits: e.target.value === '' ? null : Number(e.target.value),
+                            },
+                          }))
+                        }
+                        className="w-24 px-3 py-2 rounded-lg bg-white/5 border border-white/10 text-white text-sm focus:ring-2 focus:ring-cyan-500 focus:border-cyan-500 outline-none"
+                      />
+                      <span className="text-sm text-gray-200">U Orbicular do olho</span>
+                    </div>
+                    <div className="flex items-center gap-2">
+                      <input
+                        type="number"
+                        min={0}
+                        value={formatNumberValue(
+                          injectablesRecord.botulinumToxin?.levatorLabiiSuperiorisUnits
+                        )}
+                        onChange={(e) =>
+                          setInjectablesRecord((prev) => ({
+                            ...prev,
+                            botulinumToxin: {
+                              ...prev.botulinumToxin,
+                              levatorLabiiSuperiorisUnits:
+                                e.target.value === '' ? null : Number(e.target.value),
+                            },
+                          }))
+                        }
+                        className="w-24 px-3 py-2 rounded-lg bg-white/5 border border-white/10 text-white text-sm focus:ring-2 focus:ring-cyan-500 focus:border-cyan-500 outline-none"
+                      />
+                      <span className="text-sm text-gray-200">U Levantador do lábio Sup</span>
+                    </div>
+                    <div className="flex items-center gap-2">
+                      <input
+                        type="number"
+                        min={0}
+                        value={formatNumberValue(
+                          injectablesRecord.botulinumToxin?.depressorAnguliOrisUnits
+                        )}
+                        onChange={(e) =>
+                          setInjectablesRecord((prev) => ({
+                            ...prev,
+                            botulinumToxin: {
+                              ...prev.botulinumToxin,
+                              depressorAnguliOrisUnits:
+                                e.target.value === '' ? null : Number(e.target.value),
+                            },
+                          }))
+                        }
+                        className="w-28 px-3 py-2 rounded-lg bg-white/5 border border-white/10 text-white text-sm focus:ring-2 focus:ring-cyan-500 focus:border-cyan-500 outline-none"
+                      />
+                      <span className="text-sm text-gray-200">U Depressor do ângulo da boca</span>
+                    </div>
+                    <div className="flex items-center gap-2">
+                      <input
+                        type="number"
+                        min={0}
+                        value={formatNumberValue(injectablesRecord.botulinumToxin?.platysmaUnits)}
+                        onChange={(e) =>
+                          setInjectablesRecord((prev) => ({
+                            ...prev,
+                            botulinumToxin: {
+                              ...prev.botulinumToxin,
+                              platysmaUnits: e.target.value === '' ? null : Number(e.target.value),
+                            },
+                          }))
+                        }
+                        className="w-24 px-3 py-2 rounded-lg bg-white/5 border border-white/10 text-white text-sm focus:ring-2 focus:ring-cyan-500 focus:border-cyan-500 outline-none"
+                      />
+                      <span className="text-sm text-gray-200">U Platisma</span>
+                    </div>
+                    <div className="flex flex-wrap items-center gap-2 md:col-span-2">
+                      <input
+                        type="number"
+                        min={0}
+                        value={formatNumberValue(injectablesRecord.botulinumToxin?.otherUnits)}
+                        onChange={(e) =>
+                          setInjectablesRecord((prev) => ({
+                            ...prev,
+                            botulinumToxin: {
+                              ...prev.botulinumToxin,
+                              otherUnits: e.target.value === '' ? null : Number(e.target.value),
+                            },
+                          }))
+                        }
+                        className="w-20 px-3 py-2 rounded-lg bg-white/5 border border-white/10 text-white text-sm focus:ring-2 focus:ring-cyan-500 focus:border-cyan-500 outline-none"
+                      />
+                      <span className="text-sm text-gray-200">U Outras</span>
+                      <input
+                        type="text"
+                        value={injectablesRecord.botulinumToxin?.otherDescription ?? ''}
+                        onChange={(e) =>
+                          setInjectablesRecord((prev) => ({
+                            ...prev,
+                            botulinumToxin: {
+                              ...prev.botulinumToxin,
+                              otherDescription: e.target.value === '' ? null : e.target.value,
+                            },
+                          }))
+                        }
+                        placeholder="Descrição"
+                        className="flex-1 min-w-[160px] px-3 py-2 rounded-lg bg-white/5 border border-white/10 text-white text-sm placeholder:text-gray-400 focus:ring-2 focus:ring-cyan-500 focus:border-cyan-500 outline-none"
+                      />
+                    </div>
+                    <div className="flex items-center gap-2 md:col-span-2">
+                      <input
+                        type="number"
+                        min={0}
+                        value={formatNumberValue(
+                          injectablesRecord.botulinumToxin?.totalUnitsInjected
+                        )}
+                        onChange={(e) =>
+                          setInjectablesRecord((prev) => ({
+                            ...prev,
+                            botulinumToxin: {
+                              ...prev.botulinumToxin,
+                              totalUnitsInjected:
+                                e.target.value === '' ? null : Number(e.target.value),
+                            },
+                          }))
+                        }
+                        className="w-28 px-3 py-2 rounded-lg bg-white/5 border border-white/10 text-white text-sm focus:ring-2 focus:ring-cyan-500 focus:border-cyan-500 outline-none"
+                      />
+                      <span className="text-sm text-gray-200">U Total de unidades injetadas</span>
+                    </div>
+                  </div>
+
+                  <div className="grid grid-cols-1 md:grid-cols-3 gap-3 mt-2">
+                    <div>
+                      <label className="block text-xs font-medium text-gray-300 mb-1">
+                        Validade:
+                      </label>
+                      <input
+                        type="date"
+                        value={injectablesRecord.botulinumToxin?.expiryDate ?? ''}
+                        onChange={(e) =>
+                          setInjectablesRecord((prev) => ({
+                            ...prev,
+                            botulinumToxin: {
+                              ...prev.botulinumToxin,
+                              expiryDate: e.target.value === '' ? null : e.target.value,
+                            },
+                          }))
+                        }
+                        className="w-full px-3 py-2 rounded-lg bg-white/5 border border-white/10 text-white text-sm focus:ring-2 focus:ring-cyan-500 focus:border-cyan-500 outline-none"
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-xs font-medium text-gray-300 mb-1">
+                        Lote:
+                      </label>
+                      <input
+                        type="text"
+                        value={injectablesRecord.botulinumToxin?.lot ?? ''}
+                        onChange={(e) =>
+                          setInjectablesRecord((prev) => ({
+                            ...prev,
+                            botulinumToxin: {
+                              ...prev.botulinumToxin,
+                              lot: e.target.value === '' ? null : e.target.value,
+                            },
+                          }))
+                        }
+                        placeholder="Lote"
+                        className="w-full px-3 py-2 rounded-lg bg-white/5 border border-white/10 text-white text-sm placeholder:text-gray-400 focus:ring-2 focus:ring-cyan-500 focus:border-cyan-500 outline-none"
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-xs font-medium text-gray-300 mb-1">
+                        Volume de diluição:
+                      </label>
+                      <input
+                        type="text"
+                        value={injectablesRecord.botulinumToxin?.dilutionVolume ?? ''}
+                        onChange={(e) =>
+                          setInjectablesRecord((prev) => ({
+                            ...prev,
+                            botulinumToxin: {
+                              ...prev.botulinumToxin,
+                              dilutionVolume: e.target.value === '' ? null : e.target.value,
+                            },
+                          }))
+                        }
+                        placeholder="Ex: 2.5 ml"
+                        className="w-full px-3 py-2 rounded-lg bg-white/5 border border-white/10 text-white text-sm placeholder:text-gray-400 focus:ring-2 focus:ring-cyan-500 focus:border-cyan-500 outline-none"
+                      />
+                    </div>
+                  </div>
+                </div>
+
+                {/* Registro de Injetáveis - Preenchedor / Bioestimulador */}
+                <div className="md:col-span-2 space-y-3">
+                  <div className="flex items-center justify-between">
+                    <h4 className="text-sm font-semibold text-gray-200">
+                      Preenchedor/ Bioestimulador:
+                    </h4>
+                    <button
+                      type="button"
+                      onClick={() =>
+                        setInjectablesRecord((prev) => ({
+                          ...prev,
+                          fillers: [
+                            ...(prev.fillers || []),
+                            { region: null, volume: null, product: null },
+                          ],
+                        }))
+                      }
+                      className="text-xs px-3 py-1 rounded-full bg-white/5 border border-white/10 text-gray-200 hover:bg-white/10 transition-colors"
+                    >
+                      Adicionar linha
+                    </button>
+                  </div>
+                  <div className="border border-white/10 rounded-xl overflow-hidden">
+                    <div className="grid grid-cols-3 gap-2 bg-white/5 px-3 py-2 text-xs font-medium text-gray-300">
+                      <span>Região a ser tratada</span>
+                      <span>Volume</span>
+                      <span>Produto</span>
+                    </div>
+                    <div className="divide-y divide-white/5">
+                      {ensureMinimumFillerRows(injectablesRecord.fillers).map((row, index) => (
+                        <div key={index} className="grid grid-cols-3 gap-2 px-3 py-2">
+                          <input
+                            type="text"
+                            value={row.region ?? ''}
+                            onChange={(e) => {
+                              const value = e.target.value;
+                              setInjectablesRecord((prev) => {
+                                const current = ensureMinimumFillerRows(prev.fillers);
+                                const next = [...current];
+                                next[index] = {
+                                  ...next[index],
+                                  region: value === '' ? null : value,
+                                };
+                                return { ...prev, fillers: next };
+                              });
+                            }}
+                            placeholder="Região a ser tratada"
+                            className="px-2 py-1.5 rounded-lg bg-white/5 border border-white/10 text-white text-xs placeholder:text-gray-400 focus:ring-2 focus:ring-cyan-500 focus:border-cyan-500 outline-none"
+                          />
+                          <input
+                            type="text"
+                            value={row.volume ?? ''}
+                            onChange={(e) => {
+                              const value = e.target.value;
+                              setInjectablesRecord((prev) => {
+                                const current = ensureMinimumFillerRows(prev.fillers);
+                                const next = [...current];
+                                next[index] = {
+                                  ...next[index],
+                                  volume: value === '' ? null : value,
+                                };
+                                return { ...prev, fillers: next };
+                              });
+                            }}
+                            placeholder="Volume"
+                            className="px-2 py-1.5 rounded-lg bg-white/5 border border-white/10 text-white text-xs placeholder:text-gray-400 focus:ring-2 focus:ring-cyan-500 focus:border-cyan-500 outline-none"
+                          />
+                          <input
+                            type="text"
+                            value={row.product ?? ''}
+                            onChange={(e) => {
+                              const value = e.target.value;
+                              setInjectablesRecord((prev) => {
+                                const current = ensureMinimumFillerRows(prev.fillers);
+                                const next = [...current];
+                                next[index] = {
+                                  ...next[index],
+                                  product: value === '' ? null : value,
+                                };
+                                return { ...prev, fillers: next };
+                              });
+                            }}
+                            placeholder="Produto"
+                            className="px-2 py-1.5 rounded-lg bg-white/5 border border-white/10 text-white text-xs placeholder:text-gray-400 focus:ring-2 focus:ring-cyan-500 focus:border-cyan-500 outline-none"
+                          />
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                </div>
+
                 <div className="md:col-span-2">
                   <label className="block text-sm font-medium text-gray-200 mb-1">Acompanhamento</label>
                   <textarea
@@ -1949,7 +2471,22 @@ Data: {{signed_at}}`;
                 </div>
               ) : (
                 <div className="space-y-4">
-                  {consultations.map((consultation) => (
+                  {consultations.map((consultation) => {
+                    const injectables = (consultation as any).injectables_record as
+                      | InjectablesRecord
+                      | null
+                      | undefined;
+                    const hasBotox =
+                      !!injectables?.botulinumToxin &&
+                      Object.values(injectables.botulinumToxin).some(
+                        (value) => value !== null && value !== undefined && value !== ''
+                      );
+                    const fillersArray = Array.isArray(injectables?.fillers)
+                      ? injectables!.fillers!
+                      : [];
+                    const hasFillers = fillersArray.some((row) => !isFillerRowEmpty(row || {} as any));
+
+                    return (
                     <div key={consultation.id} className="bg-white/5 rounded-xl p-4 border border-white/10 hover:border-cyan-400/30 transition-colors">
                       <div className="flex justify-between items-start mb-3">
                         <div>
@@ -1982,11 +2519,123 @@ Data: {{signed_at}}`;
                           <p className="text-sm text-gray-400">{consultation.diagnosis}</p>
                         </div>
                       )}
-                      
                       {consultation.treatment && (
                         <div>
                           <span className="text-sm font-medium text-gray-300">Conduta:</span>
                           <p className="text-sm text-gray-400">{consultation.treatment}</p>
+                        </div>
+                      )}
+
+                      {/* Registro de Injetáveis - Visualização */}
+                      {(hasBotox || hasFillers) && (
+                        <div className="mt-4 pt-4 border-t border-white/10 space-y-3">
+                          {hasBotox && injectables?.botulinumToxin && (
+                            <div>
+                              <h5 className="text-sm font-medium text-gray-300 mb-2">
+                                Toxina Botulinica:
+                              </h5>
+                              <div className="grid grid-cols-1 md:grid-cols-2 gap-2 text-xs text-gray-300">
+                                <div>
+                                  <span className="font-medium">Frontal:</span>{' '}
+                                  {injectables.botulinumToxin.frontalUnits ?? '-'} U
+                                </div>
+                                <div>
+                                  <span className="font-medium">Conrrugador:</span>{' '}
+                                  {injectables.botulinumToxin.corrugatorUnits ?? '-'} U
+                                </div>
+                                <div>
+                                  <span className="font-medium">Prócero:</span>{' '}
+                                  {injectables.botulinumToxin.procerusUnits ?? '-'} U
+                                </div>
+                                <div>
+                                  <span className="font-medium">Orbicular do olho:</span>{' '}
+                                  {injectables.botulinumToxin.orbicularisOculiUnits ?? '-'} U
+                                </div>
+                                <div>
+                                  <span className="font-medium">Levantador do lábio Sup:</span>{' '}
+                                  {injectables.botulinumToxin.levatorLabiiSuperiorisUnits ?? '-'} U
+                                </div>
+                                <div>
+                                  <span className="font-medium">Depressor do ângulo da boca:</span>{' '}
+                                  {injectables.botulinumToxin.depressorAnguliOrisUnits ?? '-'} U
+                                </div>
+                                <div>
+                                  <span className="font-medium">Platisma:</span>{' '}
+                                  {injectables.botulinumToxin.platysmaUnits ?? '-'} U
+                                </div>
+                                {(injectables.botulinumToxin.otherUnits ||
+                                  injectables.botulinumToxin.otherDescription) && (
+                                  <div className="md:col-span-2">
+                                    <span className="font-medium">Outras:</span>{' '}
+                                    {injectables.botulinumToxin.otherUnits ?? '-'} U{' '}
+                                    {injectables.botulinumToxin.otherDescription
+                                      ? `(${injectables.botulinumToxin.otherDescription})`
+                                      : ''}
+                                  </div>
+                                )}
+                                {injectables.botulinumToxin.totalUnitsInjected !== null &&
+                                  injectables.botulinumToxin.totalUnitsInjected !== undefined && (
+                                  <div className="md:col-span-2">
+                                    <span className="font-medium">
+                                      Total de unidades injetadas:
+                                    </span>{' '}
+                                    {injectables.botulinumToxin.totalUnitsInjected} U
+                                  </div>
+                                )}
+                                {(injectables.botulinumToxin.expiryDate ||
+                                  injectables.botulinumToxin.lot ||
+                                  injectables.botulinumToxin.dilutionVolume) && (
+                                  <div className="md:col-span-2 mt-1 space-y-1">
+                                    {injectables.botulinumToxin.expiryDate && (
+                                      <div>
+                                        <span className="font-medium">Validade:</span>{' '}
+                                        {injectables.botulinumToxin.expiryDate}
+                                      </div>
+                                    )}
+                                    {injectables.botulinumToxin.lot && (
+                                      <div>
+                                        <span className="font-medium">Lote:</span>{' '}
+                                        {injectables.botulinumToxin.lot}
+                                      </div>
+                                    )}
+                                    {injectables.botulinumToxin.dilutionVolume && (
+                                      <div>
+                                        <span className="font-medium">Volume de diluição:</span>{' '}
+                                        {injectables.botulinumToxin.dilutionVolume}
+                                      </div>
+                                    )}
+                                  </div>
+                                )}
+                              </div>
+                            </div>
+                          )}
+
+                          {hasFillers && (
+                            <div>
+                              <h5 className="text-sm font-medium text-gray-300 mb-2">
+                                Preenchedor/ Bioestimulador:
+                              </h5>
+                              <div className="border border-white/10 rounded-lg overflow-hidden">
+                                <div className="grid grid-cols-3 gap-2 bg-white/5 px-3 py-1.5 text-xs font-medium text-gray-300">
+                                  <span>Região</span>
+                                  <span>Volume</span>
+                                  <span>Produto</span>
+                                </div>
+                                <div className="divide-y divide-white/5">
+                                  {fillersArray.map((row, idx) => (
+                                    <div
+                                      key={idx}
+                                      className="grid grid-cols-3 gap-2 px-3 py-1.5 text-xs text-gray-200"
+                                    >
+                                      <span>{row.region || '-'}</span>
+                                      <span>{row.volume || '-'}</span>
+                                      <span>{row.product || '-'}</span>
+                                    </div>
+                                  ))}
+                                </div>
+                              </div>
+                            </div>
+                          )}
                         </div>
                       )}
                       
@@ -2060,7 +2709,8 @@ Data: {{signed_at}}`;
                         </div>
                       )}
                     </div>
-                  ))}
+                  );
+                  })}
                 </div>
               )}
             </div>
