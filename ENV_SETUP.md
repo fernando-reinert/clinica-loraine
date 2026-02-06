@@ -16,6 +16,10 @@ VITE_SUPABASE_URL=sua_url_aqui
 # Chave anônima (anon/public key) do Supabase
 # Encontre em: Settings > API > Project API keys > anon public
 VITE_SUPABASE_ANON_KEY=sua_chave_aqui
+
+# URL pública do app (para links de WhatsApp / "Enviar cadastro")
+# Exemplo: https://clinica-aurea.com — evita usar IP/localhost ao copiar link
+VITE_PUBLIC_APP_URL=https://seu-dominio.com
 ```
 
 ## Como Obter as Credenciais

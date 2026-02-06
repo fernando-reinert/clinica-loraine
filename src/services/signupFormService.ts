@@ -1,12 +1,21 @@
 // src/services/signupFormService.ts
 // Serviço para gerenciar formulários de cadastro público de pacientes
 
+import { customAlphabet } from 'nanoid';
 import { supabase } from './supabase/client';
+
+/** Base62: 0-9, A-Z, a-z — 10 chars, único por link */
+const PUBLIC_CODE_ALPHABET = '0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz';
+const generatePublicCode = customAlphabet(PUBLIC_CODE_ALPHABET, 10);
+
+const SIGNUP_PREFIX = 'novopaciente';
+const MAX_PUBLIC_CODE_RETRIES = 5;
 
 export interface PatientSignupForm {
   id: string;
   share_token: string;
   status: 'sent' | 'completed' | 'expired';
+  public_code?: string | null;
   payload?: Record<string, any>; // JSONB payload (pode vir como 'answers' ou 'payload' do RPC)
   answers?: Record<string, any>; // Alias para compatibilidade
   share_expires_at: string;
@@ -135,70 +144,151 @@ async function findAnamneseTokenByPatientId(patientId: string): Promise<string |
 }
 
 /**
- * Criar formulário de cadastro (RPC server-side - gera token no Supabase)
+ * Cria um novo formulário de cadastro (um por chamada). Gera public_code com retry em colisão.
+ * Usado por: /cadastro (SignupEntryScreen) e por "Enviar Cadastro" no NewPatient.
  */
 export const createSignupForm = async (
-  expiresInHours: number = 48
-): Promise<{ share_token: string; share_expires_at: string; url: string } | null> => {
+  expiresInHours: number = 48,
+  source?: string | null
+): Promise<{ share_token: string; share_expires_at: string; url: string; public_code?: string } | null> => {
   try {
-    const { data, error } = await supabase.rpc('create_patient_signup_form', {
+    const payload: { p_expires_in_hours: number; p_source?: string } = {
       p_expires_in_hours: expiresInHours,
-    });
-
-    if (error) {
-      throw error;
+    };
+    if (source != null && source.trim() !== '') {
+      payload.p_source = source.trim();
     }
+    const { data, error } = await supabase.rpc('create_patient_signup_form', payload);
 
-    if (!data) {
-      return null;
-    }
+    if (error) throw error;
+    if (!data) return null;
 
-    // Se data for array, usar o primeiro elemento
     const result = Array.isArray(data) ? data[0] : data;
-
-    // Verificar se tem os campos necessários (sucesso)
-    // O RPC retorna diretamente { id, share_token, share_expires_at, status }
-    if (!result.share_token || !result.share_expires_at) {
-      return null;
-    }
+    if (!result.share_token || !result.share_expires_at) return null;
 
     const baseUrl = window.location.origin;
-    const url = `${baseUrl}/patient-signup/${result.share_token}`;
+    let public_code: string | null = null;
+
+    for (let attempt = 0; attempt < MAX_PUBLIC_CODE_RETRIES; attempt++) {
+      const code = generatePublicCode();
+      const { data: setData, error: setError } = await supabase.rpc('set_signup_form_public_code', {
+        p_share_token: result.share_token,
+        p_public_code: code,
+      });
+
+      const setResult = Array.isArray(setData) ? setData[0] : setData;
+      if (!setError && setResult?.success && setResult?.public_code) {
+        public_code = setResult.public_code;
+        break;
+      }
+      if (setError?.code === '23505') continue; // unique violation → retry
+      if (setError) break; // outro erro: não insistir
+    }
+
+    const url = public_code
+      ? `${baseUrl}/patient-signup/${SIGNUP_PREFIX}/${public_code}`
+      : `${baseUrl}/patient-signup/${result.share_token}`;
 
     return {
       share_token: result.share_token,
       share_expires_at: result.share_expires_at,
       url,
+      ...(public_code && { public_code }),
     };
   } catch (error) {
     return null;
   }
 };
 
+const UUID_REGEX = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
+/** Mapeia row da tabela patient_signup_forms para PatientSignupForm */
+function rowToForm(row: Record<string, unknown>): PatientSignupForm {
+  return {
+    id: row.id as string,
+    share_token: row.share_token as string,
+    status: row.status as 'sent' | 'completed' | 'expired',
+    payload: (row.payload as Record<string, unknown>) ?? {},
+    share_expires_at: row.share_expires_at as string,
+    created_by: row.created_by as string | undefined,
+    patient_id: row.patient_id as string | undefined,
+    created_at: row.created_at as string,
+    updated_at: row.updated_at as string,
+    public_code: row.public_code != null ? (row.public_code as string) : undefined,
+  };
+}
+
 /**
- * Buscar formulário de cadastro por token (RPC Security Definer)
+ * Fallback: busca formulário por share_token via select direto (quando RPC não existe ou retorna 404).
  */
-export const getSignupFormByToken = async (token: string): Promise<PatientSignupForm | null> => {
+async function getSignupFormByShareToken(shareToken: string): Promise<PatientSignupForm | null> {
+  const now = new Date().toISOString();
+  const { data, error } = await supabase
+    .from('patient_signup_forms')
+    .select('*')
+    .eq('share_token', shareToken)
+    .gt('share_expires_at', now)
+    .eq('status', 'sent')
+    .maybeSingle();
+  if (error || !data) return null;
+  return rowToForm(data as Record<string, unknown>);
+}
+
+/**
+ * Fallback: busca formulário por public_code via select direto (quando RPC não existe ou retorna 404).
+ */
+async function getSignupFormByPublicCodeDirect(code: string): Promise<PatientSignupForm | null> {
+  const now = new Date().toISOString();
+  const trimmed = code.trim();
+  const { data, error } = await supabase
+    .from('patient_signup_forms')
+    .select('*')
+    .eq('public_code', trimmed)
+    .gt('share_expires_at', now)
+    .eq('status', 'sent')
+    .maybeSingle();
+  if (error || !data) return null;
+  return rowToForm(data as Record<string, unknown>);
+}
+
+/**
+ * Buscar formulário por token ou código: UUID => share_token (RPC ou select direto), senão => public_code (RPC ou select direto).
+ *
+ * RPCs usados (Supabase Dashboard → Database → Functions):
+ * - get_signup_form_by_token(p_token uuid) — busca por share_token; se 404, fallback = select em patient_signup_forms por share_token.
+ * - get_signup_form_by_public_code(p_code text) — busca por public_code; se 404, fallback = select em patient_signup_forms por public_code.
+ * - create_patient_signup_form(p_expires_in_hours int, p_source text) — cria novo form (usado por /cadastro).
+ * - set_signup_form_public_code(p_share_token uuid, p_public_code text) — define public_code após criar form.
+ * - update_signup_form_answers / save_patient_signup_answers — salva respostas (nome do RPC depende da migration).
+ * - complete_patient_signup_form / complete_patient_signup_and_get_anamnese_token — completa cadastro e retorna anamnese_token.
+ * Tabela: patient_signup_forms (RLS desabilitado nas migrations para acesso público por token/code).
+ */
+export const getSignupFormByToken = async (tokenOrCode: string): Promise<PatientSignupForm | null> => {
   try {
-    const cleanedToken = cleanToken(token);
+    const value = tokenOrCode.trim();
+    if (!value) return null;
 
-    const { data, error } = await supabase.rpc('get_patient_signup_form_by_token', {
-      p_token: cleanedToken,
+    const isUuid = UUID_REGEX.test(cleanToken(value));
+
+    if (isUuid) {
+      const { data, error } = await supabase.rpc('get_signup_form_by_token', {
+        p_token: value,
+      });
+      if (!error && data) {
+        const result = Array.isArray(data) ? data[0] : data;
+        if (result) return result as unknown as PatientSignupForm;
+      }
+      return getSignupFormByShareToken(value);
+    }
+
+    const { data, error } = await supabase.rpc('get_signup_form_by_public_code', {
+      p_code: value,
     });
-
-    if (error) {
-      return null;
+    if (!error && data) {
+      const result = Array.isArray(data) ? data[0] : data;
+      if (result) return result as unknown as PatientSignupForm;
     }
-
-    if (!data) {
-      return null;
-    }
-
-    // Se data for array, usar o primeiro elemento
-    const result = Array.isArray(data) ? data[0] : data;
-
-    // Converter JSONB para objeto
-    return result as unknown as PatientSignupForm;
+    return getSignupFormByPublicCodeDirect(value);
   } catch (error) {
     return null;
   }

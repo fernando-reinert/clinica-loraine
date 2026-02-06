@@ -7,7 +7,6 @@ import { supabase } from "../services/supabase/client";
 import AppLayout from "../components/Layout/AppLayout";
 import LoadingSpinner from "../components/LoadingSpinner";
 import { copyToClipboard } from "../utils/clipboard";
-import { createSignupForm } from "../services/signupFormService";
 
 const NewPatient: React.FC = () => {
   const navigate = useNavigate();
@@ -25,9 +24,8 @@ const NewPatient: React.FC = () => {
   const [loading, setLoading] = useState(false);
   const [uploading, setUploading] = useState(false);
 
-  // Estados para compartilhar cadastro (mesmo padrão da anamnese)
   const [showSignupShareModal, setShowSignupShareModal] = useState(false);
-  const [signupShareToken, setSignupShareToken] = useState<string | null>(null);
+  const [signupShareUrl, setSignupShareUrl] = useState<string | null>(null);
 
   /**
    * Upload da foto do paciente para o Supabase Storage
@@ -286,23 +284,18 @@ const NewPatient: React.FC = () => {
   const handlePhoneChange = (e: React.ChangeEvent<HTMLInputElement>) => setPhone(formatPhone(e.target.value));
   const handleCpfChange = (e: React.ChangeEvent<HTMLInputElement>) => setCpf(formatCPF(e.target.value));
 
-  // 📤 Compartilhar cadastro (mesmo padrão da anamnese) - USANDO RPC
+  // Link fixo para disparo em massa (WhatsApp): /cadastro?src=whatsapp — domínio de produção via env
   const shareSignupForm = async (): Promise<void> => {
     try {
-      const result = await createSignupForm(48); // 48 horas = 2 dias (padrão)
+      const baseUrl = (import.meta.env.VITE_PUBLIC_APP_URL as string) || window.location.origin;
+      const url = `${baseUrl.replace(/\/$/, '')}/cadastro?src=whatsapp`;
 
-      if (!result) {
-        toast.error('❌ Erro ao gerar link de cadastro');
-        return;
-      }
-
-      setSignupShareToken(result.share_token);
-
+      setSignupShareUrl(url);
       setShowSignupShareModal(true);
-      await copyToClipboard(result.url);
+      await copyToClipboard(url);
       toast.success('📋 Link copiado! Envie para o paciente.');
     } catch (error: any) {
-      toast.error(`❌ Erro ao compartilhar formulário: ${error?.message || 'Erro desconhecido'}`);
+      toast.error(`❌ Erro ao copiar link: ${error?.message || 'Erro desconhecido'}`);
     }
   };
 
@@ -560,7 +553,7 @@ const NewPatient: React.FC = () => {
         </div>
 
         {/* Modal Compartilhamento (mesmo padrão da anamnese) */}
-        {showSignupShareModal && signupShareToken && (
+        {showSignupShareModal && signupShareUrl && (
           <div className="fixed inset-0 bg-black/70 flex items-center justify-center p-4 z-50">
             <div className="glass-card p-6 max-w-md w-full mx-auto border border-white/10">
               <h3 className="text-lg font-semibold mb-4 text-white">📤 Enviar Cadastro para Paciente</h3>
@@ -569,7 +562,7 @@ const NewPatient: React.FC = () => {
                 <p className="text-gray-300 text-sm">Copie o link abaixo e envie para o paciente:</p>
 
                 <div className="bg-white/10 p-3 rounded-lg break-all text-xs font-mono text-gray-100 border border-white/10">
-                  {`${window.location.origin}/patient-signup/${signupShareToken}`}
+                  {signupShareUrl}
                 </div>
 
                 <div className="bg-yellow-500/10 border border-yellow-400/30 rounded-lg p-3">
@@ -586,9 +579,7 @@ const NewPatient: React.FC = () => {
                     Fechar
                   </button>
                   <button
-                    onClick={() =>
-                      copyToClipboard(`${window.location.origin}/patient-signup/${signupShareToken}`)
-                    }
+                    onClick={() => copyToClipboard(signupShareUrl)}
                     className="flex-1 neon-button"
                   >
                     Copiar Link

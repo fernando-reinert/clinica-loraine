@@ -29,6 +29,7 @@ import AppointmentTreatmentScreen from "./screens/AppointmentTreatmentScreen";
 import ProceduresScreen from "./screens/ProceduresScreen";
 import PatientFormScreen from "./screens/PatientFormScreen";
 import PatientSignupScreen from "./screens/PatientSignupScreen";
+import SignupEntryScreen from "./screens/SignupEntryScreen";
 import NotFoundScreen from "./screens/NotFoundScreen";
 
 import "./styles/futurist.css";
@@ -47,6 +48,9 @@ function App() {
                 {/* ========== ROTAS PÚBLICAS ========== */}
                 <Route path="/login" element={<LoginScreen />} />
                 <Route path="/patient-form/:shareToken" element={<PatientFormScreen />} />
+                <Route path="/cadastro" element={<SignupEntryScreen />} />
+                <Route path="/cadastro/:code" element={<PatientSignupScreen />} />
+                <Route path="/patient-signup/novopaciente/:code" element={<PatientSignupScreen />} />
                 <Route path="/patient-signup/:shareToken" element={<PatientSignupScreen />} />
                 
                 {/* ========== ROTAS PROTEGIDAS ========== */}
