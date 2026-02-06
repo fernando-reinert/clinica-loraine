@@ -169,7 +169,7 @@ const PatientDetailScreen: React.FC = () => {
       title: "Galeria",
       icon: GalleryVertical,
       gradient: "from-purple-500 to-pink-500",
-      action: () => navigate(`/gallery?patientId=${id}`),
+      action: () => navigate(`/patients/${id}/gallery`),
     },
     {
       title: "Prontuário",

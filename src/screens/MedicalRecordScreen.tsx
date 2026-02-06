@@ -1489,7 +1489,7 @@ Data: {{signed_at}}`;
                 return (
                   <button
                     key={tab.id}
-                    onClick={() => navigate(`/gallery?patientId=${id}`)}
+                    onClick={() => navigate(`/patients/${id}/gallery`)}
                     className="flex-1 flex items-center justify-center space-x-2 py-3 px-4 rounded-xl transition-all duration-300 text-gray-300 hover:bg-white/5 hover:text-purple-300"
                   >
                     <Icon size={18} />

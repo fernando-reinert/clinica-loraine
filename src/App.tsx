@@ -23,6 +23,7 @@ import NewPatient from "./screens/NewPatient";
 import FinancialControl from "./screens/FinancialControl";
 import MedicalRecordScreen from "./screens/MedicalRecordScreen";
 import GalleryScreen from "./screens/GalleryScreen";
+import PatientGalleryScreen from "./screens/PatientGalleryScreen";
 import AnamneseScreen from "./screens/AnamneseScreen";
 import AppointmentTreatmentScreen from "./screens/AppointmentTreatmentScreen";
 import ProceduresScreen from "./screens/ProceduresScreen";
@@ -93,6 +94,13 @@ function App() {
                 <Route path="/patients/:id/medical-record" element={
                   <ProtectedRoute>
                     <MedicalRecordScreen />
+                  </ProtectedRoute>
+                } />
+
+                {/* Galeria do Paciente — 1 registro = 1 foto */}
+                <Route path="/patients/:id/gallery" element={
+                  <ProtectedRoute>
+                    <PatientGalleryScreen />
                   </ProtectedRoute>
                 } />
 
