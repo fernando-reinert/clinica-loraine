@@ -11,7 +11,7 @@ const getBucketName = (envVar: string | undefined, defaultValue: string): string
 
 export const STORAGE_BUCKETS = {
   CONSENT_ATTACHMENTS: 'consent-attachments',
-  PATIENT_PHOTOS: 'patient-photos',
+  PATIENT_PHOTOS: 'patient_photos', // Bucket criado na migration com underscore
   SIGNATURES: 'signatures',
   BEFORE_AFTER: 'before_after',
   CONSULTATION_ATTACHMENTS: getBucketName(
