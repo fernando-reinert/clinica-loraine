@@ -1,10 +1,12 @@
 /**
  * Componente Modal/Lightbox para visualizar imagens em tamanho grande
- * Suporta navegação entre múltiplas imagens
+ * Suporta navegação entre múltiplas imagens, teclado (ESC, setas) e swipe em mobile
  */
 
-import React, { useEffect } from 'react';
+import React, { useEffect, useRef, useCallback } from 'react';
 import { X, ChevronLeft, ChevronRight } from 'lucide-react';
+
+const SWIPE_THRESHOLD = 50;
 
 export interface ImageLightboxProps {
   isOpen: boolean;
@@ -22,6 +24,24 @@ const ImageLightbox: React.FC<ImageLightboxProps> = ({
   onNavigate,
 }) => {
   const currentImage = images[currentIndex];
+  const touchStartX = useRef<number>(0);
+
+  // Touch swipe: store start X
+  const handleTouchStart = useCallback((e: React.TouchEvent) => {
+    touchStartX.current = e.touches[0].clientX;
+  }, []);
+
+  // Touch swipe: on end, navigate if delta exceeds threshold
+  const handleTouchEnd = useCallback((e: React.TouchEvent) => {
+    const endX = e.changedTouches[0].clientX;
+    const delta = touchStartX.current - endX;
+    if (Math.abs(delta) < SWIPE_THRESHOLD || !onNavigate) return;
+    if (delta > 0 && currentIndex < images.length - 1) {
+      onNavigate(currentIndex + 1); // swipe left -> next
+    } else if (delta < 0 && currentIndex > 0) {
+      onNavigate(currentIndex - 1); // swipe right -> previous
+    }
+  }, [currentIndex, images.length, onNavigate]);
 
   // Fechar com ESC
   useEffect(() => {
@@ -109,10 +129,12 @@ const ImageLightbox: React.FC<ImageLightboxProps> = ({
         </button>
       )}
 
-      {/* Container da Imagem */}
+      {/* Container da Imagem — swipe no conteúdo navega; clique não fecha */}
       <div
         className="relative max-w-[90vw] max-h-[90vh] flex items-center justify-center"
         onClick={(e) => e.stopPropagation()}
+        onTouchStart={handleTouchStart}
+        onTouchEnd={handleTouchEnd}
       >
         <img
           src={currentImage.url}

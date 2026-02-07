@@ -364,6 +364,15 @@
   height: 0;
 }
 
+/* Esconder scrollbar em carrossel horizontal */
+.scrollbar-hide {
+  -ms-overflow-style: none;
+  scrollbar-width: none;
+}
+.scrollbar-hide::-webkit-scrollbar {
+  display: none;
+}
+
 /* Responsividade melhorada */
 @media (max-width: 640px) {
   .mobile-padding {
