@@ -48,8 +48,8 @@ const SignupEntryScreen: React.FC = () => {
   }, [navigate, searchParams]);
 
   return (
-    <div className="min-h-screen overflow-x-hidden flex items-center justify-center p-4 sm:p-6">
-      <div className="glass-card mx-auto w-full max-w-md px-6 py-8 sm:px-8 sm:py-10 text-center border border-white/10 rounded-2xl">
+    <div className="min-h-screen w-full max-w-full overflow-x-hidden flex items-center justify-center p-4 sm:p-6">
+      <div className="glass-card mx-auto w-full max-w-md min-w-0 px-6 py-8 sm:px-8 sm:py-10 text-center border border-white/10 rounded-2xl">
         {error ? (
           <>
             <p className="text-red-300 text-sm sm:text-base mb-4 break-words">{error}</p>

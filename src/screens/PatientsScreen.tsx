@@ -65,35 +65,35 @@ const PatientsScreen: React.FC = () => {
 
   return (
     <AppLayout title="Pacientes" showBack={true}>
-      <div className="space-y-6">
+      <div className="space-y-6 w-full max-w-full min-w-0">
         {/* Header com Estatísticas - Design Cosmic */}
-        <div className="glass-card p-8 relative overflow-hidden">
-          <div className="flex flex-col lg:flex-row justify-between items-start lg:items-center gap-6">
-            <div className="flex-1">
-              <div className="flex items-center gap-4 mb-4">
-                <div className="p-3 bg-purple-500/20 rounded-2xl border border-purple-400/30">
+        <div className="glass-card p-4 sm:p-6 md:p-8 relative overflow-hidden w-full max-w-full min-w-0">
+          <div className="flex flex-col lg:flex-row justify-between items-start lg:items-center gap-4 sm:gap-6 min-w-0">
+            <div className="flex-1 min-w-0">
+              <div className="flex flex-wrap items-center gap-3 sm:gap-4 mb-4 min-w-0">
+                <div className="p-3 bg-purple-500/20 rounded-2xl border border-purple-400/30 flex-shrink-0">
                   <Users className="text-purple-300" size={28} />
                 </div>
-                <div>
-                  <h1 className="text-3xl font-bold glow-text mb-2">Universo de Pacientes</h1>
-                  <p className="text-gray-300 text-lg">
+                <div className="min-w-0">
+                  <h1 className="text-2xl sm:text-3xl font-bold glow-text mb-2 whitespace-normal break-words">Universo de Pacientes</h1>
+                  <p className="text-gray-300 text-base sm:text-lg whitespace-normal break-words">
                     Explore sua galáxia de pacientes
                   </p>
                 </div>
               </div>
               
               {/* Estatísticas */}
-              <div className="flex flex-wrap gap-6 mt-6">
-                <div className="text-center">
-                  <div className="text-2xl font-bold text-white">{statusCounts.total}</div>
-                  <div className="text-gray-400 text-sm">Total na Galáxia</div>
+              <div className="flex flex-wrap gap-4 sm:gap-6 mt-4 sm:mt-6 min-w-0">
+                <div className="text-center min-w-0">
+                  <div className="text-xl sm:text-2xl font-bold text-white">{statusCounts.total}</div>
+                  <div className="text-gray-400 text-sm whitespace-normal break-words">Total na Galáxia</div>
                 </div>
-                <div className="text-center">
-                  <div className="text-2xl font-bold text-green-400">{statusCounts.active}</div>
+                <div className="text-center min-w-0">
+                  <div className="text-xl sm:text-2xl font-bold text-green-400">{statusCounts.active}</div>
                   <div className="text-gray-400 text-sm">Ativos</div>
                 </div>
-                <div className="text-center">
-                  <div className="text-2xl font-bold text-amber-400">{statusCounts.inactive}</div>
+                <div className="text-center min-w-0">
+                  <div className="text-xl sm:text-2xl font-bold text-amber-400">{statusCounts.inactive}</div>
                   <div className="text-gray-400 text-sm">Inativos</div>
                 </div>
               </div>
@@ -101,36 +101,36 @@ const PatientsScreen: React.FC = () => {
             
             <button
               onClick={() => navigate('/patients/new')}
-              className="neon-button group relative overflow-hidden flex items-center space-x-3"
+              className="neon-button group relative overflow-hidden flex items-center justify-center gap-2 sm:gap-3 w-full sm:w-auto min-h-[44px] min-w-0"
             >
-              <Plus size={24} className="group-hover:rotate-90 transition-transform duration-300" />
-              <span className="font-semibold text-lg">Novo Paciente</span>
+              <Plus size={24} className="group-hover:rotate-90 transition-transform duration-300 shrink-0" />
+              <span className="font-semibold text-base sm:text-lg whitespace-normal break-words">Novo Paciente</span>
             </button>
           </div>
         </div>
 
         {/* Barra de Ferramentas - Holográfica */}
-        <div className="glass-card p-6">
-          <div className="flex flex-col lg:flex-row gap-4">
+        <div className="glass-card p-4 sm:p-6 w-full max-w-full min-w-0">
+          <div className="flex flex-col lg:flex-row gap-4 min-w-0">
             {/* Barra de Busca */}
-            <div className="flex-1 relative">
-              <Search className="absolute left-4 top-1/2 transform -translate-y-1/2 text-gray-400" size={20} />
+            <div className="flex-1 relative min-w-0">
+              <Search className="absolute left-4 top-1/2 transform -translate-y-1/2 text-gray-400 pointer-events-none shrink-0" size={20} />
               <input
                 type="text"
                 placeholder="Buscar por nome, telefone ou email..."
                 value={searchTerm}
                 onChange={(e) => setSearchTerm(e.target.value)}
-                className="holo-input pl-12 text-lg"
+                className="holo-input pl-12 w-full max-w-full min-h-[44px] text-base sm:text-lg"
               />
             </div>
 
             {/* Filtro de Status */}
-            <div className="flex items-center space-x-3 glass-card p-3 rounded-2xl">
-              <Filter size={20} className="text-gray-400" />
+            <div className="flex items-center gap-2 sm:gap-3 glass-card p-3 rounded-2xl min-w-0">
+              <Filter size={20} className="text-gray-400 shrink-0" />
               <select
                 value={statusFilter}
                 onChange={(e) => setStatusFilter(e.target.value as any)}
-                className="holo-input bg-transparent border-none focus:ring-0 text-gray-300 font-medium"
+                className="holo-input bg-transparent border-none focus:ring-0 text-gray-300 font-medium w-full min-w-0 min-h-[44px]"
               >
                 <option value="all">Todos os Planetas</option>
                 <option value="active">Ativos</option>
@@ -167,11 +167,11 @@ const PatientsScreen: React.FC = () => {
               )}
             </div>
           ) : (
-            <div className="grid grid-cols-1 lg:grid-cols-2 xl:grid-cols-3 gap-6">
+            <div className="grid grid-cols-1 lg:grid-cols-2 xl:grid-cols-3 gap-4 sm:gap-6 w-full max-w-full min-w-0">
               {filteredPatients.map((patient) => (
                 <div
                   key={patient.id}
-                  className="glass-card p-6 hover-lift group cursor-pointer"
+                  className="glass-card p-4 sm:p-6 hover-lift group cursor-pointer w-full max-w-full min-w-0"
                   onClick={() => navigate(`/patients/${patient.id}`)}
                 >
                   {/* Header do Card */}
@@ -204,29 +204,29 @@ const PatientsScreen: React.FC = () => {
                     </div>
                     
                     {/* Informações Principais */}
-                    <div className="flex-1 min-w-0">
-                      <h3 className="font-bold text-white text-lg mb-1 group-hover:text-purple-300 transition-colors truncate">
+                    <div className="flex-1 min-w-0 overflow-hidden">
+                      <h3 className="font-bold text-white text-base sm:text-lg mb-1 group-hover:text-purple-300 transition-colors whitespace-normal break-words">
                         {patient.name || patient.full_name || 'Viajante Interestelar'}
                       </h3>
                       
-                      <div className="flex items-center space-x-2 text-sm text-gray-400 mb-2">
-                        <Calendar size={14} />
-                        <span>Entrou em: {formatDate(patient.created_at)}</span>
+                      <div className="flex items-center gap-2 text-sm text-gray-400 mb-2 min-w-0 flex-wrap">
+                        <Calendar size={14} className="shrink-0" />
+                        <span className="break-words">Entrou em: {formatDate(patient.created_at)}</span>
                       </div>
 
                       {/* Informações de Contato */}
-                      <div className="space-y-2">
+                      <div className="space-y-2 min-w-0">
                         {patient.phone && (
-                          <div className="flex items-center space-x-2 text-sm text-gray-300">
-                            <Phone size={14} />
-                            <span className="font-medium">{formatPhone(patient.phone)}</span>
+                          <div className="flex items-center gap-2 text-sm text-gray-300 min-w-0">
+                            <Phone size={14} className="shrink-0" />
+                            <span className="font-medium break-words">{formatPhone(patient.phone)}</span>
                           </div>
                         )}
                         
                         {patient.email && (
-                          <div className="flex items-center space-x-2 text-sm text-gray-300">
-                            <Mail size={14} />
-                            <span className="truncate max-w-[180px]">{patient.email}</span>
+                          <div className="flex items-center gap-2 text-sm text-gray-300 min-w-0">
+                            <Mail size={14} className="shrink-0" />
+                            <span className="break-words min-w-0">{patient.email}</span>
                           </div>
                         )}
                       </div>
@@ -234,16 +234,16 @@ const PatientsScreen: React.FC = () => {
                   </div>
 
                   {/* Botões de Ação */}
-                  <div className="flex space-x-3 pt-4 border-t border-gray-700">
+                  <div className="flex gap-2 sm:gap-3 pt-4 border-t border-gray-700 min-w-0">
                     <button
                       onClick={(e) => {
                         e.stopPropagation();
                         navigate(`/patients/${patient.id}`);
                       }}
-                      className="flex-1 bg-blue-500/20 text-blue-300 hover:bg-blue-500/30 py-3 px-4 rounded-xl font-semibold transition-all duration-200 text-sm flex items-center justify-center space-x-2 hover:scale-105 border border-blue-400/30"
+                      className="flex-1 min-w-0 min-h-[44px] bg-blue-500/20 text-blue-300 hover:bg-blue-500/30 py-3 px-3 sm:px-4 rounded-xl font-semibold transition-all duration-200 text-sm flex items-center justify-center gap-2 hover:scale-105 border border-blue-400/30"
                     >
-                      <User size={16} />
-                      <span>Explorar</span>
+                      <User size={16} className="shrink-0" />
+                      <span className="whitespace-normal break-words">Explorar</span>
                     </button>
                     
                     <button
@@ -251,10 +251,10 @@ const PatientsScreen: React.FC = () => {
                         e.stopPropagation();
                         navigate(`/patients/${patient.id}/anamnese`);
                       }}
-                      className="flex-1 bg-purple-500/20 text-purple-300 hover:bg-purple-500/30 py-3 px-4 rounded-xl font-semibold transition-all duration-200 text-sm flex items-center justify-center space-x-2 hover:scale-105 border border-purple-400/30"
+                      className="flex-1 min-w-0 min-h-[44px] bg-purple-500/20 text-purple-300 hover:bg-purple-500/30 py-3 px-3 sm:px-4 rounded-xl font-semibold transition-all duration-200 text-sm flex items-center justify-center gap-2 hover:scale-105 border border-purple-400/30"
                     >
-                      <FileText size={16} />
-                      <span>Anamnese</span>
+                      <FileText size={16} className="shrink-0" />
+                      <span className="whitespace-normal break-words">Anamnese</span>
                     </button>
                   </div>
 

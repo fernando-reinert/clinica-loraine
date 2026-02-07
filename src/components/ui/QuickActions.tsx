@@ -43,23 +43,23 @@ export const QuickActions: React.FC = () => {
   ];
 
   return (
-    <div className="bg-white rounded-2xl shadow-sm border border-gray-100 p-6">
-      <h2 className="text-lg font-semibold text-gray-900 mb-4">Ações Rápidas</h2>
+    <div className="bg-white rounded-2xl shadow-sm border border-gray-100 p-6 w-full max-w-full min-w-0">
+      <h2 className="text-lg font-semibold text-gray-900 mb-4 whitespace-normal break-words">Ações Rápidas</h2>
       
-      <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+      <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 w-full max-w-full min-w-0">
         {actions.map((action, index) => (
           <button
             key={index}
             onClick={action.onClick}
-            className={`p-4 rounded-xl bg-gradient-to-r ${action.color} text-white text-left hover:shadow-lg transition-all duration-300 transform hover:scale-[1.02] group`}
+            className={`p-4 rounded-xl bg-gradient-to-r ${action.color} text-white text-left hover:shadow-lg transition-all duration-300 transform hover:scale-[1.02] group w-full max-w-full min-w-0`}
           >
-            <div className="flex items-center space-x-3">
-              <div className="p-2 bg-white/20 rounded-lg group-hover:bg-white/30 transition-colors">
+            <div className="flex items-center space-x-3 min-w-0">
+              <div className="p-2 bg-white/20 rounded-lg group-hover:bg-white/30 transition-colors flex-shrink-0">
                 {action.icon}
               </div>
-              <div>
-                <p className="font-semibold text-sm">{action.label}</p>
-                <p className="text-white/80 text-xs mt-1">{action.description}</p>
+              <div className="min-w-0 flex-1">
+                <p className="font-semibold text-sm whitespace-normal break-words">{action.label}</p>
+                <p className="text-white/80 text-xs mt-1 whitespace-normal break-words">{action.description}</p>
               </div>
             </div>
           </button>

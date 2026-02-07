@@ -498,7 +498,7 @@ const AnamneseScreen: React.FC = () => {
       <div className="space-y-6">
         {/* Header futurista */}
         <div className="glass-card p-6 relative overflow-hidden">
-          <div className="absolute inset-0 bg-gradient-to-br from-blue-500/10 via-purple-500/10 to-cyan-500/10" />
+          <div className="absolute inset-0 bg-gradient-to-br from-blue-500/10 via-purple-500/10 to-cyan-500/10 pointer-events-none" aria-hidden />
           <div className="relative z-10">
             <div className="flex flex-col lg:flex-row lg:items-center lg:justify-between gap-4">
               <div className="flex items-start gap-3">
@@ -572,23 +572,27 @@ const AnamneseScreen: React.FC = () => {
               </div>
 
               {/* Actions */}
-              <div className="flex flex-wrap gap-3">
+              <div className="flex flex-col sm:flex-row gap-3 items-stretch sm:items-center">
                 <button
                   onClick={() => saveForm()}
                   disabled={saving}
-                  className="neon-button"
+                  className="neon-button inline-flex items-center justify-center min-h-[44px] w-full sm:w-auto min-w-0"
                 >
-                  <Edit3 size={20} className="mr-3" />
-                  {saving ? 'Salvando...' : 'Salvar'}
+                  <span className="inline-flex items-center justify-center gap-2 whitespace-nowrap">
+                    <Edit3 size={20} className="shrink-0" />
+                    <span>{saving ? 'Salvando...' : 'Salvar'}</span>
+                  </span>
                 </button>
 
                 <button
                   onClick={shareForm}
                   disabled={saving || hasUnsavedChanges}
-                  className="neon-button"
+                  className="neon-button inline-flex items-center justify-center min-h-[44px] w-full sm:w-auto min-w-0"
                 >
-                  <Share2 size={20} className="mr-3" />
-                  Enviar
+                  <span className="inline-flex items-center justify-center gap-2 whitespace-nowrap">
+                    <Share2 size={20} className="shrink-0" />
+                    <span>Enviar</span>
+                  </span>
                 </button>
               </div>
             </div>
@@ -665,8 +669,10 @@ const AnamneseScreen: React.FC = () => {
               disabled={activeCategory === categories[categories.length - 1].id}
               className="flex items-center space-x-2 px-3 py-2 text-sm disabled:opacity-30 disabled:cursor-not-allowed text-gray-300 hover:text-white"
             >
-              <span className="hidden sm:inline">Próxima</span>
-              <ChevronRight size={16} />
+              <span className="inline-flex items-center gap-2 whitespace-nowrap">
+                <span className="hidden sm:inline">Próxima</span>
+                <ChevronRight size={16} className="shrink-0" />
+              </span>
             </button>
           </div>
 
@@ -779,8 +785,10 @@ const AnamneseScreen: React.FC = () => {
             disabled={activeCategory === categories[categories.length - 1].id}
             className="neon-button"
           >
-            <span className="mr-3">Próxima</span>
-            <ChevronRight size={18} />
+            <span className="inline-flex items-center gap-2 whitespace-nowrap">
+              <span>Próxima</span>
+              <ChevronRight size={18} className="shrink-0" />
+            </span>
           </button>
         </div>
 
