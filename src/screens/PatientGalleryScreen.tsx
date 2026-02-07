@@ -18,8 +18,9 @@ import { supabase } from "../services/supabase/client";
 import {
   listByPatient,
   createProcedureWithPhotos,
-  addBeforePhoto,
-  addAfterPhoto,
+  addBeforePhotos,
+  addAfterPhotos,
+  deleteProcedureImage,
   deleteBeforePhoto,
   deleteAfterPhoto,
   deleteProcedure,
@@ -29,7 +30,8 @@ import {
 import AppLayout from "../components/Layout/AppLayout";
 import LoadingSpinner from "../components/LoadingSpinner";
 import ConfirmDialog from "../components/ConfirmDialog";
-import ImagePicker from "../components/gallery/ImagePicker";
+import ImageCarousel from "../components/gallery/ImageCarousel";
+import ImageLightbox from "../components/ImageLightbox";
 import toast from "react-hot-toast";
 
 type SlotType = "before" | "after";
@@ -38,6 +40,32 @@ interface Patient {
   id: string;
   name: string;
 }
+
+/** Thumbnail com object URL revogado ao desmontar */
+const PreviewThumb: React.FC<{
+  file: File;
+  onRemove: () => void;
+  className?: string;
+}> = ({ file, onRemove, className = "" }) => {
+  const [url, setUrl] = useState("");
+  useEffect(() => {
+    const u = URL.createObjectURL(file);
+    setUrl(u);
+    return () => URL.revokeObjectURL(u);
+  }, [file]);
+  return (
+    <div className={`relative w-16 h-16 rounded-lg overflow-hidden border border-white/20 bg-white/5 ${className}`}>
+      <img src={url} alt="" className="w-full h-full object-cover" />
+      <button
+        type="button"
+        onClick={onRemove}
+        className="absolute top-0 right-0 p-1 bg-red-500/90 text-white rounded-bl"
+      >
+        <X size={14} />
+      </button>
+    </div>
+  );
+};
 
 const PatientGalleryScreen: React.FC = () => {
   const { id: patientId } = useParams<{ id: string }>();
@@ -56,8 +84,8 @@ const PatientGalleryScreen: React.FC = () => {
     procedureDate: new Date().toISOString().split("T")[0],
     notes: "",
   });
-  const [addBeforeFile, setAddBeforeFile] = useState<File | null>(null);
-  const [addAfterFile, setAddAfterFile] = useState<File | null>(null);
+  const [addBeforeFiles, setAddBeforeFiles] = useState<File[]>([]);
+  const [addAfterFiles, setAddAfterFiles] = useState<File[]>([]);
 
   // Adicionar antes/depois em um procedimento existente (qual slot e qual procedureId)
   const [addingSlot, setAddingSlot] = useState<{ procedureId: string; slot: SlotType } | null>(null);
@@ -70,11 +98,22 @@ const PatientGalleryScreen: React.FC = () => {
     notes: "",
   });
 
-  // Excluir: qual slot ou procedimento inteiro
+  // Excluir: imagem específica, slot legacy ou procedimento inteiro
   const [deleteTarget, setDeleteTarget] = useState<
-    { type: "before" | "after" | "procedure"; procedure: PatientProcedurePhoto } | null
+    | { type: "image"; imageId: string; procedure: PatientProcedurePhoto }
+    | { type: "before" | "after" | "procedure"; procedure: PatientProcedurePhoto }
+    | null
   >(null);
   const [deleting, setDeleting] = useState(false);
+
+  // Índice do carrossel por procedimento (antes/depois) para toolbar "Excluir atual"
+  const [carouselIndex, setCarouselIndex] = useState<Record<string, { before: number; after: number }>>({});
+  // Lightbox ao clicar na foto
+  const [lightboxState, setLightboxState] = useState<{
+    isOpen: boolean;
+    images: Array<{ id: string; url: string }>;
+    currentIndex: number;
+  }>({ isOpen: false, images: [], currentIndex: 0 });
 
   const loadPatient = async () => {
     if (!patientId) return;
@@ -115,8 +154,8 @@ const PatientGalleryScreen: React.FC = () => {
       procedureDate: new Date().toISOString().split("T")[0],
       notes: "",
     });
-    setAddBeforeFile(null);
-    setAddAfterFile(null);
+    setAddBeforeFiles([]);
+    setAddAfterFiles([]);
     setShowAddModal(true);
   };
 
@@ -126,7 +165,7 @@ const PatientGalleryScreen: React.FC = () => {
       toast.error("Informe o procedimento");
       return;
     }
-    if (!addBeforeFile && !addAfterFile) {
+    if (addBeforeFiles.length === 0 && addAfterFiles.length === 0) {
       toast.error("Adicione pelo menos uma foto (antes ou depois)");
       return;
     }
@@ -137,8 +176,8 @@ const PatientGalleryScreen: React.FC = () => {
         procedureName: addForm.procedureName.trim(),
         procedureDate: addForm.procedureDate,
         notes: addForm.notes.trim() || undefined,
-        beforeFile: addBeforeFile ?? undefined,
-        afterFile: addAfterFile ?? undefined,
+        beforeFiles: addBeforeFiles.length > 0 ? addBeforeFiles : undefined,
+        afterFiles: addAfterFiles.length > 0 ? addAfterFiles : undefined,
       });
       toast.success("Procedimento adicionado");
       setShowAddModal(false);
@@ -157,23 +196,23 @@ const PatientGalleryScreen: React.FC = () => {
   };
 
   const handleAddSlotFile = async (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
+    const files = e.target.files ? Array.from(e.target.files) : [];
     e.target.value = "";
-    if (!file || !addingSlot) return;
+    if (files.length === 0 || !addingSlot) return;
     setUploading(true);
     try {
       if (addingSlot.slot === "before") {
-        await addBeforePhoto(addingSlot.procedureId, file);
-        toast.success("Foto antes adicionada");
+        await addBeforePhotos(addingSlot.procedureId, files);
+        toast.success(files.length === 1 ? "Foto antes adicionada" : "Fotos antes adicionadas");
       } else {
-        await addAfterPhoto(addingSlot.procedureId, file);
-        toast.success("Foto depois adicionada");
+        await addAfterPhotos(addingSlot.procedureId, files);
+        toast.success(files.length === 1 ? "Foto depois adicionada" : "Fotos depois adicionadas");
       }
       setAddingSlot(null);
       await loadProcedures();
     } catch (err) {
       console.error(err);
-      toast.error("Erro ao enviar foto");
+      toast.error("Erro ao enviar foto(s)");
     } finally {
       setUploading(false);
     }
@@ -219,6 +258,9 @@ const PatientGalleryScreen: React.FC = () => {
       if (deleteTarget.type === "procedure") {
         await deleteProcedure(deleteTarget.procedure.id);
         toast.success("Procedimento excluído");
+      } else if (deleteTarget.type === "image") {
+        await deleteProcedureImage(deleteTarget.imageId);
+        toast.success("Foto excluída");
       } else if (deleteTarget.type === "before") {
         await deleteBeforePhoto(deleteTarget.procedure.id);
         toast.success("Foto antes excluída");
@@ -270,6 +312,7 @@ const PatientGalleryScreen: React.FC = () => {
         type="file"
         accept="image/*"
         capture="environment"
+        multiple
         hidden
         onChange={handleAddSlotFile}
       />
@@ -358,93 +401,95 @@ const PatientGalleryScreen: React.FC = () => {
                 </div>
 
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                  {/* Slot ANTES */}
-                  <div className="rounded-2xl border border-dashed border-white/20 bg-white/5 overflow-hidden min-h-[200px] flex flex-col">
-                    <div className="p-2 text-center text-cyan-400 text-sm font-medium border-b border-white/10">
-                      Antes
-                    </div>
-                    <div className="flex-1 flex items-center justify-center p-4 min-h-[180px]">
-                      {proc.before_url ? (
-                        <div className="relative w-full h-full group">
-                          <img
-                            src={proc.before_url}
-                            alt="Antes"
-                            className="w-full h-full object-cover rounded-xl"
-                          />
-                          <div className="absolute inset-0 bg-black/50 opacity-0 group-hover:opacity-100 transition-opacity rounded-xl flex items-center justify-center gap-2">
-                            <button
-                              type="button"
-                              onClick={() => openAddSlot(proc.id, "before")}
-                              disabled={uploading}
-                              className="neon-button py-2 px-3 text-sm"
-                            >
-                              Trocar
-                            </button>
-                            <button
-                              type="button"
-                              onClick={() => setDeleteTarget({ type: "before", procedure: proc })}
-                              className="py-2 px-3 rounded-xl border border-red-400/50 text-red-400 hover:bg-red-500/20 text-sm"
-                            >
-                              Excluir
-                            </button>
-                          </div>
-                        </div>
-                      ) : (
+                  {/* Slot ANTES — toolbar no header, carrossel com lightbox ao clicar */}
+                  <div className="group rounded-2xl border border-dashed border-white/20 bg-white/5 overflow-hidden min-h-[200px] flex flex-col">
+                    <div className="p-2 border-b border-white/10 flex items-center justify-between gap-2">
+                      <span className="text-cyan-400 text-sm font-medium">Antes</span>
+                      <div className="flex items-center gap-1 opacity-80 md:opacity-60 md:group-hover:opacity-100 transition-opacity">
                         <button
                           type="button"
                           onClick={() => openAddSlot(proc.id, "before")}
                           disabled={uploading}
-                          className="w-full h-full flex flex-col items-center justify-center gap-2 rounded-xl border-2 border-dashed border-cyan-400/40 hover:border-cyan-400 hover:bg-cyan-500/10 text-cyan-400 transition-all"
+                          className="p-1.5 rounded-lg text-cyan-400 hover:bg-cyan-500/20 text-sm inline-flex items-center gap-1"
+                          title="Adicionar mais fotos"
                         >
-                          <Plus size={32} />
-                          <span className="font-medium">Adicionar Antes</span>
+                          <Plus size={16} />
+                          <span className="hidden sm:inline">Adicionar</span>
                         </button>
-                      )}
+                        {(proc.before_images ?? []).length > 0 && (
+                          <button
+                            type="button"
+                            onClick={() => {
+                              const idx = carouselIndex[proc.id]?.before ?? 0;
+                              const img = (proc.before_images ?? [])[idx];
+                              if (img) setDeleteTarget({ type: "image", imageId: img.id, procedure: proc });
+                            }}
+                            disabled={uploading}
+                            className="p-1.5 rounded-lg text-red-400 hover:bg-red-500/20 text-sm inline-flex items-center gap-1"
+                            title="Excluir foto atual"
+                          >
+                            <Trash2 size={16} />
+                            <span className="hidden sm:inline">Excluir atual</span>
+                          </button>
+                        )}
+                      </div>
+                    </div>
+                    <div className="flex-1 p-2 min-h-[180px]">
+                      <ImageCarousel
+                        images={(proc.before_images ?? []).map((img) => ({ id: img.id, url: img.url }))}
+                        variant="before"
+                        activeIndex={carouselIndex[proc.id]?.before ?? 0}
+                        onChangeIndex={(i) => setCarouselIndex((p) => ({ ...p, [proc.id]: { ...(p[proc.id] ?? { before: 0, after: 0 }), before: i } }))}
+                        onImageClick={(index) => setLightboxState({ isOpen: true, images: (proc.before_images ?? []).map((img) => ({ id: img.id, url: img.url })), currentIndex: index })}
+                        onAddMore={() => openAddSlot(proc.id, "before")}
+                        disabled={uploading}
+                      />
                     </div>
                   </div>
 
-                  {/* Slot DEPOIS */}
-                  <div className="rounded-2xl border border-dashed border-white/20 bg-white/5 overflow-hidden min-h-[200px] flex flex-col">
-                    <div className="p-2 text-center text-purple-400 text-sm font-medium border-b border-white/10">
-                      Depois
-                    </div>
-                    <div className="flex-1 flex items-center justify-center p-4 min-h-[180px]">
-                      {proc.after_url ? (
-                        <div className="relative w-full h-full group">
-                          <img
-                            src={proc.after_url}
-                            alt="Depois"
-                            className="w-full h-full object-cover rounded-xl"
-                          />
-                          <div className="absolute inset-0 bg-black/50 opacity-0 group-hover:opacity-100 transition-opacity rounded-xl flex items-center justify-center gap-2">
-                            <button
-                              type="button"
-                              onClick={() => openAddSlot(proc.id, "after")}
-                              disabled={uploading}
-                              className="neon-button py-2 px-3 text-sm"
-                            >
-                              Trocar
-                            </button>
-                            <button
-                              type="button"
-                              onClick={() => setDeleteTarget({ type: "after", procedure: proc })}
-                              className="py-2 px-3 rounded-xl border border-red-400/50 text-red-400 hover:bg-red-500/20 text-sm"
-                            >
-                              Excluir
-                            </button>
-                          </div>
-                        </div>
-                      ) : (
+                  {/* Slot DEPOIS — toolbar no header, carrossel com lightbox ao clicar */}
+                  <div className="group rounded-2xl border border-dashed border-white/20 bg-white/5 overflow-hidden min-h-[200px] flex flex-col">
+                    <div className="p-2 border-b border-white/10 flex items-center justify-between gap-2">
+                      <span className="text-purple-400 text-sm font-medium">Depois</span>
+                      <div className="flex items-center gap-1 opacity-80 md:opacity-60 md:group-hover:opacity-100 transition-opacity">
                         <button
                           type="button"
                           onClick={() => openAddSlot(proc.id, "after")}
                           disabled={uploading}
-                          className="w-full h-full flex flex-col items-center justify-center gap-2 rounded-xl border-2 border-dashed border-purple-400/40 hover:border-purple-400 hover:bg-purple-500/10 text-purple-400 transition-all"
+                          className="p-1.5 rounded-lg text-purple-400 hover:bg-purple-500/20 text-sm inline-flex items-center gap-1"
+                          title="Adicionar mais fotos"
                         >
-                          <Plus size={32} />
-                          <span className="font-medium">Adicionar Depois</span>
+                          <Plus size={16} />
+                          <span className="hidden sm:inline">Adicionar</span>
                         </button>
-                      )}
+                        {(proc.after_images ?? []).length > 0 && (
+                          <button
+                            type="button"
+                            onClick={() => {
+                              const idx = carouselIndex[proc.id]?.after ?? 0;
+                              const img = (proc.after_images ?? [])[idx];
+                              if (img) setDeleteTarget({ type: "image", imageId: img.id, procedure: proc });
+                            }}
+                            disabled={uploading}
+                            className="p-1.5 rounded-lg text-red-400 hover:bg-red-500/20 text-sm inline-flex items-center gap-1"
+                            title="Excluir foto atual"
+                          >
+                            <Trash2 size={16} />
+                            <span className="hidden sm:inline">Excluir atual</span>
+                          </button>
+                        )}
+                      </div>
+                    </div>
+                    <div className="flex-1 p-2 min-h-[180px]">
+                      <ImageCarousel
+                        images={(proc.after_images ?? []).map((img) => ({ id: img.id, url: img.url }))}
+                        variant="after"
+                        activeIndex={carouselIndex[proc.id]?.after ?? 0}
+                        onChangeIndex={(i) => setCarouselIndex((p) => ({ ...p, [proc.id]: { ...(p[proc.id] ?? { before: 0, after: 0 }), after: i } }))}
+                        onImageClick={(index) => setLightboxState({ isOpen: true, images: (proc.after_images ?? []).map((img) => ({ id: img.id, url: img.url })), currentIndex: index })}
+                        onAddMore={() => openAddSlot(proc.id, "after")}
+                        disabled={uploading}
+                      />
                     </div>
                   </div>
                 </div>
@@ -501,22 +546,56 @@ const PatientGalleryScreen: React.FC = () => {
                 />
               </div>
               <div>
-                <label className="block text-sm font-medium text-gray-300 mb-2">Foto Antes (opcional)</label>
-                <ImagePicker
-                  label=""
-                  value={addBeforeFile}
-                  onChange={setAddBeforeFile}
+                <label className="block text-sm font-medium text-gray-300 mb-2">Fotos Antes (opcional)</label>
+                <input
+                  type="file"
+                  accept="image/*"
+                  multiple
                   disabled={uploading}
+                  onChange={(e) => {
+                    const files = e.target.files ? Array.from(e.target.files) : [];
+                    setAddBeforeFiles((prev) => [...prev, ...files]);
+                    e.target.value = "";
+                  }}
+                  className="w-full text-sm text-gray-400 file:mr-3 file:py-2 file:px-4 file:rounded-xl file:border-0 file:bg-cyan-500/20 file:text-cyan-300 file:font-medium"
                 />
+                {addBeforeFiles.length > 0 && (
+                  <div className="flex flex-wrap gap-2 mt-2">
+                    {addBeforeFiles.map((file, i) => (
+                      <PreviewThumb
+                        key={i}
+                        file={file}
+                        onRemove={() => setAddBeforeFiles((p) => p.filter((_, j) => j !== i))}
+                      />
+                    ))}
+                  </div>
+                )}
               </div>
               <div>
-                <label className="block text-sm font-medium text-gray-300 mb-2">Foto Depois (opcional)</label>
-                <ImagePicker
-                  label=""
-                  value={addAfterFile}
-                  onChange={setAddAfterFile}
+                <label className="block text-sm font-medium text-gray-300 mb-2">Fotos Depois (opcional)</label>
+                <input
+                  type="file"
+                  accept="image/*"
+                  multiple
                   disabled={uploading}
+                  onChange={(e) => {
+                    const files = e.target.files ? Array.from(e.target.files) : [];
+                    setAddAfterFiles((prev) => [...prev, ...files]);
+                    e.target.value = "";
+                  }}
+                  className="w-full text-sm text-gray-400 file:mr-3 file:py-2 file:px-4 file:rounded-xl file:border-0 file:bg-purple-500/20 file:text-purple-300 file:font-medium"
                 />
+                {addAfterFiles.length > 0 && (
+                  <div className="flex flex-wrap gap-2 mt-2">
+                    {addAfterFiles.map((file, i) => (
+                      <PreviewThumb
+                        key={i}
+                        file={file}
+                        onRemove={() => setAddAfterFiles((p) => p.filter((_, j) => j !== i))}
+                      />
+                    ))}
+                  </div>
+                )}
               </div>
             </div>
             <div className="flex gap-3 mt-6">
@@ -533,7 +612,7 @@ const PatientGalleryScreen: React.FC = () => {
                 disabled={
                   uploading ||
                   !addForm.procedureName.trim() ||
-                  (!addBeforeFile && !addAfterFile)
+                  (addBeforeFiles.length === 0 && addAfterFiles.length === 0)
                 }
                 className="neon-button flex-1 flex items-center justify-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed"
               >
@@ -612,11 +691,21 @@ const PatientGalleryScreen: React.FC = () => {
         </div>
       )}
 
+      <ImageLightbox
+        isOpen={lightboxState.isOpen}
+        images={lightboxState.images.map((img) => ({ id: img.id, url: img.url }))}
+        currentIndex={lightboxState.currentIndex}
+        onClose={() => setLightboxState({ isOpen: false, images: [], currentIndex: 0 })}
+        onNavigate={(index) => setLightboxState((p) => ({ ...p, currentIndex: index }))}
+      />
+
       <ConfirmDialog
         isOpen={!!deleteTarget}
         title={
           deleteTarget?.type === "procedure"
             ? "Excluir procedimento"
+            : deleteTarget?.type === "image"
+            ? "Excluir foto"
             : deleteTarget?.type === "before"
             ? "Excluir foto Antes"
             : "Excluir foto Depois"

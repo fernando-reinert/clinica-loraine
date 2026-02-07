@@ -13,6 +13,7 @@ import ConsentFormViewer from '../components/ConsentFormViewer';
 import ProcedureSelector from '../components/ProcedureSelector';
 import SignaturePad from '../components/SignaturePad';
 import ImageLightbox from '../components/ImageLightbox';
+import ImageCarousel from '../components/gallery/ImageCarousel';
 import { getPatientMedicalHistory } from '../services/medical-record/medicalRecordService';
 import { 
   getConsentFormsByPatient, 
@@ -305,6 +306,11 @@ const MedicalRecordScreen: React.FC = () => {
     images: [],
     currentIndex: 0,
   });
+
+  // Índice do carrossel por consulta (para anexos) e exclusão de um anexo
+  const [consultationCarouselIndex, setConsultationCarouselIndex] = useState<Record<string, number>>({});
+  const [deleteAttachmentTarget, setDeleteAttachmentTarget] = useState<{ consultationId: string; attachment: any } | null>(null);
+  const [deletingAttachment, setDeletingAttachment] = useState(false);
 
   useEffect(() => {
     if (id) {
@@ -893,6 +899,55 @@ const MedicalRecordScreen: React.FC = () => {
       logger.error('[MEDICAL_RECORD] Erro ao excluir consulta:', error);
       toast.error(`Erro ao excluir consulta: ${error.message}`);
       setDeleteConsultationModal(prev => ({ ...prev, isLoading: false }));
+    }
+  };
+
+  // Excluir um único anexo da consulta (foto atual do carrossel)
+  const confirmDeleteSingleAttachment = async () => {
+    if (!deleteAttachmentTarget) return;
+    const { consultationId, attachment } = deleteAttachmentTarget;
+    setDeletingAttachment(true);
+    try {
+      const pathToDelete = (attachment as any).path || attachment.file_path;
+      if (pathToDelete) {
+        try {
+          await deleteFile(STORAGE_BUCKETS.CONSULTATION_ATTACHMENTS, pathToDelete);
+        } catch (deleteError) {
+          logger.warn('[MEDICAL_RECORD] Erro ao deletar arquivo do storage:', deleteError);
+        }
+      }
+      const { error } = await supabase
+        .from('consultation_attachments')
+        .delete()
+        .eq('id', attachment.id);
+      if (error) throw error;
+      setConsultationAttachments(prev => ({
+        ...prev,
+        [consultationId]: (prev[consultationId] || []).filter((a: any) => a.id !== attachment.id),
+      }));
+      setImageUrls(prev => {
+        const next = { ...prev };
+        delete next[attachment.id];
+        return next;
+      });
+      setImageErrors(prev => {
+        const next = { ...prev };
+        delete next[attachment.id];
+        return next;
+      });
+      setConsultationCarouselIndex(prev => {
+        const current = prev[consultationId] ?? 0;
+        const list = consultationAttachments[consultationId] || [];
+        const newLen = list.length - 1;
+        return { ...prev, [consultationId]: Math.max(0, Math.min(current, newLen - 1)) };
+      });
+      toast.success('Foto removida.');
+      setDeleteAttachmentTarget(null);
+    } catch (error: any) {
+      logger.error('[MEDICAL_RECORD] Erro ao excluir anexo:', error);
+      toast.error(`Erro ao remover foto: ${error.message}`);
+    } finally {
+      setDeletingAttachment(false);
     }
   };
 
@@ -2639,28 +2694,47 @@ Data: {{signed_at}}`;
                         </div>
                       )}
                       
-                      {/* Fotos do Procedimento */}
+                      {/* Fotos do Procedimento — carrossel + lightbox ao clicar; opcional excluir foto atual */}
                       {consultationAttachments[consultation.id] && consultationAttachments[consultation.id].length > 0 && (
-                        <div className="mt-4 pt-4 border-t border-white/10">
-                          <h5 className="text-sm font-medium text-gray-300 mb-3 flex items-center gap-2">
-                            <ImageIcon size={16} className="text-cyan-400" />
-                            Fotos do Procedimento ({consultationAttachments[consultation.id].length})
-                          </h5>
-                          <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-3">
-                            {consultationAttachments[consultation.id].map((attachment, index) => {
-                              const imageUrl = imageUrls[attachment.id] || attachment.file_url || '';
-                              const hasError = imageErrors[attachment.id] || false;
-                              
-                              const openLightbox = () => {
-                                // Preparar todas as imagens para o lightbox
+                        <div className="mt-4 pt-4 border-t border-white/10 group/att">
+                          <div className="flex items-center justify-between gap-2 mb-3">
+                            <h5 className="text-sm font-medium text-gray-300 flex items-center gap-2">
+                              <ImageIcon size={16} className="text-cyan-400" />
+                              Fotos do Procedimento ({consultationAttachments[consultation.id].length})
+                            </h5>
+                            <div className="flex items-center gap-1 opacity-80 md:opacity-60 md:group-hover/att:opacity-100 transition-opacity">
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  const idx = consultationCarouselIndex[consultation.id] ?? 0;
+                                  const att = consultationAttachments[consultation.id][idx];
+                                  if (att) setDeleteAttachmentTarget({ consultationId: consultation.id, attachment: att });
+                                }}
+                                className="p-1.5 rounded-lg text-red-400 hover:bg-red-500/20 text-sm inline-flex items-center gap-1"
+                                title="Excluir foto atual"
+                              >
+                                <Trash2 size={16} />
+                                <span className="hidden sm:inline">Excluir atual</span>
+                              </button>
+                            </div>
+                          </div>
+                          <div className="min-h-[180px]">
+                            <ImageCarousel
+                              images={consultationAttachments[consultation.id].map((att: any) => ({
+                                id: att.id,
+                                url: imageUrls[att.id] || att.file_url || '',
+                              }))}
+                              variant="before"
+                              activeIndex={consultationCarouselIndex[consultation.id] ?? 0}
+                              onChangeIndex={(i) => setConsultationCarouselIndex(prev => ({ ...prev, [consultation.id]: i }))}
+                              onImageClick={(index) => {
                                 const allImages = consultationAttachments[consultation.id]
                                   .map((att: any) => ({
                                     id: att.id,
                                     url: imageUrls[att.id] || att.file_url || '',
-                                    name: att.file_name || 'Foto do produto',
+                                    name: att.file_name || 'Foto',
                                   }))
-                                  .filter((img: any) => img.url); // Filtrar imagens sem URL
-                                
+                                  .filter((img: any) => img.url);
                                 if (allImages.length > 0) {
                                   setLightboxState({
                                     isOpen: true,
@@ -2668,43 +2742,8 @@ Data: {{signed_at}}`;
                                     currentIndex: Math.min(index, allImages.length - 1),
                                   });
                                 }
-                              };
-                              
-                              const handleImageError = () => {
-                                // Marcar esta imagem como com erro (sem usar hook)
-                                setImageErrors(prev => ({ ...prev, [attachment.id]: true }));
-                              };
-                              
-                              return (
-                                <div key={attachment.id} className="relative group">
-                                  {!hasError && imageUrl ? (
-                                    <img
-                                      src={imageUrl}
-                                      alt={attachment.file_name || 'Foto do produto'}
-                                      className="w-full h-28 object-cover rounded-lg border border-white/10 cursor-pointer hover:border-cyan-400 transition-all hover:scale-105"
-                                      onClick={openLightbox}
-                                      onError={handleImageError}
-                                      loading="lazy"
-                                    />
-                                  ) : (
-                                    <div className="w-full h-28 rounded-lg border border-white/10 bg-white/5 flex items-center justify-center">
-                                      <div className="text-center">
-                                        <ImageIcon size={24} className="text-gray-500 mx-auto mb-1" />
-                                        <p className="text-xs text-gray-500">Indisponível</p>
-                                      </div>
-                                    </div>
-                                  )}
-                                  <div className="absolute inset-0 bg-black/0 group-hover:bg-black/30 rounded-lg transition-colors flex items-center justify-center pointer-events-none">
-                                    <Eye size={18} className="text-white opacity-0 group-hover:opacity-100 transition-opacity" />
-                                  </div>
-                                  {attachment.file_name && (
-                                    <p className="text-xs text-gray-400 mt-1 truncate" title={attachment.file_name}>
-                                      {attachment.file_name}
-                                    </p>
-                                  )}
-                                </div>
-                              );
-                            })}
+                              }}
+                            />
                           </div>
                         </div>
                       )}
@@ -2853,6 +2892,19 @@ Data: {{signed_at}}`;
             isLoading: false,
           });
         }}
+      />
+
+      {/* Modal de confirmação para exclusão de um anexo (foto atual) */}
+      <ConfirmDialog
+        isOpen={!!deleteAttachmentTarget}
+        title="Excluir foto"
+        message="Remover esta foto do procedimento? O arquivo será excluído."
+        confirmLabel="Excluir"
+        cancelLabel="Cancelar"
+        confirmVariant="danger"
+        isLoading={deletingAttachment}
+        onConfirm={confirmDeleteSingleAttachment}
+        onCancel={() => setDeleteAttachmentTarget(null)}
       />
 
       {/* Modal de confirmação para exclusão de consulta */}
