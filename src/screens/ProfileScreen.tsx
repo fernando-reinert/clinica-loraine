@@ -58,26 +58,26 @@ const ProfileScreen: React.FC = () => {
   ]
 
   return (
-    <div className="min-h-screen bg-gray-50 pb-20">
+    <div className="min-h-screen w-full max-w-full overflow-x-hidden bg-gray-50 pb-20">
       <Header title="Perfil" />
 
-      <div className="p-4 space-y-6">
+      <div className="p-4 space-y-6 w-full max-w-full min-w-0">
         {/* Profile Header */}
-        <div className="ios-card p-6">
-          <div className="flex items-center space-x-4 mb-4">
-            <div className="relative">
+        <div className="ios-card p-4 sm:p-6 w-full max-w-full min-w-0">
+          <div className="flex flex-wrap items-center gap-4 mb-4 min-w-0">
+            <div className="relative flex-shrink-0">
               <div className="w-20 h-20 bg-primary-100 rounded-full flex items-center justify-center">
                 <User className="text-primary-600" size={32} />
               </div>
-              <button className="absolute -bottom-1 -right-1 w-8 h-8 bg-primary-500 rounded-full flex items-center justify-center text-white">
+              <button className="absolute -bottom-1 -right-1 w-8 h-8 bg-primary-500 rounded-full flex items-center justify-center text-white" aria-label="Alterar foto">
                 <Camera size={16} />
               </button>
             </div>
             
-            <div className="flex-1">
-              <h2 className="text-xl font-bold text-gray-900">{profileData.name}</h2>
-              <p className="text-gray-600">{profileData.specialty}</p>
-              <p className="text-sm text-gray-500">{profileData.license}</p>
+            <div className="flex-1 min-w-0">
+              <h2 className="text-xl font-bold text-gray-900 whitespace-normal break-words">{profileData.name}</h2>
+              <p className="text-gray-600 whitespace-normal break-words">{profileData.specialty}</p>
+              <p className="text-sm text-gray-500 whitespace-normal break-words">{profileData.license}</p>
             </div>
 
             <button

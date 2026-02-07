@@ -119,9 +119,9 @@ const Sidebar: React.FC<SidebarProps> = ({ isOpen, onToggle }) => {
             <div className="w-10 h-10 bg-gradient-to-r from-purple-500 to-pink-500 rounded-2xl flex items-center justify-center">
               <span className="font-bold text-sm">LV</span>
             </div>
-            <div className="flex-1 min-w-0">
-              <p className="font-semibold text-sm truncate">Dra. Loraine</p>
-              <p className="text-xs text-blue-300 truncate">Médica Estética</p>
+            <div className="flex-1 min-w-0 overflow-hidden">
+              <p className="font-semibold text-sm whitespace-normal break-words">Dra. Loraine</p>
+              <p className="text-xs text-blue-300 whitespace-normal break-words">Médica Estética</p>
             </div>
           </div>
         ) : (

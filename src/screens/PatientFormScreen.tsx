@@ -8,7 +8,8 @@ import {
   User,
   ArrowLeft,
   ChevronRight,
-  ChevronLeft
+  ChevronLeft,
+  MessageCircle
 } from 'lucide-react';
 
 // Importações centralizadas
@@ -383,6 +384,22 @@ const PatientFormScreen: React.FC = () => {
               ✅ Seus dados foram salvos com segurança
             </p>
           </div>
+
+          {/* CTA: Agendar pelo WhatsApp */}
+          <div className="mt-8 pt-6 border-t border-white/10 w-full max-w-full min-w-0">
+            <p className="text-slate-200 mb-4 text-base sm:text-lg">
+              Gostaria de agendar sua avaliação ou próxima consulta agora?
+            </p>
+            <a
+              href="https://wa.me/1535997454406"
+              target="_blank"
+              rel="noopener noreferrer"
+              className="w-full min-h-[44px] inline-flex items-center justify-center gap-2 px-6 py-3 rounded-xl text-base font-semibold text-white bg-[#25D366] hover:bg-[#20BD5A] transition-colors shadow-lg hover:shadow-emerald-500/25 focus:outline-none focus:ring-2 focus:ring-emerald-400 focus:ring-offset-2 focus:ring-offset-slate-900"
+            >
+              <MessageCircle size={22} className="shrink-0" aria-hidden />
+              <span>Agendar pelo WhatsApp</span>
+            </a>
+          </div>
         </div>
       </div>
     );
@@ -517,8 +534,10 @@ const PatientFormScreen: React.FC = () => {
                 onClick={goToNextCategory}
                 className="pf-nav-button"
               >
-                <span className="hidden sm:inline">Próxima</span>
-                <ChevronRight size={16} />
+                <span className="inline-flex items-center gap-2 whitespace-nowrap">
+                  <span className="hidden sm:inline">Próxima</span>
+                  <ChevronRight size={16} className="shrink-0" />
+                </span>
               </button>
             )}
           </div>
@@ -660,8 +679,10 @@ const PatientFormScreen: React.FC = () => {
               onClick={goToNextCategory}
               className="pf-bottom-button"
             >
-              <span>Próxima</span>
-              <ChevronRight size={18} />
+              <span className="inline-flex items-center gap-2 whitespace-nowrap">
+                <span>Próxima</span>
+                <ChevronRight size={18} className="shrink-0" />
+              </span>
             </button>
           )}
         </div>

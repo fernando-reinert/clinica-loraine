@@ -12,17 +12,17 @@ interface StatCardProps {
 
 const StatCard: React.FC<StatCardProps> = ({ title, value, change, icon, trend }) => {
   return (
-    <div className="bg-white rounded-2xl p-6 shadow-sm border border-gray-100 hover:shadow-md transition-all duration-300">
-      <div className="flex items-center justify-between">
-        <div className="flex-1">
-          <p className="text-sm font-medium text-gray-600 mb-1">{title}</p>
+    <div className="bg-white rounded-2xl p-6 shadow-sm border border-gray-100 hover:shadow-md transition-all duration-300 w-full max-w-full min-w-0">
+      <div className="flex items-center justify-between gap-3 min-w-0">
+        <div className="flex-1 min-w-0">
+          <p className="text-sm font-medium text-gray-600 mb-1 whitespace-normal break-words">{title}</p>
           <p className="text-2xl font-bold text-gray-900 mb-2">{value}</p>
-          <div className={`flex items-center text-sm ${trend === 'up' ? 'text-green-600' : 'text-red-600'}`}>
-            <TrendingUp size={16} className="mr-1" />
-            <span>{change}</span>
+          <div className={`flex items-center text-sm min-w-0 ${trend === 'up' ? 'text-green-600' : 'text-red-600'}`}>
+            <TrendingUp size={16} className="mr-1 shrink-0" />
+            <span className="break-words">{change}</span>
           </div>
         </div>
-        <div className="p-3 bg-gradient-to-br from-purple-500 to-pink-500 rounded-xl text-white">
+        <div className="p-3 bg-gradient-to-br from-purple-500 to-pink-500 rounded-xl text-white flex-shrink-0">
           {icon}
         </div>
       </div>
@@ -63,7 +63,7 @@ export const StatsGrid: React.FC = () => {
   ];
 
   return (
-    <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 md:gap-6">
+    <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 md:gap-6 w-full max-w-full min-w-0">
       {stats.map((stat, index) => (
         <StatCard key={index} {...stat} />
       ))}

@@ -29,8 +29,8 @@ const LoginScreen: React.FC = () => {
   }
 
   return (
-    <div className="min-h-screen flex items-center justify-center p-4">
-      <div className="w-full max-w-md space-y-6">
+    <div className="min-h-screen flex items-center justify-center p-4 w-full max-w-full overflow-x-hidden">
+      <div className="w-full max-w-md space-y-6 min-w-0">
         {/* Header Futurista - Mesmo padrão do Dashboard */}
         <div className="glass-card p-8 relative overflow-hidden">
           <div className="absolute inset-0 bg-gradient-to-br from-blue-500/10 via-purple-500/10 to-cyan-500/10"></div>

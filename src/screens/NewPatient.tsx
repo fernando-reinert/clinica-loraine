@@ -515,27 +515,27 @@ const NewPatient: React.FC = () => {
             </div>
 
             {/* Botões */}
-            <div className="flex flex-col sm:flex-row gap-3 mt-6">
+            <div className="flex flex-col sm:flex-row gap-3 items-stretch sm:items-center mt-6">
               <button
                 type="button"
                 onClick={handleSubmit}
                 disabled={loading || uploading}
-                className="flex-1 neon-button"
+                className="neon-button inline-flex items-center justify-center min-h-[44px] w-full sm:flex-1 min-w-0"
               >
                 {loading ? (
-                  <span className="flex items-center justify-center gap-2">
-                    <LoadingSpinner size="sm" className="text-blue-500" />
-                    Cadastrando Paciente...
+                  <span className="inline-flex items-center justify-center gap-2 whitespace-nowrap">
+                    <LoadingSpinner size="sm" className="text-blue-500 shrink-0" />
+                    <span>Cadastrando Paciente...</span>
                   </span>
                 ) : uploading ? (
-                  <span className="flex items-center justify-center gap-2">
-                    <LoadingSpinner size="sm" className="text-blue-500" />
-                    Salvando Foto...
+                  <span className="inline-flex items-center justify-center gap-2 whitespace-nowrap">
+                    <LoadingSpinner size="sm" className="text-blue-500 shrink-0" />
+                    <span>Salvando Foto...</span>
                   </span>
                 ) : (
-                  <span className="flex items-center justify-center gap-2">
-                    <User size={20} />
-                    Cadastrar Paciente
+                  <span className="inline-flex items-center justify-center gap-2 whitespace-nowrap">
+                    <User size={20} className="shrink-0" />
+                    <span>Cadastrar Paciente</span>
                   </span>
                 )}
               </button>
@@ -543,10 +543,12 @@ const NewPatient: React.FC = () => {
               <button
                 type="button"
                 onClick={shareSignupForm}
-                className="neon-button"
+                className="neon-button inline-flex items-center justify-center min-h-[44px] w-full sm:w-auto min-w-0"
               >
-                <Share2 size={20} className="mr-3" />
-                Enviar Cadastro
+                <span className="inline-flex items-center justify-center gap-2 whitespace-nowrap">
+                  <Share2 size={20} className="shrink-0" />
+                  <span>Enviar Cadastro</span>
+                </span>
               </button>
             </div>
           </div>

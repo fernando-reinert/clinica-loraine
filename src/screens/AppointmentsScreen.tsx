@@ -293,24 +293,24 @@ const AppointmentsScreen: React.FC = () => {
 
   return (
     <AppLayout title="Agendamentos" showBack={true}>
-      <div className="space-y-8">
+      <div className="space-y-6 sm:space-y-8 w-full max-w-full min-w-0">
         {/* Header (padrão Dashboard) */}
-        <div className="glass-card p-8 relative overflow-hidden">
+        <div className="glass-card p-4 sm:p-6 md:p-8 relative overflow-hidden">
           <div className="absolute inset-0 bg-gradient-to-br from-blue-500/10 via-purple-500/10 to-cyan-500/10" />
-          <div className="relative z-10 flex flex-col lg:flex-row justify-between items-start lg:items-center gap-6">
-            <div className="flex-1">
-              <div className="flex items-center gap-4 mb-4">
-                <div className="p-3 bg-blue-500/20 rounded-2xl backdrop-blur-sm border border-blue-400/30">
+          <div className="relative z-10 flex flex-col lg:flex-row justify-between items-start lg:items-center gap-4 sm:gap-6 min-w-0">
+            <div className="flex-1 min-w-0">
+              <div className="flex flex-wrap items-center gap-3 sm:gap-4 mb-4 min-w-0">
+                <div className="p-3 bg-blue-500/20 rounded-2xl backdrop-blur-sm border border-blue-400/30 flex-shrink-0">
                   <Sparkles className="text-blue-300" size={28} />
                 </div>
-                <div>
-                  <h1 className="text-3xl font-bold glow-text mb-2">Gestão de Agendamentos</h1>
-                  <p className="text-gray-300 text-lg">Controle completo da agenda da clínica</p>
+                <div className="min-w-0">
+                  <h1 className="text-2xl sm:text-3xl font-bold glow-text mb-2 whitespace-normal break-words">Gestão de Agendamentos</h1>
+                  <p className="text-gray-300 text-base sm:text-lg whitespace-normal break-words">Controle completo da agenda da clínica</p>
                 </div>
               </div>
 
               {/* Stats */}
-              <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 mt-6 max-w-2xl">
+              <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 mt-4 sm:mt-6 max-w-2xl w-full min-w-0">
                 <div className="glass-card p-4 border border-white/10">
                   <p className="text-2xl font-bold text-white">{total}</p>
                   <p className="text-gray-400 text-sm">Total</p>
@@ -328,39 +328,38 @@ const AppointmentsScreen: React.FC = () => {
 
             <button
               onClick={() => {
-                // atalho: focar na criação (scroll top)
                 window.scrollTo({ top: 0, behavior: "smooth" });
               }}
-              className="neon-button group relative overflow-hidden"
+              className="neon-button group relative overflow-hidden w-full sm:w-auto min-h-[44px] inline-flex items-center justify-center"
               type="button"
             >
               <div className="absolute inset-0 bg-gradient-to-r from-white/20 to-transparent opacity-0 group-hover:opacity-100 transition-opacity" />
-              <Plus size={22} className="mr-3 relative z-10" />
-              <span className="relative z-10 font-semibold">{editingAppointment ? "Editando..." : "Novo Agendamento"}</span>
+              <Plus size={22} className="mr-2 sm:mr-3 relative z-10 shrink-0" />
+              <span className="relative z-10 font-semibold whitespace-normal break-words">{editingAppointment ? "Editando..." : "Novo Agendamento"}</span>
             </button>
           </div>
         </div>
 
         {/* Form (padrão Dashboard: glass-card + inputs dark) */}
-        <div className="glass-card p-8 border border-white/10">
-          <div className="flex items-center gap-3 mb-6">
-            <Calendar className="text-purple-300" size={26} />
-            <h2 className="text-2xl font-bold glow-text">{editingAppointment ? "Editar Agendamento" : "Novo Agendamento"}</h2>
+        <div className="glass-card p-4 sm:p-6 md:p-8 border border-white/10">
+          <div className="flex items-center gap-3 mb-6 min-w-0">
+            <Calendar className="text-purple-300 flex-shrink-0" size={26} />
+            <h2 className="text-xl sm:text-2xl font-bold glow-text whitespace-normal break-words">{editingAppointment ? "Editar Agendamento" : "Novo Agendamento"}</h2>
           </div>
 
-          <form onSubmit={createAppointment} className="space-y-6">
-            <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+          <form onSubmit={createAppointment} className="space-y-6 min-w-0">
+            <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 min-w-0">
               {/* Paciente */}
-              <div className="relative">
-                <label className="block text-sm font-medium text-gray-200 mb-2">Paciente *</label>
-                <div className="relative">
-                  <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" size={20} />
+              <div className="relative min-w-0">
+                <label className="block text-sm font-medium text-gray-200 mb-2 whitespace-normal break-words">Paciente *</label>
+                <div className="relative min-w-0">
+                  <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400 pointer-events-none shrink-0" size={20} />
                   <input
                     type="text"
                     placeholder={patientsLoading ? "Carregando pacientes..." : "Buscar paciente..."}
                     value={patientSearch}
                     onChange={(e) => setPatientSearch(e.target.value)}
-                    className="w-full pl-10 pr-12 py-3 rounded-xl bg-white/5 border border-white/10 text-white placeholder:text-gray-400 focus:ring-2 focus:ring-cyan-500 focus:border-cyan-500 outline-none transition-all"
+                    className="w-full max-w-full min-h-[44px] pl-10 pr-12 py-3 rounded-xl bg-white/5 border border-white/10 text-white placeholder:text-gray-400 focus:ring-2 focus:ring-cyan-500 focus:border-cyan-500 outline-none transition-all"
                     disabled={!!editingAppointment || patientsLoading}
                   />
                   {selectedPatient && (

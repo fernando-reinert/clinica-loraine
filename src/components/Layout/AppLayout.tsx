@@ -19,7 +19,7 @@ export const AppLayout: React.FC<AppLayoutProps> = ({
   const [isSidebarOpen, setIsSidebarOpen] = useState(false);
 
   return (
-    <div className="flex min-h-screen bg-transparent">
+    <div className="flex min-h-screen bg-transparent w-full max-w-full overflow-x-hidden min-w-0">
       {/* 🌌 Sidebar Futurista */}
       <div className={`
         ${isSidebarOpen ? 'w-80' : 'w-24'} 
@@ -28,6 +28,7 @@ export const AppLayout: React.FC<AppLayoutProps> = ({
         fixed inset-0 z-40
         h-screen
         overflow-y-auto
+        flex-shrink-0
       `}>
         <Sidebar 
           isOpen={isSidebarOpen}
@@ -44,7 +45,7 @@ export const AppLayout: React.FC<AppLayoutProps> = ({
       )}
       
       {/* Área de Conteúdo Principal */}
-      <div className={`flex-1 flex flex-col min-h-screen transition-all duration-500 ${
+      <div className={`flex-1 flex flex-col min-h-screen transition-all duration-500 min-w-0 ${
         isSidebarOpen ? 'ml-80' : 'ml-24'
       }`}>
         {/* Header Futurista */}
@@ -53,9 +54,9 @@ export const AppLayout: React.FC<AppLayoutProps> = ({
           showBack={showBack}
         />
         
-        {/* Conteúdo Scrollável */}
-        <main className={`flex-1 overflow-auto p-6 ${className}`}>
-          <div className="stagger-animation">
+        {/* Conteúdo Scrollável — min-h-0 + touch scroll para device/tablet */}
+        <main className={`main-scroll-area flex-1 min-h-0 overflow-x-hidden overflow-y-auto p-4 sm:p-6 ${className}`}>
+          <div className="stagger-animation mx-auto w-full max-w-7xl min-w-0">
             {children}
           </div>
         </main>
