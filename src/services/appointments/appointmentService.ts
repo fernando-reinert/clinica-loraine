@@ -259,6 +259,101 @@ export const listAppointmentsWithProcedures = async (
   }
 };
 
+export interface UpdateAppointmentPayload {
+  patientId: string | null;
+  patientName: string;
+  patientPhone: string;
+  startTimeIso: string;
+  endTimeIso?: string | null;
+  title: string;
+  description?: string | null;
+  location?: string | null;
+  status?: Appointment['status'];
+  procedures?: AppointmentProcedureItemInput[];
+}
+
+/**
+ * Atualiza um agendamento e substitui os procedimentos (idempotente: remove os que não vêm no payload e insere/atualiza os enviados).
+ */
+export const updateAppointmentWithProcedures = async (
+  appointmentId: string,
+  payload: UpdateAppointmentPayload
+): Promise<void> => {
+  const {
+    patientId,
+    patientName,
+    patientPhone,
+    startTimeIso,
+    endTimeIso,
+    title,
+    description,
+    location,
+    status = 'scheduled',
+    procedures = [],
+  } = payload;
+
+  try {
+    const hasProcedures = procedures.length > 0;
+    const totalFromProcedures = procedures.reduce(
+      (sum, item) => sum + Math.max(0, item.finalPrice * (item.quantity || 1) - (item.discount || 0)),
+      0
+    );
+
+    const appointmentData: Record<string, unknown> = {
+      patient_id: patientId,
+      patient_name: patientName,
+      patient_phone: patientPhone,
+      start_time: startTimeIso,
+      end_time: endTimeIso ?? null,
+      title,
+      description: description || null,
+      location: location || null,
+      status,
+    };
+    if (hasProcedures && totalFromProcedures > 0) {
+      appointmentData.budget = totalFromProcedures;
+    }
+
+    const { error: updateError } = await supabase
+      .from('appointments')
+      .update(appointmentData)
+      .eq('id', appointmentId);
+
+    if (updateError) {
+      logger.error('[APPOINTMENTS] Erro ao atualizar agendamento', { updateError, appointmentId });
+      throw new Error(updateError.message || 'Erro ao atualizar agendamento');
+    }
+
+    await supabase.from('appointment_procedures').delete().eq('appointment_id', appointmentId);
+
+    if (hasProcedures) {
+      const itemsPayload = procedures.map((item) => ({
+        appointment_id: appointmentId,
+        procedure_catalog_id: item.procedureId,
+        procedure_name_snapshot: item.name,
+        final_price: item.finalPrice,
+        quantity: item.quantity || 1,
+        discount: item.discount || 0,
+      }));
+      const { error: itemsError } = await supabase
+        .from('appointment_procedures')
+        .insert(itemsPayload);
+      if (itemsError) {
+        logger.error('[APPOINTMENTS] Erro ao atualizar procedimentos do agendamento', { appointmentId, itemsError });
+        throw new Error(itemsError.message || 'Erro ao salvar procedimentos do agendamento');
+      }
+    }
+
+    logger.info('[APPOINTMENTS] Agendamento atualizado com procedimentos', { appointmentId, itemsCount: procedures.length });
+  } catch (error: any) {
+    logger.error('[APPOINTMENTS] Falha ao atualizar agendamento com procedimentos', {
+      error: error?.message || String(error),
+      appointmentId,
+    });
+    throw error;
+  }
+};
+
 /**
  * Atualiza o status de um agendamento
  */

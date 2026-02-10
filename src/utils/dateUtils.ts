@@ -251,3 +251,35 @@ export const combineDateWithTime = (startIsoOrLocal: string, endTimeHHmm: string
     return null;
   }
 };
+
+/**
+ * Single source of truth for appointment end time ISO.
+ * - startIsoOrLocal: required (datetime-local or ISO).
+ * - endTimeHHMM: optional time on the same date as start (e.g. "15:46").
+ * - If endTimeHHMM is empty: default 60 minutes from start.
+ * - If endTimeHHMM is provided: use start date + endTimeHHMM; must be > start (returns null otherwise).
+ * @returns ISO string (UTC) for DB/Google Calendar, or null if invalid / end <= start
+ */
+export function buildEndTimeIso(
+  startIsoOrLocal: string,
+  endTimeHHMM?: string | null
+): string | null {
+  if (!startIsoOrLocal?.trim()) return null;
+  try {
+    const start = new Date(startIsoOrLocal.trim());
+    if (isNaN(start.getTime())) return null;
+    const trimmed = endTimeHHMM?.trim();
+    if (!trimmed) {
+      const end = new Date(start.getTime() + 60 * 60 * 1000);
+      return end.toISOString();
+    }
+    if (!/^\d{1,2}:\d{2}$/.test(trimmed)) return null;
+    const [h, m] = trimmed.split(':').map(Number);
+    if (h > 23 || h < 0 || m > 59 || m < 0) return null;
+    const end = new Date(start.getFullYear(), start.getMonth(), start.getDate(), h, m, 0, 0);
+    if (end.getTime() <= start.getTime()) return null;
+    return end.toISOString();
+  } catch {
+    return null;
+  }
+}
