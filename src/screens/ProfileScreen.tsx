@@ -1,16 +1,16 @@
 import React, { useState } from 'react'
 import { User, Settings, Bell, Shield, HelpCircle, LogOut, Edit, Camera } from 'lucide-react'
 import { useAuth } from '../contexts/AuthContext'
-import Header from '../components/Header'
+import ResponsiveAppLayout from '../components/Layout/ResponsiveAppLayout'
 import toast from 'react-hot-toast'
 
 const ProfileScreen: React.FC = () => {
   const { user, signOut } = useAuth()
   const [showEditProfile, setShowEditProfile] = useState(false)
   const [profileData, setProfileData] = useState({
-    name: user?.user_metadata?.name || 'Dra. Loraine Vilela',
+    name: user?.user_metadata?.name || ' Loraine Vilela',
     email: user?.email || 'loraine@clinica.com',
-    specialty: 'Medicina Estética',
+    specialty: 'Enfermeira Esteta',
     license: 'CRM 123456',
     phone: '(11) 99999-9999',
     address: 'Rua das Flores, 123 - São Paulo, SP'
@@ -58,10 +58,8 @@ const ProfileScreen: React.FC = () => {
   ]
 
   return (
-    <div className="min-h-screen w-full max-w-full overflow-x-hidden bg-gray-50 pb-20">
-      <Header title="Perfil" />
-
-      <div className="p-4 space-y-6 w-full max-w-full min-w-0">
+    <ResponsiveAppLayout title="Perfil">
+      <div className="space-y-6 w-full max-w-full min-w-0">
         {/* Profile Header */}
         <div className="ios-card p-4 sm:p-6 w-full max-w-full min-w-0">
           <div className="flex flex-wrap items-center gap-4 mb-4 min-w-0">
@@ -257,7 +255,8 @@ const ProfileScreen: React.FC = () => {
           </div>
         </div>
       )}
-    </div>
+      
+    </ResponsiveAppLayout>
   )
 }
 

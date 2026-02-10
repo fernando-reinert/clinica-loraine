@@ -4,7 +4,7 @@ import { Users, Calendar, Package, Clock, CheckCircle, DollarSign, Plus, Trendin
 import { useNavigate } from 'react-router-dom'
 import { useAuth } from '../contexts/AuthContext'
 import { useDashboardStats } from '../hooks/useDashboardStats'
-import AppLayout from '../components/Layout/AppLayout'
+import ResponsiveAppLayout from '../components/Layout/ResponsiveAppLayout'
 import LoadingSpinner from '../components/LoadingSpinner'
 
 const DashboardScreen: React.FC = () => {
@@ -41,7 +41,7 @@ const DashboardScreen: React.FC = () => {
 
   if (loading) {
     return (
-      <AppLayout title="Dashboard">
+      <ResponsiveAppLayout title="Dashboard">
         <div className="flex items-center justify-center h-96">
           <div className="text-center">
             <div className="relative">
@@ -51,15 +51,15 @@ const DashboardScreen: React.FC = () => {
             <p className="mt-4 text-gray-300">Carregando universo de dados...</p>
           </div>
         </div>
-      </AppLayout>
+      </ResponsiveAppLayout>
     )
   }
 
   return (
-    <AppLayout title="Dashboard">
-      <div className="space-y-8 w-full max-w-full min-w-0">
+    <ResponsiveAppLayout title="Dashboard">
+      <div className="space-y-8">
         {/* 🌟 Welcome Section - Design Cosmic */}
-        <div className="glass-card p-4 sm:p-6 md:p-8 relative overflow-hidden w-full max-w-full min-w-0">
+        <div className="glass-card p-4 sm:p-6 md:p-8 relative overflow-hidden">
           {/* Efeito de partículas */}
           <div className="absolute inset-0 bg-gradient-to-br from-blue-500/10 via-purple-500/10 to-cyan-500/10"></div>
           
@@ -103,7 +103,7 @@ const DashboardScreen: React.FC = () => {
         </div>
 
         {/* 📊 Stats Grid - Cards Holográficos */}
-        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 sm:gap-6 w-full max-w-full min-w-0">
+        <div className="grid-dashboard">
           {[
             { title: 'Total Pacientes', value: stats.totalPatients || 0, icon: Users, color: 'blue' },
             { title: 'Agendamentos Hoje', value: stats.todayAppointments || 0, icon: Calendar, color: 'purple' },
@@ -112,7 +112,7 @@ const DashboardScreen: React.FC = () => {
           ].map((stat, index) => {
             const Icon = stat.icon;
             return (
-              <div key={index} className="glass-card p-4 sm:p-6 hover-lift group w-full max-w-full min-w-0">
+              <div key={index} className="glass-card p-4 sm:p-6 hover-lift group">
                 <div className="flex items-center justify-between gap-3 min-w-0">
                   <div className="min-w-0 flex-1">
                     <p className="text-2xl sm:text-3xl font-bold text-white mb-2">{stat.value}</p>
@@ -122,7 +122,7 @@ const DashboardScreen: React.FC = () => {
                     <Icon size={28} className={`text-${stat.color}-300`} />
                   </div>
                 </div>
-                <div className="mt-4 w-full max-w-full bg-gray-700 rounded-full h-2 min-w-0">
+                <div className="mt-4 w-full bg-gray-700 rounded-full h-2 min-w-0">
                   <div 
                     className={`bg-${stat.color}-500 h-2 rounded-full transition-all duration-1000`}
                     style={{ width: `${Math.min(100, (stat.value / 50) * 100)}%` }}
@@ -134,8 +134,8 @@ const DashboardScreen: React.FC = () => {
         </div>
 
         {/* ⚡ Quick Actions - Portal Quântico */}
-        <div className="glass-card p-4 sm:p-6 md:p-8 w-full max-w-full min-w-0">
-          <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center mb-6 sm:mb-8 gap-4 min-w-0">
+        <div className="glass-card p-4 sm:p-6 md:p-8">
+          <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center mb-6 sm:mb-8 gap-4">
             <div className="min-w-0">
               <h3 className="text-xl sm:text-2xl font-bold glow-text mb-2 whitespace-normal break-words">
                 Portal de Ações
@@ -144,16 +144,16 @@ const DashboardScreen: React.FC = () => {
             </div>
           </div>
           
-          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 sm:gap-6 w-full max-w-full min-w-0">
+          <div className="grid-dashboard">
             {quickActions.map((action, index) => {
               const Icon = action.icon;
               return (
                 <div
                   key={index}
                   onClick={action.action}
-                  className="group cursor-pointer w-full max-w-full min-w-0"
+                  className="group cursor-pointer"
                 >
-                  <div className={`glass-card p-4 sm:p-6 rounded-2xl transition-all duration-500 hover:scale-105 bg-gradient-to-br ${action.gradient}/10 border ${action.gradient.replace('from-', 'border-').replace(' to-', '/30 border-')}/30 w-full max-w-full min-w-0`}>
+                  <div className={`glass-card p-4 sm:p-6 rounded-2xl transition-all duration-500 hover:scale-105 bg-gradient-to-br ${action.gradient}/10 border ${action.gradient.replace('from-', 'border-').replace(' to-', '/30 border-')}/30`}>
                     <div className="flex items-center justify-between mb-4 min-w-0">
                       <div className={`p-3 rounded-2xl bg-gradient-to-r ${action.gradient} shadow-lg flex-shrink-0`}>
                         <Icon size={24} className="text-white" />
@@ -169,10 +169,10 @@ const DashboardScreen: React.FC = () => {
           </div>
         </div>
 
-        {/* 📈 Performance & Analytics */}
-        <div className="grid grid-cols-1 xl:grid-cols-2 gap-6 sm:gap-8 w-full max-w-full min-w-0">
+        {/* 📈 Performance & Analytics — 2 colunas em xl */}
+        <div className="grid gap-4 sm:gap-6 grid-cols-1 xl:grid-cols-2">
           {/* Activity Stream */}
-          <div className="glass-card p-4 sm:p-6 md:p-8 w-full max-w-full min-w-0">
+          <div className="glass-card p-4 sm:p-6 md:p-8">
             <div className="flex items-center gap-3 sm:gap-4 mb-6 min-w-0">
               <Activity className="text-purple-400 flex-shrink-0" size={28} />
               <h3 className="text-xl sm:text-2xl font-bold glow-text whitespace-normal break-words">
@@ -225,7 +225,7 @@ const DashboardScreen: React.FC = () => {
                   <span className="text-gray-300 text-sm sm:text-base whitespace-normal break-words">Taxa de Ocupação</span>
                   <span className="text-xl sm:text-2xl font-bold text-purple-300 shrink-0">84%</span>
                 </div>
-                <div className="w-full max-w-full bg-gray-700 rounded-full h-3 min-w-0">
+                <div className="w-full bg-gray-700 rounded-full h-3 min-w-0">
                   <div className="bg-gradient-to-r from-purple-500 to-pink-500 h-3 rounded-full w-4/5 transition-all duration-1000"></div>
                 </div>
               </div>
@@ -253,7 +253,7 @@ const DashboardScreen: React.FC = () => {
           </div>
         </div>
       </div>
-    </AppLayout>
+    </ResponsiveAppLayout>
   )
 }
 

@@ -17,7 +17,7 @@ import {
   Zap,
   Stethoscope,
 } from "lucide-react";
-import AppLayout from "../components/Layout/AppLayout";
+import ResponsiveAppLayout from "../components/Layout/ResponsiveAppLayout";
 import LoadingSpinner from "../components/LoadingSpinner";
 import { convertToSupabaseFormat, convertToBrazilianFormat } from "../utils/dateUtils";
 import { useNavigate } from "react-router-dom";
@@ -273,7 +273,7 @@ const AppointmentsScreen: React.FC = () => {
 
   if (loading) {
     return (
-      <AppLayout title="Agendamentos" showBack={true}>
+      <ResponsiveAppLayout title="Agendamentos" showBack={true}>
         <div className="flex items-center justify-center h-96">
           <div className="text-center">
             <div className="relative">
@@ -283,7 +283,7 @@ const AppointmentsScreen: React.FC = () => {
             <p className="mt-4 text-gray-300">Carregando universo de agendamentos...</p>
           </div>
         </div>
-      </AppLayout>
+      </ResponsiveAppLayout>
     );
   }
 
@@ -292,7 +292,7 @@ const AppointmentsScreen: React.FC = () => {
   const confirmed = appointments.filter((a) => a.status === "confirmed").length;
 
   return (
-    <AppLayout title="Agendamentos" showBack={true}>
+    <ResponsiveAppLayout title="Agendamentos" showBack={true}>
       <div className="space-y-6 sm:space-y-8 w-full max-w-full min-w-0">
         {/* Header (padrão Dashboard) */}
         <div className="glass-card p-4 sm:p-6 md:p-8 relative overflow-hidden">
@@ -683,7 +683,7 @@ const AppointmentsScreen: React.FC = () => {
           )}
         </div>
       </div>
-    </AppLayout>
+    </ResponsiveAppLayout>
   );
 };
 

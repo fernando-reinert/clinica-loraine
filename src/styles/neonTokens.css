@@ -1,0 +1,99 @@
+/* src/styles/neonTokens.css - PRESET NEON (tokens + classes reutilizáveis) */
+/* Usar em toda nova UI / responsividade para manter design neon consistente */
+
+:root {
+  /* Tokens neon (cyan/purple alinhados ao futurist.css) */
+  --neon-bg: rgba(26, 27, 47, 0.95);
+  --neon-surface: rgba(42, 43, 69, 0.7);
+  --neon-border: rgba(99, 102, 241, 0.25);
+  --neon-glow: rgba(99, 102, 241, 0.35);
+  --neon-glow-strong: rgba(99, 102, 241, 0.5);
+  --neon-text: #ffffff;
+  --neon-muted: rgba(156, 163, 175, 0.9);
+  --neon-accent-cyan: #06b6d4;
+  --neon-accent-purple: #8b5cf6;
+  --neon-blur: 12px;
+}
+
+/* Superfícies glass com borda neon */
+.neon-surface {
+  background: var(--neon-surface);
+  backdrop-filter: blur(var(--neon-blur));
+  -webkit-backdrop-filter: blur(var(--neon-blur));
+  border: 1px solid var(--neon-border);
+  box-shadow:
+    0 8px 32px rgba(0, 0, 0, 0.3),
+    0 0 0 1px rgba(99, 102, 241, 0.1),
+    inset 0 1px 0 rgba(255, 255, 255, 0.08);
+  transition: border-color 0.3s ease, box-shadow 0.3s ease;
+}
+
+.neon-surface:hover {
+  border-color: rgba(99, 102, 241, 0.4);
+  box-shadow:
+    0 12px 40px rgba(0, 0, 0, 0.35),
+    0 0 24px var(--neon-glow),
+    inset 0 1px 0 rgba(255, 255, 255, 0.1);
+}
+
+/* Borda neon isolada */
+.neon-border {
+  border: 1px solid var(--neon-border);
+}
+
+/* Glow suave (box-shadow) */
+.neon-glow {
+  box-shadow:
+    0 0 20px var(--neon-glow),
+    0 0 40px rgba(99, 102, 241, 0.15);
+}
+
+.neon-glow-strong {
+  box-shadow:
+    0 0 24px var(--neon-glow-strong),
+    0 0 48px rgba(99, 102, 241, 0.25);
+}
+
+/* Bottom nav (barra fixa glass + neon) */
+.neon-nav {
+  background: var(--neon-bg);
+  backdrop-filter: blur(20px);
+  -webkit-backdrop-filter: blur(20px);
+  border-top: 1px solid var(--neon-border);
+  box-shadow:
+    0 -4px 24px rgba(0, 0, 0, 0.25),
+    0 0 0 1px rgba(99, 102, 241, 0.08) inset,
+    0 0 30px rgba(99, 102, 241, 0.12);
+}
+
+/* Item do nav (inativo) */
+.neon-nav-item {
+  color: var(--neon-muted);
+  transition: color 0.2s ease, background 0.2s ease, box-shadow 0.2s ease;
+}
+
+.neon-nav-item:hover {
+  color: rgba(167, 139, 250, 0.95);
+  background: rgba(99, 102, 241, 0.08);
+}
+
+.neon-nav-item:active {
+  background: rgba(99, 102, 241, 0.12);
+}
+
+/* Item do nav (ativo) */
+.neon-nav-item--active {
+  color: var(--neon-text);
+  background: linear-gradient(135deg, rgba(6, 182, 212, 0.25), rgba(139, 92, 246, 0.25));
+  border-radius: 12px;
+  box-shadow:
+    0 0 16px rgba(99, 102, 241, 0.25),
+    inset 0 1px 0 rgba(255, 255, 255, 0.1);
+}
+
+.neon-nav-item--active:hover {
+  background: linear-gradient(135deg, rgba(6, 182, 212, 0.3), rgba(139, 92, 246, 0.3));
+  box-shadow:
+    0 0 20px rgba(99, 102, 241, 0.35),
+    inset 0 1px 0 rgba(255, 255, 255, 0.12);
+}

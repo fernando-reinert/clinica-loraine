@@ -15,7 +15,7 @@ import {
   CheckCircle,
 } from 'lucide-react';
 import toast from 'react-hot-toast';
-import AppLayout from '../components/Layout/AppLayout';
+import ResponsiveAppLayout from '../components/Layout/ResponsiveAppLayout';
 import LoadingSpinner from '../components/LoadingSpinner';
 import { listProcedures, createProcedure, updateProcedure, toggleActive } from '../services/procedures/procedureService';
 import type { Procedure } from '../types/db';
@@ -207,16 +207,16 @@ const ProceduresScreen: React.FC = () => {
 
   if (loading) {
     return (
-      <AppLayout title="Catálogo de Procedimentos">
+      <ResponsiveAppLayout title="Catálogo de Procedimentos">
         <div className="flex items-center justify-center h-96">
           <LoadingSpinner size="lg" />
         </div>
-      </AppLayout>
+      </ResponsiveAppLayout>
     );
   }
 
   return (
-    <AppLayout title="Catálogo de Procedimentos">
+    <ResponsiveAppLayout title="Catálogo de Procedimentos">
       <div className="space-y-6">
         {/* Header */}
         <div className="glass-card p-6">
@@ -666,7 +666,7 @@ const ProceduresScreen: React.FC = () => {
           </div>
         </div>
       )}
-    </AppLayout>
+    </ResponsiveAppLayout>
   );
 };
 

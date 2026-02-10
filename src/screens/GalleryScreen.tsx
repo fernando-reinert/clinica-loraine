@@ -22,7 +22,7 @@ import { useSearchParams, useParams, useNavigate } from "react-router-dom";
 import Header from "../components/Header";
 //import BottomNavigation from "../components/BottomNavigation";
 import LoadingSpinner from "../components/LoadingSpinner";
-import AppLayout from "../components/Layout/AppLayout";
+import ResponsiveAppLayout from "../components/Layout/ResponsiveAppLayout";
 import toast from "react-hot-toast";
 import { supabase } from "../services/supabase/client";
 import { 
@@ -666,15 +666,15 @@ const GalleryScreen: React.FC = () => {
   if (loading) {
     if (isPatientScoped) {
       return (
-        <AppLayout title={galleryTitle} showBack={true}>
+        <ResponsiveAppLayout title={galleryTitle} showBack={true}>
           <div className="flex items-center justify-center h-96">
             <LoadingSpinner size="lg" className="text-blue-500" />
           </div>
-        </AppLayout>
+        </ResponsiveAppLayout>
       );
     }
     return (
-      <div className="min-h-screen bg-gray-50 flex items-center justify-center">
+      <div className="min-h-dvh bg-gray-50 flex items-center justify-center">
         <LoadingSpinner size="lg" />
       </div>
     );
@@ -683,7 +683,7 @@ const GalleryScreen: React.FC = () => {
   // Layout idêntico ao Dashboard (AppLayout + glass-card + space-y-8) quando dentro do paciente
   if (isPatientScoped) {
     return (
-      <AppLayout title={galleryTitle} showBack={true}>
+      <ResponsiveAppLayout title={galleryTitle} showBack={true}>
         <input
           ref={fileInputRef}
           type="file"
@@ -895,7 +895,7 @@ const GalleryScreen: React.FC = () => {
             </div>
           )}
         </div>
-      </AppLayout>
+      </ResponsiveAppLayout>
     );
   }
 
@@ -903,7 +903,7 @@ const GalleryScreen: React.FC = () => {
   return (
     <>
     {!isPatientMode && (
-    <AppLayout title={galleryTitle}>
+    <ResponsiveAppLayout title={galleryTitle}>
       <div className="space-y-8">
         {/* Header + CTA — padrão Dashboard */}
         <div className="glass-card p-8 relative overflow-hidden">
@@ -929,7 +929,7 @@ const GalleryScreen: React.FC = () => {
         </div>
 
         {/* Stats — glass-card (modo global pode mostrar Pacientes) */}
-        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-6">
+        <div className="grid-dashboard">
           {[
             { title: "Total Fotos", value: stats.total, iconClass: "bg-blue-500/20 border-blue-400/30", textClass: "text-blue-300", barClass: "bg-blue-500" },
             { title: "Fotos Antes", value: stats.before, iconClass: "bg-cyan-500/20 border-cyan-400/30", textClass: "text-cyan-300", barClass: "bg-cyan-500" },
@@ -1411,7 +1411,7 @@ const GalleryScreen: React.FC = () => {
           </div>
         )}
       </div>
-    </AppLayout>
+    </ResponsiveAppLayout>
     )}
 
       {/* Modal de Upload — compartilhado; sempre padrão Dashboard (glass-card) */}

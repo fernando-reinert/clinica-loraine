@@ -23,7 +23,7 @@ import {
 import { questions, categories } from '../data/anamneseQuestions';
 import { AnamneseFormData, Patient } from '../types';
 
-import AppLayout from '../components/Layout/AppLayout';
+import ResponsiveAppLayout from '../components/Layout/ResponsiveAppLayout';
 import LoadingSpinner from '../components/LoadingSpinner';
 
 const AnamneseScreen: React.FC = () => {
@@ -479,7 +479,7 @@ const AnamneseScreen: React.FC = () => {
 
   if (loading) {
     return (
-      <AppLayout title="Anamnese">
+      <ResponsiveAppLayout title="Anamnese">
         <div className="flex items-center justify-center h-96">
           <div className="text-center">
             <div className="relative">
@@ -489,12 +489,12 @@ const AnamneseScreen: React.FC = () => {
             <p className="mt-4 text-gray-300">Carregando formulário...</p>
           </div>
         </div>
-      </AppLayout>
+      </ResponsiveAppLayout>
     );
   }
 
   return (
-    <AppLayout title="Anamnese">
+    <ResponsiveAppLayout title="Anamnese">
       <div className="space-y-6">
         {/* Header futurista */}
         <div className="glass-card p-6 relative overflow-hidden">
@@ -832,7 +832,7 @@ const AnamneseScreen: React.FC = () => {
           </div>
         )}
       </div>
-    </AppLayout>
+    </ResponsiveAppLayout>
   );
 };
 

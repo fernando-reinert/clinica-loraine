@@ -7,7 +7,7 @@ import {
   Heart, Stethoscope, Pill, AlertTriangle,
   Clock, Plus, Edit, Trash2, Eye, Image as ImageIcon, CheckCircle, FileCheck, X, GalleryVertical
 } from 'lucide-react';
-import AppLayout from '../components/Layout/AppLayout';
+import ResponsiveAppLayout from '../components/Layout/ResponsiveAppLayout';
 import LoadingSpinner from '../components/LoadingSpinner';
 import ConsentFormViewer from '../components/ConsentFormViewer';
 import ProcedureSelector from '../components/ProcedureSelector';
@@ -38,6 +38,7 @@ import { createConsultation, updateConsultation } from '../services/consultation
 import logger from '../utils/logger';
 import toast from 'react-hot-toast';
 import ConfirmDialog from '../components/ConfirmDialog';
+import ScrollableTabs from '../components/ui/ScrollableTabs';
 
 // Registro de injetáveis associado à consulta
 type InjectablesRecord = {
@@ -1490,16 +1491,16 @@ Data: {{signed_at}}`;
 
   if (loading) {
     return (
-      <AppLayout title="Carregando..." showBack={true}>
+      <ResponsiveAppLayout title="Carregando..." showBack={true}>
         <div className="flex items-center justify-center h-64">
           <LoadingSpinner size="lg" />
         </div>
-      </AppLayout>
+      </ResponsiveAppLayout>
     );
   }
 
   return (
-    <AppLayout 
+    <ResponsiveAppLayout 
       title={`Prontuário - ${patient?.name || 'Paciente'}`} 
       showBack={true}
     >
@@ -1527,48 +1528,26 @@ Data: {{signed_at}}`;
           </div>
         </div>
 
-        {/* Abas de Navegação */}
-        <div className="glass-card p-1 border border-white/10">
-          <div className="flex space-x-1">
-            {[
-              { id: 'historico', label: 'Histórico', icon: Clock },
-              { id: 'termos', label: 'Termos', icon: FileCheck },
-              { id: 'consultas', label: 'Consultas', icon: Stethoscope },
-              { id: 'prescricoes', label: 'Prescrições', icon: Pill },
-              { id: 'exames', label: 'Exames', icon: Heart },
-              { id: 'galeria', label: 'Galeria', icon: GalleryVertical, isAction: true },
-            ].map((tab) => {
-              const Icon = tab.icon;
-              // Se for ação (como Galeria), navegar em vez de mudar aba
-              if (tab.isAction) {
-                return (
-                  <button
-                    key={tab.id}
-                    onClick={() => navigate(`/patients/${id}/gallery`)}
-                    className="flex-1 flex items-center justify-center space-x-2 py-3 px-4 rounded-xl transition-all duration-300 text-gray-300 hover:bg-white/5 hover:text-purple-300"
-                  >
-                    <Icon size={18} />
-                    <span className="font-medium">{tab.label}</span>
-                  </button>
-                );
-              }
-              
-              return (
-                <button
-                  key={tab.id}
-                  onClick={() => setActiveTab(tab.id)}
-                  className={`flex-1 flex items-center justify-center space-x-2 py-3 px-4 rounded-xl transition-all duration-300 ${
-                    activeTab === tab.id
-                      ? 'bg-gradient-to-r from-cyan-500 to-purple-500 text-white shadow-md'
-                      : 'text-gray-300 hover:bg-white/5'
-                  }`}
-                >
-                  <Icon size={18} />
-                  <span className="font-medium">{tab.label}</span>
-                </button>
-              );
-            })}
-          </div>
+        {/* Abas de Navegação: ScrollableTabs — mobile scroll horizontal, desktop em linha */}
+        <div className="glass-card p-2 border border-white/10 w-full min-w-0">
+          <ScrollableTabs
+            items={[
+              { key: 'historico', label: 'Histórico', icon: <Clock size={18} /> },
+              { key: 'termos', label: 'Termos', icon: <FileCheck size={18} /> },
+              { key: 'consultas', label: 'Consultas', icon: <Stethoscope size={18} /> },
+              { key: 'prescricoes', label: 'Prescrições', icon: <Pill size={18} /> },
+              { key: 'exames', label: 'Exames', icon: <Heart size={18} /> },
+              {
+                key: 'galeria',
+                label: 'Galeria',
+                icon: <GalleryVertical size={18} />,
+                isAction: true,
+                onClick: () => navigate(`/patients/${id}/gallery`),
+              },
+            ]}
+            value={activeTab}
+            onChange={setActiveTab}
+          />
         </div>
 
         {/* Conteúdo das Abas */}
@@ -2925,7 +2904,7 @@ Data: {{signed_at}}`;
           });
         }}
       />
-    </AppLayout>
+    </ResponsiveAppLayout>
   );
 };
 

@@ -27,7 +27,7 @@ import {
   updateProcedureMetadata,
   type PatientProcedurePhoto,
 } from "../services/gallery/patientGalleryService";
-import AppLayout from "../components/Layout/AppLayout";
+import ResponsiveAppLayout from "../components/Layout/ResponsiveAppLayout";
 import LoadingSpinner from "../components/LoadingSpinner";
 import ConfirmDialog from "../components/ConfirmDialog";
 import ImageCarousel from "../components/gallery/ImageCarousel";
@@ -280,17 +280,17 @@ const PatientGalleryScreen: React.FC = () => {
 
   if (loading) {
     return (
-      <AppLayout title="Galeria" showBack>
+      <ResponsiveAppLayout title="Galeria" showBack>
         <div className="flex items-center justify-center h-96">
           <LoadingSpinner size="lg" className="text-cyan-500" />
         </div>
-      </AppLayout>
+      </ResponsiveAppLayout>
     );
   }
 
   if (!patientId || !patient) {
     return (
-      <AppLayout title="Galeria" showBack>
+      <ResponsiveAppLayout title="Galeria" showBack>
         <div className="glass-card p-8 text-center">
           <p className="text-gray-400">Paciente não encontrado.</p>
           <button
@@ -301,12 +301,12 @@ const PatientGalleryScreen: React.FC = () => {
             Voltar
           </button>
         </div>
-      </AppLayout>
+      </ResponsiveAppLayout>
     );
   }
 
   return (
-    <AppLayout title="Galeria do Paciente" showBack>
+    <ResponsiveAppLayout title="Galeria do Paciente" showBack>
       <input
         ref={fileInputRef}
         type="file"
@@ -722,7 +722,7 @@ const PatientGalleryScreen: React.FC = () => {
         onCancel={() => setDeleteTarget(null)}
         isLoading={deleting}
       />
-    </AppLayout>
+    </ResponsiveAppLayout>
   );
 };
 

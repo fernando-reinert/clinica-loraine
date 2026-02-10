@@ -3,7 +3,7 @@ import React, { useState } from 'react';
 import { Search, Plus, User, FileText, Phone, Calendar, Mail, Camera, Users, Filter, Sparkles } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
 import { usePatients } from '../hooks/usePatients';
-import AppLayout from '../components/Layout/AppLayout';
+import ResponsiveAppLayout from '../components/Layout/ResponsiveAppLayout';
 import LoadingSpinner from '../components/LoadingSpinner';
 
 const PatientsScreen: React.FC = () => {
@@ -55,19 +55,19 @@ const PatientsScreen: React.FC = () => {
 
   if (loading) {
     return (
-      <AppLayout title="Pacientes" showBack={true}>
+      <ResponsiveAppLayout title="Pacientes" showBack={true}>
         <div className="flex items-center justify-center h-64">
           <LoadingSpinner size="lg" />
         </div>
-      </AppLayout>
+      </ResponsiveAppLayout>
     );
   }
 
   return (
-    <AppLayout title="Pacientes" showBack={true}>
-      <div className="space-y-6 w-full max-w-full min-w-0">
+    <ResponsiveAppLayout title="Pacientes" showBack={true}>
+      <div className="space-y-6">
         {/* Header com Estatísticas - Design Cosmic */}
-        <div className="glass-card p-4 sm:p-6 md:p-8 relative overflow-hidden w-full max-w-full min-w-0">
+        <div className="glass-card p-4 sm:p-6 md:p-8 relative overflow-hidden">
           <div className="flex flex-col lg:flex-row justify-between items-start lg:items-center gap-4 sm:gap-6 min-w-0">
             <div className="flex-1 min-w-0">
               <div className="flex flex-wrap items-center gap-3 sm:gap-4 mb-4 min-w-0">
@@ -110,7 +110,7 @@ const PatientsScreen: React.FC = () => {
         </div>
 
         {/* Barra de Ferramentas - Holográfica */}
-        <div className="glass-card p-4 sm:p-6 w-full max-w-full min-w-0">
+        <div className="glass-card p-4 sm:p-6">
           <div className="flex flex-col lg:flex-row gap-4 min-w-0">
             {/* Barra de Busca */}
             <div className="flex-1 relative min-w-0">
@@ -167,7 +167,7 @@ const PatientsScreen: React.FC = () => {
               )}
             </div>
           ) : (
-            <div className="grid grid-cols-1 lg:grid-cols-2 xl:grid-cols-3 gap-4 sm:gap-6 w-full max-w-full min-w-0">
+            <div className="grid grid-cols-1 lg:grid-cols-2 xl:grid-cols-3 gap-4 sm:gap-6">
               {filteredPatients.map((patient) => (
                 <div
                   key={patient.id}
@@ -301,7 +301,7 @@ const PatientsScreen: React.FC = () => {
           </div>
         )}
       </div>
-    </AppLayout>
+    </ResponsiveAppLayout>
   );
 };
 

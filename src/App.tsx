@@ -33,6 +33,7 @@ import SignupEntryScreen from "./screens/SignupEntryScreen";
 import NotFoundScreen from "./screens/NotFoundScreen";
 
 import "./styles/futurist.css";
+import "./styles/neonTokens.css";
 
 function App() {
   return (
@@ -43,7 +44,7 @@ function App() {
             {/* 🌌 Background Cosmic Fixo */}
             <div className="cosmic-bg"></div>
             
-            <div className="min-h-screen text-white relative w-full max-w-full overflow-x-hidden">
+            <div className="min-h-dvh w-full overflow-x-hidden text-white relative min-w-0">
               <Routes>
                 {/* ========== ROTAS PÚBLICAS ========== */}
                 <Route path="/login" element={<LoginScreen />} />

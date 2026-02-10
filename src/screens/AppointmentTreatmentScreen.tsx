@@ -3,7 +3,7 @@
 import React, { useState, useEffect } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { ArrowLeft, Check, FileText, Camera } from 'lucide-react';
-import AppLayout from '../components/Layout/AppLayout';
+import ResponsiveAppLayout from '../components/Layout/ResponsiveAppLayout';
 import LoadingSpinner from '../components/LoadingSpinner';
 import ProcedureSelector from '../components/ProcedureSelector';
 import ConsentFormViewer from '../components/ConsentFormViewer';
@@ -280,28 +280,28 @@ const AppointmentTreatmentScreen: React.FC = () => {
 
   if (loading) {
     return (
-      <AppLayout title="Carregando..." showBack={true}>
+      <ResponsiveAppLayout title="Carregando..." showBack={true}>
         <div className="flex items-center justify-center h-64">
           <LoadingSpinner size="lg" />
         </div>
-      </AppLayout>
+      </ResponsiveAppLayout>
     );
   }
 
   if (!appointment || !patient) {
     return (
-      <AppLayout title="Erro" showBack={true}>
+      <ResponsiveAppLayout title="Erro" showBack={true}>
         <div className="text-center py-8 text-red-400">
           <p>Erro ao carregar dados do atendimento</p>
         </div>
-      </AppLayout>
+      </ResponsiveAppLayout>
     );
   }
 
   // Mostrar modal de setup se necessário
   if (needsSetup && user) {
     return (
-      <AppLayout title="Configuração Necessária" showBack={true}>
+      <ResponsiveAppLayout title="Configuração Necessária" showBack={true}>
         <ProfessionalSetupModal
           userId={user.id}
           userEmail={user.email || ''}
@@ -310,17 +310,17 @@ const AppointmentTreatmentScreen: React.FC = () => {
             refreshProfessional();
           }}
         />
-      </AppLayout>
+      </ResponsiveAppLayout>
     );
   }
 
   if (!professional) {
     return (
-      <AppLayout title="Carregando..." showBack={true}>
+      <ResponsiveAppLayout title="Carregando..." showBack={true}>
         <div className="flex items-center justify-center h-64">
           <LoadingSpinner size="lg" />
         </div>
-      </AppLayout>
+      </ResponsiveAppLayout>
     );
   }
 
@@ -330,7 +330,7 @@ const AppointmentTreatmentScreen: React.FC = () => {
     : null;
 
   return (
-    <AppLayout title="Atendimento" showBack={true}>
+    <ResponsiveAppLayout title="Atendimento" showBack={true}>
       <div className="p-6 space-y-6">
         {/* Header */}
         <div className="glass-card p-6 border border-white/10">
@@ -432,7 +432,7 @@ const AppointmentTreatmentScreen: React.FC = () => {
           </div>
         )}
       </div>
-    </AppLayout>
+    </ResponsiveAppLayout>
   );
 };
 

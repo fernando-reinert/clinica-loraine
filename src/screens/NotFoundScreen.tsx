@@ -6,7 +6,7 @@ const NotFoundScreen: React.FC = () => {
   const navigate = useNavigate();
 
   return (
-    <div className="min-h-screen w-full max-w-full overflow-x-hidden bg-gradient-to-br from-gray-900 via-gray-800 to-gray-900 flex items-center justify-center p-4">
+    <div className="min-h-dvh w-full max-w-full overflow-x-hidden bg-gradient-to-br from-gray-900 via-gray-800 to-gray-900 flex items-center justify-center p-4">
       <div className="bg-white/10 backdrop-blur-lg rounded-2xl shadow-2xl border border-white/20 max-w-md w-full max-w-full min-w-0 p-6 sm:p-8 md:p-10 text-center">
         <div className="mb-6">
           <AlertCircle className="mx-auto text-yellow-400" size={64} strokeWidth={2} />
