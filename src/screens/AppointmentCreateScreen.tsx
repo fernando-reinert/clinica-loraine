@@ -1,8 +1,8 @@
 // src/screens/AppointmentCreateScreen.tsx - NOVO LAYOUT FUTURISTA + PACIENTE PRÉ-SELECIONADO + PROCEDIMENTOS
-import React, { useState, useEffect, useMemo } from 'react';
+import React, { useState, useEffect, useMemo, useRef } from 'react';
 import { useNavigate, useLocation } from 'react-router-dom';
 import { Calendar, User, Plus, Search, Mail, Phone, Calendar as CalendarIcon, DollarSign } from 'lucide-react';
-import AppLayout from '../components/Layout/AppLayout';
+import ResponsiveAppLayout from '../components/Layout/ResponsiveAppLayout';
 import LoadingSpinner from '../components/LoadingSpinner';
 import AppointmentPlanEditor from '../components/AppointmentPlanEditor';
 import { supabase } from '../services/supabase/client';
@@ -44,9 +44,13 @@ const AppointmentCreateScreen: React.FC = () => {
   const patientId = urlParams.get('patientId');
 
   const [patient, setPatient] = useState<Patient | null>(null);
-  const [patients, setPatients] = useState<Patient[]>([]);
-  const [searchTerm, setSearchTerm] = useState('');
+  const [patientSearchQuery, setPatientSearchQuery] = useState('');
+  const [patientSearchResults, setPatientSearchResults] = useState<Patient[]>([]);
+  const [patientSearchLoading, setPatientSearchLoading] = useState(false);
+  const [showPatientDropdown, setShowPatientDropdown] = useState(false);
   const [showPatientSearch, setShowPatientSearch] = useState(!patientId);
+  const patientSearchDebounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const patientDropdownRef = useRef<HTMLDivElement>(null);
 
   const [startTime, setStartTime] = useState('');
   const [endTime, setEndTime] = useState('');
@@ -87,8 +91,7 @@ const AppointmentCreateScreen: React.FC = () => {
           // Fluxo: paciente pré-selecionado via querystring
           await loadPatient(patientId);
         } else {
-          // Fluxo: sem paciente na URL, mostrar busca
-          await loadPatients();
+          // Fluxo: sem paciente na URL, mostrar autocomplete (busca sob demanda)
           if (isMounted) setLoading(false);
         }
       } finally {
@@ -131,7 +134,6 @@ const AppointmentCreateScreen: React.FC = () => {
         console.error('Erro ao carregar paciente:', error);
         setError('Paciente não encontrado');
         setShowPatientSearch(true);
-        await loadPatients();
         return;
       }
 
@@ -140,44 +142,75 @@ const AppointmentCreateScreen: React.FC = () => {
       console.error('Erro ao carregar paciente:', err);
       setError('Erro ao carregar paciente');
       setShowPatientSearch(true);
-      await loadPatients();
     } finally {
       setLoading(false);
     }
   };
 
-  const loadPatients = async () => {
+  const searchPatients = async (query: string) => {
+    if (query.length < 2) {
+      setPatientSearchResults([]);
+      return;
+    }
     try {
+      setPatientSearchLoading(true);
+      const q = query.trim();
       const { data, error } = await supabase
         .from('patients')
         .select('id, name, phone, email, birth_date, photo_url')
-        .order('name');
+        .or(`name.ilike.%${q}%,phone.ilike.%${q}%`)
+        .limit(10);
 
       if (error) {
-        console.error('Erro ao carregar pacientes:', error);
-        setError('Erro ao carregar lista de pacientes');
+        console.error('Erro ao buscar pacientes:', error);
+        setPatientSearchResults([]);
         return;
       }
-
-      setPatients((data || []) as Patient[]);
+      setPatientSearchResults((data || []) as Patient[]);
     } catch (err) {
-      console.error('Erro ao carregar pacientes:', err);
-      setError('Erro ao carregar lista de pacientes');
+      console.error('Erro ao buscar pacientes:', err);
+      setPatientSearchResults([]);
+    } finally {
+      setPatientSearchLoading(false);
     }
   };
 
-  const filteredPatients = useMemo(
-    () =>
-      patients.filter(
-        (p) =>
-          p.name?.toLowerCase().includes(searchTerm.toLowerCase()) ||
-          p.phone?.includes(searchTerm)
-      ),
-    [patients, searchTerm]
-  );
+  useEffect(() => {
+    if (patientSearchDebounceRef.current) {
+      clearTimeout(patientSearchDebounceRef.current);
+      patientSearchDebounceRef.current = null;
+    }
+    if (patientSearchQuery.length < 2) {
+      setPatientSearchResults([]);
+      setShowPatientDropdown(false);
+      return;
+    }
+    patientSearchDebounceRef.current = setTimeout(() => {
+      searchPatients(patientSearchQuery);
+      setShowPatientDropdown(true);
+    }, 300);
+    return () => {
+      if (patientSearchDebounceRef.current) {
+        clearTimeout(patientSearchDebounceRef.current);
+      }
+    };
+  }, [patientSearchQuery]);
+
+  useEffect(() => {
+    const handleClickOutside = (event: MouseEvent) => {
+      const target = event.target as Node;
+      if (patientDropdownRef.current && !patientDropdownRef.current.contains(target)) {
+        setShowPatientDropdown(false);
+      }
+    };
+    document.addEventListener('mousedown', handleClickOutside);
+    return () => document.removeEventListener('mousedown', handleClickOutside);
+  }, []);
 
   const selectPatient = (selectedPatient: Patient) => {
     setPatient(selectedPatient);
+    setPatientSearchQuery('');
+    setShowPatientDropdown(false);
     setShowPatientSearch(false);
     setError('');
   };
@@ -511,16 +544,16 @@ const AppointmentCreateScreen: React.FC = () => {
 
   if (loading) {
     return (
-      <AppLayout title="Carregando..." showBack={true}>
+      <ResponsiveAppLayout title="Carregando..." showBack={true}>
         <div className="flex items-center justify-center h-64">
           <LoadingSpinner size="lg" />
         </div>
-      </AppLayout>
+      </ResponsiveAppLayout>
     );
   }
 
   return (
-    <AppLayout title="Novo Agendamento" showBack={true}>
+    <ResponsiveAppLayout title="Novo Agendamento" showBack={true}>
       <div className="space-y-6">
         {/* Header futurista do agendamento com informações do paciente integradas */}
         <div className="glass-card p-6 md:p-8 relative overflow-hidden">
@@ -585,7 +618,7 @@ const AppointmentCreateScreen: React.FC = () => {
           </div>
         )}
 
-        {/* Seletor de paciente (apenas se não houver patientId ou se showPatientSearch estiver ativo) */}
+        {/* Seletor de paciente — autocomplete (busca ao digitar, mín. 2 caracteres) */}
         {(!patientId || showPatientSearch) && (
           <div className="glass-card p-6 border border-white/10">
             <h2 className="text-lg font-semibold glow-text mb-4 flex items-center gap-2">
@@ -593,34 +626,42 @@ const AppointmentCreateScreen: React.FC = () => {
               <span>Selecionar Paciente</span>
             </h2>
 
-            <div className="relative mb-3">
+            <div ref={patientDropdownRef} className="relative">
               <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" size={18} />
               <input
                 type="text"
-                placeholder="Buscar por nome ou telefone..."
-                value={searchTerm}
-                onChange={(e) => setSearchTerm(e.target.value)}
+                placeholder="Buscar paciente… (mín. 2 caracteres)"
+                value={patientSearchQuery}
+                onChange={(e) => setPatientSearchQuery(e.target.value)}
+                onFocus={() => patientSearchQuery.length >= 2 && setShowPatientDropdown(true)}
                 className="w-full pl-9 pr-3 py-2.5 rounded-xl bg-white/5 border border-white/10 text-white placeholder:text-gray-400 focus:ring-2 focus:ring-cyan-500 focus:border-cyan-500 outline-none text-sm"
+                autoComplete="off"
               />
-            </div>
-
-            <div className="max-h-56 overflow-y-auto rounded-2xl border border-white/10 bg-slate-900/80">
-              {filteredPatients.length === 0 ? (
-                <div className="py-6 text-center text-sm text-gray-300">
-                  Nenhum paciente encontrado
+              {patientSearchQuery.length >= 2 && showPatientDropdown && (
+                <div className="absolute left-0 right-0 z-50 mt-1 max-h-60 overflow-y-auto rounded-xl border border-white/10 bg-slate-900/95 backdrop-blur-sm shadow-xl">
+                  {patientSearchLoading ? (
+                    <div className="py-4 text-center text-sm text-gray-400 flex items-center justify-center gap-2">
+                      <LoadingSpinner size="sm" />
+                      <span>Buscando…</span>
+                    </div>
+                  ) : patientSearchResults.length === 0 ? (
+                    <div className="py-6 text-center text-sm text-gray-300">
+                      Nenhum paciente encontrado
+                    </div>
+                  ) : (
+                    patientSearchResults.map((p) => (
+                      <button
+                        key={p.id}
+                        type="button"
+                        onClick={() => selectPatient(p)}
+                        className="w-full text-left px-4 py-3 hover:bg-white/10 transition-colors border-b border-white/5 last:border-b-0"
+                      >
+                        <p className="font-semibold text-white text-sm">{p.name}</p>
+                        {p.phone && <p className="text-xs text-gray-300">{p.phone}</p>}
+                      </button>
+                    ))
+                  )}
                 </div>
-              ) : (
-                filteredPatients.map((p) => (
-                  <button
-                    key={p.id}
-                    type="button"
-                    onClick={() => selectPatient(p)}
-                    className="w-full text-left px-4 py-3 hover:bg-white/10 transition-colors border-b border-white/5 last:border-b-0"
-                  >
-                    <p className="font-semibold text-white text-sm">{p.name}</p>
-                    <p className="text-xs text-gray-300">{p.phone}</p>
-                  </button>
-                ))
               )}
             </div>
 
@@ -880,7 +921,7 @@ const AppointmentCreateScreen: React.FC = () => {
           </form>
         </div>
       </div>
-    </AppLayout>
+    </ResponsiveAppLayout>
   );
 };
 

@@ -50,8 +50,8 @@ const Sidebar: React.FC<SidebarProps> = ({ isOpen, onToggle }) => {
                 <Sparkles size={24} />
               </div>
               <div>
-                <h1 className="font-bold text-xl glow-text">Nebula</h1>
-                <p className="text-sm text-blue-300">Clínica Loraine</p>
+                <h1 className="font-bold text-xl glow-text">Loraine Vilela</h1>
+                <p className="text-sm text-blue-300">Clínica Áuria</p>
               </div>
             </div>
           )}
@@ -120,7 +120,7 @@ const Sidebar: React.FC<SidebarProps> = ({ isOpen, onToggle }) => {
               <span className="font-bold text-sm">LV</span>
             </div>
             <div className="flex-1 min-w-0 overflow-hidden">
-              <p className="font-semibold text-sm whitespace-normal break-words">Dra. Loraine</p>
+              <p className="font-semibold text-sm whitespace-normal break-words"> Loraine Vilela</p>
               <p className="text-xs text-blue-300 whitespace-normal break-words">Médica Estética</p>
             </div>
           </div>

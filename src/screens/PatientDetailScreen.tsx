@@ -23,7 +23,7 @@ import {
   GalleryVertical,
   Sparkles
 } from "lucide-react";
-import AppLayout from "../components/Layout/AppLayout";
+import ResponsiveAppLayout from "../components/Layout/ResponsiveAppLayout";
 import LoadingSpinner from "../components/LoadingSpinner";
 import toast from "react-hot-toast";
 import { usePatients } from "../hooks/usePatients";
@@ -181,29 +181,29 @@ const PatientDetailScreen: React.FC = () => {
 
   if (loading) {
     return (
-      <AppLayout title="Carregando..." showBack={true}>
+      <ResponsiveAppLayout title="Carregando..." showBack={true}>
         <div className="flex items-center justify-center h-64">
           <LoadingSpinner size="lg" />
         </div>
-      </AppLayout>
+      </ResponsiveAppLayout>
     );
   }
 
   if (!patient) {
     return (
-      <AppLayout title="Paciente não encontrado" showBack={true}>
+      <ResponsiveAppLayout title="Paciente não encontrado" showBack={true}>
         <div className="flex items-center justify-center h-64">
           <div className="text-center">
             <AlertCircle className="mx-auto text-gray-400 mb-4" size={48} />
             <p className="text-gray-600">Paciente não encontrado</p>
           </div>
         </div>
-      </AppLayout>
+      </ResponsiveAppLayout>
     );
   }
 
   return (
-    <AppLayout
+    <ResponsiveAppLayout
       title={isEditing ? "Editando Paciente" : "Detalhes do Paciente"}
       showBack={true}
     >
@@ -421,7 +421,7 @@ const PatientDetailScreen: React.FC = () => {
           </div>
         )}
       </div>
-    </AppLayout>
+    </ResponsiveAppLayout>
   );
 };
 

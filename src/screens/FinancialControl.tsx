@@ -24,7 +24,7 @@ import {
   Clock,
 } from "lucide-react";
 
-import AppLayout from "../components/Layout/AppLayout";
+import ResponsiveAppLayout from "../components/Layout/ResponsiveAppLayout";
 import LoadingSpinner from "../components/LoadingSpinner";
 import AppointmentPlanEditor from "../components/AppointmentPlanEditor";
 import { listActiveProcedures } from "../services/procedures/procedureService";
@@ -886,7 +886,7 @@ const FinancialControl: React.FC = () => {
 
   if (loadingData) {
     return (
-      <AppLayout title="Controle Financeiro">
+      <ResponsiveAppLayout title="Controle Financeiro">
         <div className="flex items-center justify-center h-96">
           <div className="text-center">
             <div className="relative">
@@ -896,12 +896,12 @@ const FinancialControl: React.FC = () => {
             <p className="mt-4 text-gray-300">Carregando financeiro...</p>
           </div>
         </div>
-      </AppLayout>
+      </ResponsiveAppLayout>
     );
   }
 
   return (
-    <AppLayout title="Controle Financeiro">
+    <ResponsiveAppLayout title="Controle Financeiro">
       <div className="space-y-6">
         {/* Header futurista */}
         <div className="glass-card p-6 relative overflow-hidden">
@@ -967,7 +967,7 @@ const FinancialControl: React.FC = () => {
         </div>
 
         {/* Dashboard Cards */}
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
+        <div className="grid-dashboard">
           <div className="glass-card p-6 border border-white/10 hover-lift">
             <div className="flex items-center justify-between mb-2">
               <DollarSign className="text-green-400" size={24} />
@@ -1854,7 +1854,7 @@ const FinancialControl: React.FC = () => {
           </div>
         )}
       </div>
-    </AppLayout>
+    </ResponsiveAppLayout>
   );
 };
 

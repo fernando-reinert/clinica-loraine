@@ -13,6 +13,9 @@
   /* ✨ Efeitos Visuais */
   --glow-intensity: 0.6;
   --blur-intensity: 12px;
+  
+  /* 📱 Bottom nav (mobile/tablet): altura fixa para safe-space no scroll (ver .has-bottom-nav) */
+  --bottom-nav-h: 72px;
 }
 
 /* 🎯 Reset Futurista */
@@ -22,19 +25,35 @@
   padding: 0;
 }
 
+/* Debug overflow (descomente temporariamente para localizar elementos que estouram) */
+/* * { outline: 1px solid rgba(255,0,0,0.08); } */
+
+/* Base: evitar overflow horizontal e garantir altura para layout */
 html {
-  overflow-x: hidden;
+  height: 100%;
   width: 100%;
-  max-width: 100%;
+  overflow-x: hidden;
+  overflow-y: auto;
+  margin: 0;
 }
 
 body {
+  margin: 0;
+  height: 100%;
+  width: 100%;
+  overflow-x: hidden;
+  overflow-y: auto;
+  min-height: 100%;
   background: linear-gradient(135deg, var(--cosmic-deep) 0%, var(--cosmic-mid) 50%, var(--cosmic-deep) 100%);
   color: #ffffff;
   font-family: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
-  overflow-x: hidden;
+}
+
+#root {
+  height: 100%;
   width: 100%;
-  max-width: 100%;
+  overflow-x: hidden;
+  min-height: 100%;
 }
 
 /* 🌠 Efeitos de Partículas Animadas — decorativo, não captura eventos */
@@ -43,7 +62,8 @@ body {
   top: 0;
   left: 0;
   width: 100%;
-  height: 100%;
+  max-width: 100vw;
+  height: 100dvh;
   background: 
     radial-gradient(circle at 20% 80%, rgba(99, 102, 241, 0.1) 0%, transparent 50%),
     radial-gradient(circle at 80% 20%, rgba(139, 92, 246, 0.1) 0%, transparent 50%),
@@ -55,8 +75,74 @@ body {
 
 /* Área de conteúdo principal — scroll suave em device/tablet */
 .main-scroll-area {
+  width: 100%;
+  height: 100%;
+  overflow-y: auto;
+  overflow-x: hidden;
+  min-width: 0;
   -webkit-overflow-scrolling: touch;
   touch-action: pan-y;
+}
+
+/* Safe-space no final do scroll quando o bottom-nav está ativo (mobile/tablet) */
+.has-bottom-nav .main-scroll-area {
+  padding-bottom: calc(var(--bottom-nav-h) + 0.5rem + env(safe-area-inset-bottom, 0px));
+}
+
+/* Header padrão das páginas */
+.page-header {
+  width: 100%;
+  padding: 1rem 1.5rem;
+  margin-bottom: 1.5rem;
+  border-radius: 1rem;
+  min-width: 0;
+  box-sizing: border-box;
+  background: rgba(42, 43, 69, 0.7);
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
+  border: 1px solid rgba(99, 102, 241, 0.2);
+  box-shadow:
+    0 8px 32px rgba(0, 0, 0, 0.3),
+    0 0 0 1px rgba(99, 102, 241, 0.1),
+    inset 0 1px 0 rgba(255, 255, 255, 0.1);
+}
+@media (min-width: 640px) {
+  .page-header {
+    padding: 1rem 1.5rem 1.25rem;
+  }
+}
+@media (min-width: 1024px) {
+  .page-header {
+    padding: 1rem 2rem 1.25rem;
+  }
+}
+
+/* Tabs horizontal scroll — mobile/tablet scroll, esconder scrollbar, touch suave */
+.tabs-scroll {
+  -webkit-overflow-scrolling: touch;
+  scrollbar-width: none;
+  -ms-overflow-style: none;
+}
+.tabs-scroll::-webkit-scrollbar {
+  display: none;
+}
+
+/* Grid dashboard/cards — 1 col mobile, 2 tablet, 4 desktop */
+.grid-dashboard {
+  display: grid;
+  gap: 1rem;
+  grid-template-columns: 1fr;
+}
+@media (min-width: 640px) {
+  .grid-dashboard {
+    gap: 1.5rem;
+    grid-template-columns: repeat(2, 1fr);
+  }
+}
+@media (min-width: 1280px) {
+  .grid-dashboard {
+    grid-template-columns: repeat(4, 1fr);
+  }
 }
 
 @keyframes cosmicFloat {

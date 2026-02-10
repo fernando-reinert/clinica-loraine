@@ -367,7 +367,7 @@ const PatientFormScreen: React.FC = () => {
   // Tela de agradecimento fixo (não redireciona)
   if (showThankYou || formData?.status === 'completed') {
     return (
-      <div className="pf-root overflow-x-hidden flex items-center justify-center min-h-screen p-4 sm:p-6">
+      <div className="pf-root overflow-x-hidden flex items-center justify-center min-h-dvh p-4 sm:p-6">
         <div className="glass-card max-w-md w-full mx-auto p-6 sm:p-8 md:p-10 text-center border border-white/10 rounded-2xl">
           <CheckCircle className="mx-auto text-emerald-400 mb-4" size={64} />
           <h1 className="text-3xl font-bold text-slate-50 mb-4 glow-text">

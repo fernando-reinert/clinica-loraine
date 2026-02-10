@@ -12,7 +12,7 @@ const LoginScreen: React.FC = () => {
 
   if (loading) {
     return (
-      <div className="min-h-screen flex items-center justify-center">
+      <div className="min-h-dvh flex items-center justify-center">
         <div className="text-center">
           <div className="relative">
             <LoadingSpinner size="lg" className="text-blue-500" />
@@ -29,7 +29,7 @@ const LoginScreen: React.FC = () => {
   }
 
   return (
-    <div className="min-h-screen flex items-center justify-center p-4 w-full max-w-full overflow-x-hidden">
+    <div className="min-h-dvh flex items-center justify-center p-4 w-full max-w-full overflow-x-hidden">
       <div className="w-full max-w-md space-y-6 min-w-0">
         {/* Header Futurista - Mesmo padrão do Dashboard */}
         <div className="glass-card p-8 relative overflow-hidden">

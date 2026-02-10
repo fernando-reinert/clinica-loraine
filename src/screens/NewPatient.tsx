@@ -4,7 +4,7 @@ import { useNavigate } from "react-router-dom";
 import { Phone, Mail, Camera, Image as ImageIcon, Trash2, Calendar, User, MapPin, CreditCard, Sparkles, Share2 } from "lucide-react";
 import toast from "react-hot-toast";
 import { supabase } from "../services/supabase/client";
-import AppLayout from "../components/Layout/AppLayout";
+import ResponsiveAppLayout from "../components/Layout/ResponsiveAppLayout";
 import LoadingSpinner from "../components/LoadingSpinner";
 import { copyToClipboard } from "../utils/clipboard";
 
@@ -300,7 +300,7 @@ const NewPatient: React.FC = () => {
   };
 
   return (
-    <AppLayout title="Novo Paciente" showBack={true}>
+    <ResponsiveAppLayout title="Novo Paciente" showBack={true}>
       <div className="space-y-6">
         {/* Header futurista (mesmo padrão do Dashboard) */}
         <div className="glass-card p-8 relative overflow-hidden">
@@ -592,7 +592,7 @@ const NewPatient: React.FC = () => {
           </div>
         )}
       </div>
-    </AppLayout>
+    </ResponsiveAppLayout>
   );
 };
 
