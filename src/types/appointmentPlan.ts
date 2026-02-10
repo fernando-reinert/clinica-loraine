@@ -1,6 +1,15 @@
 // src/types/appointmentPlan.ts
 // Tipos compartilhados para o Plano do Atendimento (reutilizável entre Financeiro e Agendamento)
 
+/** Dados mínimos do catálogo ao selecionar um procedimento para o plano */
+export type ProcedureCatalogSelection = {
+  id: string;
+  name: string;
+  category?: string | null;
+  cost_price: number;
+  sale_price: number;
+};
+
 export type AppointmentPlanItem = {
   procedure_catalog_id: string;
   name: string;               // snapshot (name)
