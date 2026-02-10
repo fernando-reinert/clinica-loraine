@@ -167,6 +167,12 @@ export interface Appointment {
   end_time: string;
   status: 'scheduled' | 'confirmed' | 'completed' | 'cancelled';
   google_event_id: string | null;
+  /** Google Calendar event ID (idempotência create/update) */
+  gcal_event_id?: string | null;
+  gcal_event_link?: string | null;
+  gcal_status?: string | null;
+  gcal_last_error?: string | null;
+  gcal_updated_at?: string | null;
   created_at: string;
   updated_at: string;
 }

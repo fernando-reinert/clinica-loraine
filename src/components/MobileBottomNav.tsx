@@ -37,8 +37,8 @@ const navItems: NavItem[] = [
     icon: Calendar,
     label: 'Agenda',
     shortLabel: 'Agenda',
-    href: '/appointments/new',
-    isActive: (path) => path.startsWith('/appointments'),
+    href: '/appointments',
+    isActive: (path) => path.startsWith('/appointments') && !path.includes('/treatment'),
   },
   {
     icon: DollarSign,

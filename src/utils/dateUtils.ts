@@ -229,3 +229,25 @@ export const formatFullExtendedDate = (isoString: string): string => {
     return "Erro ao formatar data";
   }
 };
+
+/**
+ * Combina a data do início (ISO ou datetime-local) com a hora de término (HH:mm).
+ * O término é no mesmo dia do início.
+ * @param startIsoOrLocal - Data/hora de início (ISO 8601 ou 'yyyy-MM-ddTHH:mm')
+ * @param endTimeHHmm - Hora de término no formato 'HH:mm'
+ * @returns Data/hora de término em ISO 8601 ou null se inválido
+ */
+export const combineDateWithTime = (startIsoOrLocal: string, endTimeHHmm: string): string | null => {
+  if (!startIsoOrLocal || !endTimeHHmm || !/^\d{1,2}:\d{2}$/.test(endTimeHHmm.trim())) return null;
+  try {
+    const start = new Date(startIsoOrLocal);
+    if (isNaN(start.getTime())) return null;
+    const [h, m] = endTimeHHmm.trim().split(':').map(Number);
+    if (h > 23 || h < 0 || m > 59 || m < 0) return null;
+    const end = new Date(start.getFullYear(), start.getMonth(), start.getDate(), h, m, 0, 0);
+    return end.toISOString();
+  } catch (error) {
+    console.error('Erro ao combinar data com hora:', error);
+    return null;
+  }
+};
