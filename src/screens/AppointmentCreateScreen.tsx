@@ -13,6 +13,8 @@ import type { AppointmentPlanItem, AppointmentPaymentInfo } from '../types/appoi
 import { calculatePlanTotals } from '../types/appointmentPlan';
 import { createFinancialRecord } from '../services/financial/financialService';
 import type { FinancialProcedureItem } from '../services/financial/financialService';
+import { createGcalEvent } from '../services/calendar';
+import { combineDateWithTime } from '../utils/dateUtils';
 import toast from 'react-hot-toast';
 
 // Função de conversão de data segura
@@ -358,12 +360,23 @@ const AppointmentCreateScreen: React.FC = () => {
         throw new Error('Data e hora de início inválidos.');
       }
 
-      // Validar que end_time > start_time
-      let isoEndTime = endTime ? convertToSupabaseFormat(endTime) : null;
+      const startDate = new Date(isoStartTime);
+      let isoEndTime: string | null = null;
+
+      // Hora de término (HH:mm) no mesmo dia do início
+      if (endTime && endTime.trim()) {
+        isoEndTime = combineDateWithTime(isoStartTime, endTime.trim());
+        if (!isoEndTime) {
+          throw new Error('Hora de término inválida.');
+        }
+        if (new Date(isoEndTime).getTime() <= startDate.getTime()) {
+          throw new Error('Término não pode ser antes do início.');
+        }
+      }
+
       // Calcular end_time baseado na duração total dos procedimentos se não fornecido
       if (!isoEndTime && planItems.length > 0) {
         const totalDuration = planItems.reduce((sum, item) => {
-          // Buscar duração do procedimento no catálogo
           const proc = procedures.find(p => p.id === item.procedure_catalog_id);
           return sum + (proc?.duration_minutes || 0) * item.quantity;
         }, 0);
@@ -374,8 +387,9 @@ const AppointmentCreateScreen: React.FC = () => {
         }
       }
 
-      if (isoEndTime && new Date(isoEndTime) <= new Date(isoStartTime)) {
-        throw new Error('A data/hora de término deve ser posterior à data/hora de início.');
+      if (!isoEndTime) {
+        const defaultEnd = new Date(startDate.getTime() + 60 * 60 * 1000);
+        isoEndTime = defaultEnd.toISOString();
       }
 
       // ============================================
@@ -426,6 +440,27 @@ const AppointmentCreateScreen: React.FC = () => {
       const appointmentId = appointment.id;
       if (!appointmentId) {
         throw new Error('Erro: ID do agendamento não foi retornado após criação.');
+      }
+
+      // ============================================
+      // GOOGLE CALENDAR: criar evento e persistir gcal_*
+      // ============================================
+      const endForGcal = isoEndTime ?? new Date(new Date(isoStartTime).getTime() + 60 * 60 * 1000).toISOString();
+      const gcalResult = await createGcalEvent({
+        patientName: patient.name.trim(),
+        start: isoStartTime,
+        end: endForGcal,
+        appointmentId,
+      });
+      await supabase.from('appointments').update({
+        gcal_event_id: gcalResult.eventId ?? null,
+        gcal_event_link: gcalResult.htmlLink ?? null,
+        gcal_status: gcalResult.ok ? 'synced' : 'error',
+        gcal_last_error: gcalResult.ok ? null : (gcalResult.error ?? ''),
+        gcal_updated_at: new Date().toISOString(),
+      }).eq('id', appointmentId);
+      if (!gcalResult.ok) {
+        toast('Agendamento salvo, mas o Google Calendar não foi atualizado.', { icon: '⚠️' });
       }
 
       // ============================================
@@ -862,10 +897,10 @@ const AppointmentCreateScreen: React.FC = () => {
               </div>
               <div>
                 <label className="block text-xs font-medium text-gray-300 mb-1.5">
-                  Data e Hora de Término
+                  Hora de Término
                 </label>
                 <input
-                  type="datetime-local"
+                  type="time"
                   value={endTime}
                   onChange={(e) => setEndTime(e.target.value)}
                   className="holo-input w-full px-4 py-2.5 rounded-xl bg-white/5 border border-white/10 text-white focus:ring-2 focus:ring-cyan-500 focus:border-cyan-500 outline-none text-sm transition-all"

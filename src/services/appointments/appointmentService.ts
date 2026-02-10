@@ -1,5 +1,6 @@
 // src/services/appointments/appointmentService.ts
 import { supabase } from '../supabase/client';
+import { createGcalEvent } from '../calendar';
 import logger from '../../utils/logger';
 import type { Appointment } from '../../types/db';
 
@@ -87,6 +88,25 @@ export const createAppointmentWithProcedures = async (
       const message = appointmentError?.message || 'Erro ao criar agendamento';
       const details = (appointmentError as any)?.details;
       throw new Error(details ? `${message} - ${details}` : message);
+    }
+
+    const endForGcal = endTimeIso ?? new Date(new Date(startTimeIso).getTime() + 60 * 60 * 1000).toISOString();
+    const gcalResult = await createGcalEvent({
+      patientName,
+      start: startTimeIso,
+      end: endForGcal,
+      appointmentId: appointment.id,
+    });
+    const gcalUpdate: Record<string, unknown> = {
+      gcal_event_id: gcalResult.eventId ?? null,
+      gcal_event_link: gcalResult.htmlLink ?? null,
+      gcal_status: gcalResult.ok ? 'synced' : 'error',
+      gcal_last_error: gcalResult.ok ? null : (gcalResult.error ?? ''),
+      gcal_updated_at: new Date().toISOString(),
+    };
+    await supabase.from('appointments').update(gcalUpdate).eq('id', appointment.id);
+    if (!gcalResult.ok) {
+      logger.warn('[APPOINTMENTS] Google Calendar falhou (agendamento salvo)', { id: appointment.id, error: gcalResult.error });
     }
 
     if (!hasProcedures) {

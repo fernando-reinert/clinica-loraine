@@ -163,7 +163,7 @@ const PatientDetailScreen: React.FC = () => {
       title: "Agendar",
       icon: Calendar,
       gradient: "from-green-500 to-emerald-500",
-      action: () => navigate(`/appointments/new?patientId=${id}`),
+      action: () => navigate(`/appointments?patientId=${id}`),
     },
     {
       title: "Galeria",

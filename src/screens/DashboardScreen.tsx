@@ -23,7 +23,7 @@ const DashboardScreen: React.FC = () => {
       title: 'Agendar Consulta',
       icon: Calendar,
       gradient: 'from-purple-500 to-pink-500', 
-      action: () => navigate('/appointments/new')
+      action: () => navigate('/appointments')
     },
     {
       title: 'Catálogo de Procedimentos',

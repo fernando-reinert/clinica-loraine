@@ -1,12 +1,12 @@
 // src/screens/AppointmentsScreen.tsx
-import React, { useState, useEffect } from "react";
+import React, { useState, useEffect, useRef } from "react";
+import { useNavigate, useSearchParams } from "react-router-dom";
 import { supabase } from "../services/supabase/client";
+import toast from "react-hot-toast";
 import {
   Calendar,
   Clock,
   User,
-  Search,
-  DollarSign,
   Edit,
   Trash2,
   Filter,
@@ -14,23 +14,26 @@ import {
   ChevronUp,
   Plus,
   Sparkles,
-  Zap,
   Stethoscope,
 } from "lucide-react";
 import ResponsiveAppLayout from "../components/Layout/ResponsiveAppLayout";
 import LoadingSpinner from "../components/LoadingSpinner";
-import { convertToSupabaseFormat, convertToBrazilianFormat } from "../utils/dateUtils";
-import { useNavigate } from "react-router-dom";
+import AppointmentDetailsForm from "../components/appointments/AppointmentDetailsForm";
+import type { AppointmentForForm, PatientForForm } from "../components/appointments/AppointmentDetailsForm";
+import { convertToBrazilianFormat } from "../utils/dateUtils";
+import { cancelGcalEvent } from "../services/calendar";
 
 interface Appointment {
   id: string;
   patient_name: string;
   patient_phone: string;
   start_time: string;
+  end_time?: string | null;
   description?: string;
   title: string;
   status: "scheduled" | "confirmed" | "completed" | "cancelled";
   budget?: number;
+  gcal_event_id?: string | null;
 }
 
 interface Patient {
@@ -42,22 +45,22 @@ interface Patient {
 
 const AppointmentsScreen: React.FC = () => {
   const navigate = useNavigate();
+  const [searchParams] = useSearchParams();
+  const patientIdFromUrl = searchParams.get("patientId");
+
   const [appointments, setAppointments] = useState<Appointment[]>([]);
   const [filteredAppointments, setFilteredAppointments] = useState<Appointment[]>([]);
   const [patients, setPatients] = useState<Patient[]>([]);
-  const [filteredPatients, setFilteredPatients] = useState<Patient[]>([]);
-  const [selectedPatient, setSelectedPatient] = useState<Patient | null>(null);
-  const [showPatientDropdown, setShowPatientDropdown] = useState(false);
-  const [patientSearch, setPatientSearch] = useState("");
-  const [startTime, setStartTime] = useState("");
-  const [description, setDescription] = useState("");
-  const [title, setTitle] = useState("");
-  const [budget, setBudget] = useState("");
+  const [patientFromUrl, setPatientFromUrl] = useState<PatientForForm | null>(null);
   const [loading, setLoading] = useState(true);
   const [patientsLoading, setPatientsLoading] = useState(false);
   const [editingAppointment, setEditingAppointment] = useState<Appointment | null>(null);
+  const [deleteConfirming, setDeleteConfirming] = useState<Appointment | null>(null);
   const [filter, setFilter] = useState<"all" | "upcoming" | "past">("upcoming");
   const [sortOrder, setSortOrder] = useState<"asc" | "desc">("asc");
+  const [formResetKey, setFormResetKey] = useState(0);
+  const formFirstInputRef = useRef<HTMLInputElement>(null);
+  const titleInputRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
     loadAppointments();
@@ -69,19 +72,27 @@ const AppointmentsScreen: React.FC = () => {
   }, [appointments, filter, sortOrder]);
 
   useEffect(() => {
-    if (patientSearch) {
-      const filtered = patients.filter(
-        (patient) =>
-          patient.name.toLowerCase().includes(patientSearch.toLowerCase()) ||
-          patient.phone.includes(patientSearch)
-      );
-      setFilteredPatients(filtered);
-      setShowPatientDropdown(true);
-    } else {
-      setFilteredPatients([]);
-      setShowPatientDropdown(false);
+    if (!patientIdFromUrl) {
+      setPatientFromUrl(null);
+      return;
     }
-  }, [patientSearch, patients]);
+    let cancelled = false;
+    (async () => {
+      const { data, error } = await supabase
+        .from("patients")
+        .select("id, name, phone, email")
+        .eq("id", patientIdFromUrl)
+        .single();
+      if (!cancelled && !error && data) {
+        setPatientFromUrl(data as PatientForForm);
+      } else {
+        setPatientFromUrl(null);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [patientIdFromUrl]);
 
   const loadAppointments = async () => {
     try {
@@ -96,10 +107,12 @@ const AppointmentsScreen: React.FC = () => {
           patient_name: appointment.patient_name,
           patient_phone: appointment.patient_phone,
           start_time: appointment.start_time,
+          end_time: appointment.end_time ?? null,
           description: appointment.description,
           title: appointment.title,
           status: appointment.status,
           budget: appointment.budget,
+          gcal_event_id: appointment.gcal_event_id ?? appointment.google_event_id ?? null,
         })) || [];
 
       setAppointments(formattedAppointments);
@@ -149,120 +162,70 @@ const AppointmentsScreen: React.FC = () => {
     setFilteredAppointments(filtered);
   };
 
-  const handlePatientSelect = (patient: Patient) => {
-    setSelectedPatient(patient);
-    setPatientSearch(patient.name);
-    setShowPatientDropdown(false);
-  };
-
-  const clearPatientSelection = () => {
-    setSelectedPatient(null);
-    setPatientSearch("");
-  };
-
-  const clearForm = () => {
-    setSelectedPatient(null);
-    setPatientSearch("");
-    setTitle("");
-    setStartTime("");
-    setDescription("");
-    setBudget("");
-  };
-
   const startEdit = (appointment: Appointment) => {
     setEditingAppointment(appointment);
-    setSelectedPatient({
-      id: "",
-      name: appointment.patient_name,
-      phone: appointment.patient_phone,
-    });
-    setPatientSearch(appointment.patient_name);
-    setTitle(appointment.title);
-    setStartTime(appointment.start_time.slice(0, 16));
-    setDescription(appointment.description || "");
-    setBudget(appointment.budget?.toString() || "");
+    window.scrollTo({ top: 0, behavior: "smooth" });
+    setTimeout(() => titleInputRef.current?.focus(), 150);
   };
 
   const cancelEdit = () => {
     setEditingAppointment(null);
-    clearForm();
   };
 
-  const createAppointment = async (event: React.FormEvent) => {
-    event.preventDefault();
-
-    if (!selectedPatient || !startTime || !title) {
-      alert("Por favor, preencha todos os campos obrigatórios.");
-      return;
-    }
-
-    try {
-      const isoStartTime = convertToSupabaseFormat(startTime);
-      if (!isoStartTime) {
-        alert("Data e hora de início inválidos.");
-        return;
-      }
-
-      const appointmentData: any = {
-        patient_name: selectedPatient.name,
-        patient_phone: selectedPatient.phone,
-        start_time: isoStartTime,
-        title,
-        status: "scheduled",
-      };
-
-      if (description) appointmentData.description = description;
-
-      if (budget) {
-        try {
-          appointmentData.budget = parseFloat(budget);
-        } catch {
-          // ignore
-        }
-      }
-
-      let error;
-      if (editingAppointment) {
-        ({ error } = await supabase.from("appointments").update(appointmentData).eq("id", editingAppointment.id));
-      } else {
-        ({ error } = await supabase.from("appointments").insert([appointmentData]));
-      }
-
-      if (error) throw error;
-
-      alert(editingAppointment ? "Agendamento atualizado com sucesso!" : "Agendamento criado com sucesso!");
-      clearForm();
-      setEditingAppointment(null);
-      loadAppointments();
-    } catch (error) {
-      console.error("Erro ao salvar agendamento:", error);
-      alert("Erro ao salvar agendamento.");
-    }
+  const handleFormCreated = () => {
+    setFormResetKey((k) => k + 1);
+    setEditingAppointment(null);
+    loadAppointments();
   };
 
-  const deleteAppointment = async (appointmentId: string) => {
-    if (!confirm("Tem certeza que deseja excluir este agendamento?")) return;
+  const handleFormUpdated = () => {
+    setEditingAppointment(null);
+    loadAppointments();
+  };
 
+  const deleteAppointment = (appointment: Appointment) => {
+    setDeleteConfirming(appointment);
+  };
+
+  const confirmDeleteAppointment = async () => {
+    const appointment = deleteConfirming;
+    if (!appointment) return;
+    setDeleteConfirming(null);
     try {
-      const { error } = await supabase.from("appointments").delete().eq("id", appointmentId);
+      if (appointment.gcal_event_id) {
+        await cancelGcalEvent(appointment.gcal_event_id);
+      }
+      const { error } = await supabase.from("appointments").delete().eq("id", appointment.id);
       if (error) throw error;
-
-      alert("Agendamento excluído com sucesso!");
+      toast.success("Agendamento excluído com sucesso!");
       loadAppointments();
-    } catch (error) {
+    } catch (error: any) {
       console.error("Erro ao excluir agendamento:", error);
-      alert("Erro ao excluir agendamento.");
+      toast.error("Erro ao excluir agendamento.");
     }
   };
 
-  const updateAppointmentStatus = async (appointmentId: string, status: Appointment["status"]) => {
+  const updateAppointmentStatus = async (appointment: Appointment, status: Appointment["status"]) => {
     try {
-      const { error } = await supabase.from("appointments").update({ status }).eq("id", appointmentId);
-      if (error) throw error;
+      if (status === "cancelled" && appointment.gcal_event_id) {
+        const cancelResult = await cancelGcalEvent(appointment.gcal_event_id);
+        await supabase
+          .from("appointments")
+          .update({
+            status,
+            gcal_status: "cancelled",
+            gcal_updated_at: new Date().toISOString(),
+            ...(cancelResult.ok ? {} : { gcal_last_error: cancelResult.error ?? "Cancelamento no Google falhou" }),
+          })
+          .eq("id", appointment.id);
+      } else {
+        const { error } = await supabase.from("appointments").update({ status }).eq("id", appointment.id);
+        if (error) throw error;
+      }
       loadAppointments();
-    } catch (error) {
+    } catch (error: any) {
       console.error("Erro ao atualizar status:", error);
-      alert("Erro ao atualizar status do agendamento.");
+      toast.error("Erro ao atualizar status do agendamento.");
     }
   };
 
@@ -340,152 +303,22 @@ const AppointmentsScreen: React.FC = () => {
           </div>
         </div>
 
-        {/* Form (padrão Dashboard: glass-card + inputs dark) */}
-        <div className="glass-card p-4 sm:p-6 md:p-8 border border-white/10">
-          <div className="flex items-center gap-3 mb-6 min-w-0">
-            <Calendar className="text-purple-300 flex-shrink-0" size={26} />
-            <h2 className="text-xl sm:text-2xl font-bold glow-text whitespace-normal break-words">{editingAppointment ? "Editar Agendamento" : "Novo Agendamento"}</h2>
-          </div>
-
-          <form onSubmit={createAppointment} className="space-y-6 min-w-0">
-            <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 min-w-0">
-              {/* Paciente */}
-              <div className="relative min-w-0">
-                <label className="block text-sm font-medium text-gray-200 mb-2 whitespace-normal break-words">Paciente *</label>
-                <div className="relative min-w-0">
-                  <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400 pointer-events-none shrink-0" size={20} />
-                  <input
-                    type="text"
-                    placeholder={patientsLoading ? "Carregando pacientes..." : "Buscar paciente..."}
-                    value={patientSearch}
-                    onChange={(e) => setPatientSearch(e.target.value)}
-                    className="w-full max-w-full min-h-[44px] pl-10 pr-12 py-3 rounded-xl bg-white/5 border border-white/10 text-white placeholder:text-gray-400 focus:ring-2 focus:ring-cyan-500 focus:border-cyan-500 outline-none transition-all"
-                    disabled={!!editingAppointment || patientsLoading}
-                  />
-                  {selectedPatient && (
-                    <button
-                      type="button"
-                      onClick={clearPatientSelection}
-                      className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-300 hover:text-white transition-colors"
-                      disabled={!!editingAppointment}
-                      title="Limpar paciente"
-                    >
-                      ✕
-                    </button>
-                  )}
-                </div>
-
-                {showPatientDropdown && filteredPatients.length > 0 && !editingAppointment && (
-                  <div className="absolute z-20 w-full mt-2 rounded-2xl overflow-hidden border border-white/10 bg-slate-900/95 backdrop-blur-xl shadow-2xl max-h-64 overflow-y-auto">
-                    {filteredPatients.map((patient) => (
-                      <button
-                        type="button"
-                        key={patient.id}
-                        onClick={() => handlePatientSelect(patient)}
-                        className="w-full text-left p-3 hover:bg-white/10 transition-colors border-b border-white/5 last:border-b-0"
-                      >
-                        <div className="font-semibold text-white">{patient.name}</div>
-                        <div className="text-sm text-gray-300">{patient.phone}</div>
-                      </button>
-                    ))}
-                  </div>
-                )}
-
-                {selectedPatient && (
-                  <div className="mt-3 glass-card p-4 border border-cyan-400/20 bg-cyan-500/10">
-                    <p className="text-sm text-cyan-100 font-medium">
-                      ✅ Paciente selecionado: {selectedPatient.name} — {selectedPatient.phone}
-                    </p>
-                  </div>
-                )}
-              </div>
-
-              {/* Título */}
-              <div>
-                <label className="block text-sm font-medium text-gray-200 mb-2">Título do Procedimento *</label>
-                <input
-                  type="text"
-                  placeholder="Ex: Limpeza de Pele, Botox..."
-                  value={title}
-                  onChange={(e) => setTitle(e.target.value)}
-                  className="w-full px-4 py-3 rounded-xl bg-white/5 border border-white/10 text-white placeholder:text-gray-400 focus:ring-2 focus:ring-cyan-500 focus:border-cyan-500 outline-none transition-all"
-                  required
-                />
-              </div>
-            </div>
-
-            <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-              {/* Data/Hora */}
-              <div>
-                <label className="block text-sm font-medium text-gray-200 mb-2">Data e Hora *</label>
-                <input
-                  type="datetime-local"
-                  value={startTime}
-                  onChange={(e) => setStartTime(e.target.value)}
-                  className="w-full px-4 py-3 rounded-xl bg-white/5 border border-white/10 text-white focus:ring-2 focus:ring-cyan-500 focus:border-cyan-500 outline-none transition-all"
-                  required
-                />
-              </div>
-
-              {/* Orçamento */}
-              <div>
-                <label className="block text-sm font-medium text-gray-200 mb-2">Orçamento</label>
-                <div className="relative">
-                  <DollarSign className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" size={20} />
-                  <input
-                    type="number"
-                    placeholder="0,00"
-                    value={budget}
-                    onChange={(e) => setBudget(e.target.value)}
-                    min="0"
-                    step="0.01"
-                    className="w-full pl-10 pr-4 py-3 rounded-xl bg-white/5 border border-white/10 text-white placeholder:text-gray-400 focus:ring-2 focus:ring-cyan-500 focus:border-cyan-500 outline-none transition-all"
-                  />
-                </div>
-              </div>
-            </div>
-
-            {/* Descrição */}
-            <div>
-              <label className="block text-sm font-medium text-gray-200 mb-2">Descrição do Procedimento</label>
-              <textarea
-                placeholder="Detalhes adicionais sobre o procedimento..."
-                value={description}
-                onChange={(e) => setDescription(e.target.value)}
-                className="w-full px-4 py-3 rounded-xl bg-white/5 border border-white/10 text-white placeholder:text-gray-400 focus:ring-2 focus:ring-cyan-500 focus:border-cyan-500 outline-none transition-all h-28 resize-none"
-              />
-            </div>
-
-            {/* Botões */}
-<div className="flex flex-col sm:flex-row gap-3">
-  <button
-    type="submit"
-    className="neon-button w-full sm:w-auto flex-1 inline-flex items-center justify-center gap-2 px-6 py-3 rounded-2xl leading-none"
-  >
-    <Plus size={20} className="shrink-0" />
-    <span className="font-semibold whitespace-nowrap">
-      {editingAppointment ? "Atualizar Agendamento" : "Criar Agendamento"}
-    </span>
-  </button>
-
-  {editingAppointment && (
-    <button
-      type="button"
-      onClick={cancelEdit}
-      className="w-full sm:w-auto flex-1 inline-flex items-center justify-center gap-2 px-6 py-3 rounded-2xl bg-white/5 hover:bg-white/10 border border-white/10 text-white transition-all leading-none"
-    >
-      <span className="font-semibold whitespace-nowrap">Cancelar</span>
-    </button>
-  )}
-</div>
-
-
-            <div className="text-xs text-gray-400 flex items-center gap-2">
-              <Zap size={14} className="text-purple-300" />
-              Dica: confirme e conclua direto no card do agendamento.
-            </div>
-          </form>
-        </div>
+        {/* Formulário padrão "Detalhes do Agendamento" — único componente reutilizado */}
+        <AppointmentDetailsForm
+          key={editingAppointment?.id ?? `new-${formResetKey}`}
+          mode={editingAppointment ? "edit" : "create"}
+          showPatientPicker={!patientIdFromUrl}
+          initialPatientId={patientIdFromUrl ?? undefined}
+          initialPatient={patientFromUrl}
+          initialAppointment={editingAppointment ? (editingAppointment as AppointmentForForm) : null}
+          patients={patients as PatientForForm[]}
+          patientsLoading={patientsLoading}
+          onCreated={handleFormCreated}
+          onUpdated={handleFormUpdated}
+          onCancel={cancelEdit}
+          formFirstInputRef={formFirstInputRef}
+          titleInputRef={titleInputRef}
+        />
 
         {/* Filtros (padrão Dashboard) */}
         <div className="glass-card p-6 border border-white/10">
@@ -517,12 +350,12 @@ const AppointmentsScreen: React.FC = () => {
           </div>
         </div>
 
-        {/* Lista (cards glass) */}
-        <div className="glass-card p-8 border border-white/10">
+        {/* Lista / Histórico de agendamentos — sempre visível abaixo do formulário e dos filtros */}
+        <div id="historico-agendamentos" className="glass-card p-8 border border-white/10">
           <div className="flex items-center gap-3 mb-6">
             <Clock className="text-cyan-300" size={26} />
             <h3 className="text-2xl font-bold glow-text">
-              Agendamentos ({filteredAppointments.length})
+              Histórico de Agendamentos ({filteredAppointments.length})
               {filter === "upcoming" && " — Próximos"}
               {filter === "past" && " — Passados"}
             </h3>
@@ -601,7 +434,11 @@ const AppointmentsScreen: React.FC = () => {
                         <div className="flex gap-2">
                           <button
                             type="button"
-                            onClick={() => startEdit(appointment)}
+                            onClick={(e) => {
+                              e.preventDefault();
+                              e.stopPropagation();
+                              startEdit(appointment);
+                            }}
                             className="p-2 rounded-xl bg-white/5 hover:bg-white/10 border border-white/10 text-cyan-200 transition-colors"
                             title="Editar"
                           >
@@ -609,7 +446,11 @@ const AppointmentsScreen: React.FC = () => {
                           </button>
                           <button
                             type="button"
-                            onClick={() => deleteAppointment(appointment.id)}
+                            onClick={(e) => {
+                              e.preventDefault();
+                              e.stopPropagation();
+                              deleteAppointment(appointment);
+                            }}
                             className="p-2 rounded-xl bg-white/5 hover:bg-white/10 border border-white/10 text-red-200 transition-colors"
                             title="Excluir"
                           >
@@ -632,7 +473,7 @@ const AppointmentsScreen: React.FC = () => {
                             {appointment.status !== "confirmed" && (
                               <button
                                 type="button"
-                                onClick={() => updateAppointmentStatus(appointment.id, "confirmed")}
+                                onClick={() => updateAppointmentStatus(appointment, "confirmed")}
                                 className="text-xs px-3 py-2 rounded-xl bg-cyan-500/20 hover:bg-cyan-500/30 border border-cyan-400/20 text-cyan-100 transition-all"
                               >
                                 Confirmar
@@ -641,7 +482,7 @@ const AppointmentsScreen: React.FC = () => {
                             {appointment.status !== "completed" && (
                               <button
                                 type="button"
-                                onClick={() => updateAppointmentStatus(appointment.id, "completed")}
+                                onClick={() => updateAppointmentStatus(appointment, "completed")}
                                 className="text-xs px-3 py-2 rounded-xl bg-green-500/20 hover:bg-green-500/30 border border-green-400/20 text-green-100 transition-all"
                               >
                                 Concluir
@@ -649,7 +490,7 @@ const AppointmentsScreen: React.FC = () => {
                             )}
                             <button
                               type="button"
-                              onClick={() => updateAppointmentStatus(appointment.id, "cancelled")}
+                              onClick={() => updateAppointmentStatus(appointment, "cancelled")}
                               className="text-xs px-3 py-2 rounded-xl bg-red-500/20 hover:bg-red-500/30 border border-red-400/20 text-red-100 transition-all"
                             >
                               Cancelar
@@ -683,6 +524,37 @@ const AppointmentsScreen: React.FC = () => {
           )}
         </div>
       </div>
+
+      {/* Modal de confirmação de exclusão */}
+      {deleteConfirming && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm" onClick={() => setDeleteConfirming(null)}>
+          <div
+            className="glass-card p-6 border border-white/20 rounded-2xl shadow-2xl max-w-sm w-full"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <h3 className="text-lg font-semibold text-white mb-2">Excluir agendamento?</h3>
+            <p className="text-gray-300 text-sm mb-4">
+              Tem certeza que deseja excluir o agendamento de <strong className="text-white">{deleteConfirming.patient_name}</strong>? Esta ação não pode ser desfeita.
+            </p>
+            <div className="flex gap-3">
+              <button
+                type="button"
+                onClick={() => setDeleteConfirming(null)}
+                className="flex-1 px-4 py-2.5 rounded-xl bg-white/10 hover:bg-white/15 border border-white/10 text-white transition-all"
+              >
+                Cancelar
+              </button>
+              <button
+                type="button"
+                onClick={confirmDeleteAppointment}
+                className="flex-1 px-4 py-2.5 rounded-xl bg-red-500/20 hover:bg-red-500/30 border border-red-400/30 text-red-200 transition-all"
+              >
+                Excluir
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </ResponsiveAppLayout>
   );
 };
