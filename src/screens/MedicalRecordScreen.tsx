@@ -112,6 +112,45 @@ const isFillerRowEmpty = (row: { region?: string | null; volume?: string | null;
   return region.trim() === '' && volume.trim() === '' && product.trim() === '';
 };
 
+/**
+ * Normaliza qualquer valor de data para formato date-only "YYYY-MM-DD",
+ * sem aplicar offset de timezone para strings já date-only.
+ */
+const toDateOnly = (value: string | null | undefined): string | null => {
+  if (!value) return null;
+  const raw = String(value).trim();
+  if (!raw) return null;
+
+  // Já é date-only ou ISO iniciando com date-only
+  const isoDatePrefix = raw.match(/^(\d{4})-(\d{2})-(\d{2})/);
+  if (isoDatePrefix) {
+    return `${isoDatePrefix[1]}-${isoDatePrefix[2]}-${isoDatePrefix[3]}`;
+  }
+
+  // Fallback para formatos inesperados (com horário/timezone, etc)
+  const parsed = new Date(raw);
+  if (Number.isNaN(parsed.getTime())) return null;
+  const y = parsed.getFullYear();
+  const m = String(parsed.getMonth() + 1).padStart(2, '0');
+  const d = String(parsed.getDate()).padStart(2, '0');
+  return `${y}-${m}-${d}`;
+};
+
+const formatDateOnlyPtBr = (dateOnly: string): string => {
+  const normalized = toDateOnly(dateOnly);
+  if (!normalized) return 'Data inválida';
+  const [yyyy, mm, dd] = normalized.split('-');
+  return `${dd}/${mm}/${yyyy}`;
+};
+
+const getTodayDateOnly = (): string => {
+  const now = new Date();
+  const y = now.getFullYear();
+  const m = String(now.getMonth() + 1).padStart(2, '0');
+  const d = String(now.getDate()).padStart(2, '0');
+  return `${y}-${m}-${d}`;
+};
+
 const sanitizeInjectablesForSave = (
   record: InjectablesRecord | null | undefined
 ): InjectablesRecord | null => {
@@ -269,7 +308,7 @@ const MedicalRecordScreen: React.FC = () => {
     notes: string;
     next_appointment: string | null;
   }>({
-    date: new Date().toISOString().split('T')[0], // Data inicial válida
+    date: getTodayDateOnly(), // Data inicial válida (date-only local)
     reason: '',
     symptoms: '',
     diagnosis: '',
@@ -485,13 +524,13 @@ const MedicalRecordScreen: React.FC = () => {
   const handleEditConsultation = (consultation: any) => {
     setEditingConsultationId(consultation.id);
     setNewConsultation({
-      date: consultation.date ? new Date(consultation.date).toISOString().split('T')[0] : null,
+      date: toDateOnly(consultation.date),
       reason: consultation.reason || '',
       symptoms: consultation.symptoms || '',
       diagnosis: consultation.diagnosis || '',
       treatment: consultation.treatment || '',
       notes: consultation.notes || '',
-      next_appointment: consultation.next_appointment ? new Date(consultation.next_appointment).toISOString().split('T')[0] : null,
+      next_appointment: toDateOnly(consultation.next_appointment),
     });
     // Carregar registro de injetáveis existente (se houver)
     const existingInjectables = (consultation as any).injectables_record;
@@ -506,7 +545,7 @@ const MedicalRecordScreen: React.FC = () => {
   const handleCancelEdit = () => {
     setEditingConsultationId(null);
     setNewConsultation({
-      date: new Date().toISOString().split('T')[0],
+      date: getTodayDateOnly(),
       reason: '',
       symptoms: '',
       diagnosis: '',
@@ -804,7 +843,7 @@ const MedicalRecordScreen: React.FC = () => {
 
       // Limpar formulário e resetar estado
       setNewConsultation({
-        date: new Date().toISOString().split('T')[0],
+        date: getTodayDateOnly(),
         reason: '',
         symptoms: '',
         diagnosis: '',
@@ -2526,7 +2565,7 @@ Data: {{signed_at}}`;
                         <div>
                           <h4 className="font-semibold text-white">{consultation.reason}</h4>
                           <p className="text-sm text-gray-400">
-                            {new Date(consultation.date).toLocaleDateString('pt-BR')}
+                            {formatDateOnlyPtBr(toDateOnly(consultation.date) || '')}
                           </p>
                         </div>
                         <div className="flex space-x-2">
