@@ -111,9 +111,9 @@ const PatientsScreen: React.FC = () => {
 
         {/* Barra de Ferramentas - Holográfica */}
         <div className="glass-card p-4 sm:p-6">
-          <div className="flex flex-col lg:flex-row gap-4 min-w-0">
+          <div className="flex flex-col lg:flex-row lg:items-center gap-4 flex-wrap">
             {/* Barra de Busca */}
-            <div className="flex-1 relative min-w-0">
+            <div className="flex-1 min-w-[280px] relative">
               <Search className="absolute left-4 top-1/2 transform -translate-y-1/2 text-gray-400 pointer-events-none shrink-0" size={20} />
               <input
                 type="text"
@@ -125,12 +125,12 @@ const PatientsScreen: React.FC = () => {
             </div>
 
             {/* Filtro de Status */}
-            <div className="flex items-center gap-2 sm:gap-3 glass-card p-3 rounded-2xl min-w-0">
+            <div className="flex items-center gap-2 glass-card p-3 rounded-2xl w-full lg:w-56 shrink-0">
               <Filter size={20} className="text-gray-400 shrink-0" />
               <select
                 value={statusFilter}
                 onChange={(e) => setStatusFilter(e.target.value as any)}
-                className="holo-input bg-transparent border-none focus:ring-0 text-gray-300 font-medium w-full min-w-0 min-h-[44px]"
+                className="holo-input bg-transparent border-none focus:ring-0 text-gray-300 font-medium w-full min-h-[44px]"
               >
                 <option value="all">Todos os Planetas</option>
                 <option value="active">Ativos</option>
