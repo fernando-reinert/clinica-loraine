@@ -45,18 +45,24 @@ export default function ScrollableTabs({
   return (
     <div className={`w-full min-w-0 ${className}`.trim()}>
       <div
-        className="tabs-scroll flex items-center gap-2 overflow-x-auto overflow-y-hidden whitespace-nowrap scroll-smooth py-1"
+        className="tabs-scroll flex items-stretch gap-2 overflow-x-auto overflow-y-hidden whitespace-nowrap scroll-smooth py-1 lg:overflow-visible lg:flex-nowrap lg:justify-between lg:gap-3"
         role="tablist"
       >
         {items.map((item) => {
           const isActive = !item.isAction && value === item.key;
+          const baseStyles =
+            'shrink-0 flex items-center justify-center gap-2 min-h-[44px] px-3 py-2 sm:px-4 lg:px-4 lg:py-2.5 rounded-xl transition-all duration-300 font-medium';
+          const desktopSpread = item.isAction
+            ? ''
+            : ' lg:flex-1 lg:min-w-0 lg:max-w-[180px]';
+          const buttonBaseClass = baseStyles + desktopSpread;
           if (item.isAction && item.onClick) {
             return (
               <button
                 key={item.key}
                 type="button"
                 onClick={item.onClick}
-                className={`shrink-0 flex items-center gap-2 px-3 py-2 sm:px-4 rounded-xl transition-all duration-300 font-medium ${inactiveClassName}`}
+                className={`${buttonBaseClass} ${inactiveClassName}`}
                 role="tab"
                 aria-selected={false}
               >
@@ -73,7 +79,7 @@ export default function ScrollableTabs({
               }}
               type="button"
               onClick={() => onChange(item.key)}
-              className={`shrink-0 flex items-center gap-2 px-3 py-2 sm:px-4 rounded-xl transition-all duration-300 font-medium ${
+              className={`${buttonBaseClass} ${
                 isActive ? activeClassName : inactiveClassName
               }`}
               role="tab"
