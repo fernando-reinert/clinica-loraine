@@ -5,7 +5,8 @@ import { supabase } from '../services/supabase/client';
 import { 
   Save, ArrowLeft, User, FileText, Calendar, 
   Heart, Stethoscope, Pill, AlertTriangle,
-  Clock, Plus, Edit, Trash2, Eye, Image as ImageIcon, CheckCircle, FileCheck, X, GalleryVertical
+  Clock, Plus, Edit, Trash2, Eye, Image as ImageIcon, CheckCircle, FileCheck, X, GalleryVertical,
+  ChevronDown, Syringe, Sparkles
 } from 'lucide-react';
 import ResponsiveAppLayout from '../components/Layout/ResponsiveAppLayout';
 import LoadingSpinner from '../components/LoadingSpinner';
@@ -110,6 +111,13 @@ const isFillerRowEmpty = (row: { region?: string | null; volume?: string | null;
   const volume = row.volume ?? '';
   const product = row.product ?? '';
   return region.trim() === '' && volume.trim() === '' && product.trim() === '';
+};
+
+/** Para o formulário: exibir ao menos 1 linha de preenchedor. */
+const getFillerRowsForForm = (fillers?: InjectablesRecord['fillers']): NonNullable<InjectablesRecord['fillers']> => {
+  const arr = Array.isArray(fillers) ? fillers : [];
+  if (arr.length >= 1) return arr;
+  return [{ region: null, volume: null, product: null }];
 };
 
 /**
@@ -241,6 +249,93 @@ const deserializeInjectablesRecord = (
 const formatNumberValue = (value: number | null | undefined): string =>
   value === null || value === undefined ? '' : String(value);
 
+/** Card expansível (accordion) para seções do formulário Nova Consulta — acessível e com glass/neon. */
+type ExpandableSectionProps = {
+  id: string;
+  title: string;
+  subtextWhenClosed: string;
+  icon: React.ReactNode;
+  statusBadge: string | null;
+  isOpen: boolean;
+  onToggle: () => void;
+  onClear?: () => void;
+  children: React.ReactNode;
+};
+
+function ExpandableSection({
+  id,
+  title,
+  subtextWhenClosed,
+  icon,
+  statusBadge,
+  isOpen,
+  onToggle,
+  onClear,
+  children,
+}: ExpandableSectionProps) {
+  const contentId = `${id}-section`;
+  return (
+    <div className="rounded-xl border border-white/10 bg-white/5 overflow-hidden transition-all duration-300 hover:border-cyan-400/30">
+      <button
+        type="button"
+        onClick={onToggle}
+        aria-expanded={isOpen}
+        aria-controls={contentId}
+        id={`${id}-trigger`}
+        className="w-full flex items-center justify-between gap-3 px-4 py-3 text-left cursor-pointer focus:outline-none focus-visible:ring-2 focus-visible:ring-cyan-500 focus-visible:ring-offset-2 focus-visible:ring-offset-gray-900 hover:bg-white/5 transition-all duration-200"
+      >
+        <div className="flex items-center gap-3 min-w-0 flex-1">
+          <span className="flex-shrink-0 text-cyan-400" aria-hidden>
+            {icon}
+          </span>
+          <div className="min-w-0">
+            <span className="block text-sm font-semibold text-gray-200 truncate">{title}</span>
+            {!isOpen && (
+              <span className="block text-xs text-gray-400 truncate mt-0.5">
+                {statusBadge || subtextWhenClosed}
+              </span>
+            )}
+          </div>
+          {statusBadge && isOpen && (
+            <span className="flex-shrink-0 text-xs px-2 py-0.5 rounded-full bg-cyan-500/20 text-cyan-300 border border-cyan-400/30">
+              {statusBadge}
+            </span>
+          )}
+        </div>
+        <span
+          className={`flex-shrink-0 text-gray-400 transition-transform duration-300 ${isOpen ? 'rotate-180' : ''}`}
+          aria-hidden
+        >
+          <ChevronDown size={20} />
+        </span>
+      </button>
+      {isOpen && (
+        <div
+          id={contentId}
+          role="region"
+          aria-labelledby={`${id}-trigger`}
+          className="border-t border-white/10 bg-white/[0.02]"
+        >
+          <div className="p-4 space-y-3">
+            {onClear && (
+              <div className="flex justify-end">
+                <button
+                  type="button"
+                  onClick={onClear}
+                  className="text-xs px-3 py-1.5 rounded-lg border border-white/10 text-gray-400 hover:bg-white/5 hover:text-red-300 hover:border-red-400/30 transition-all"
+                >
+                  Limpar seção
+                </button>
+              </div>
+            )}
+            {children}
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
 const MedicalRecordScreen: React.FC = () => {
   const { id } = useParams<{ id: string }>();
   const navigate = useNavigate();
@@ -307,6 +402,10 @@ const MedicalRecordScreen: React.FC = () => {
     treatment: string;
     notes: string;
     next_appointment: string | null;
+    weight_initial_kg: number | null;
+    weight_final_kg: number | null;
+    abdomen_cm: number | null;
+    waist_cm: number | null;
   }>({
     date: getTodayDateOnly(), // Data inicial válida (date-only local)
     reason: '',
@@ -314,13 +413,35 @@ const MedicalRecordScreen: React.FC = () => {
     diagnosis: '',
     treatment: '',
     notes: '',
-    next_appointment: null // null em vez de ''
+    next_appointment: null,
+    weight_initial_kg: null,
+    weight_final_kg: null,
+    abdomen_cm: null,
+    waist_cm: null,
   });
 
   // Registro de injetáveis da consulta atual (formulário)
   const [injectablesRecord, setInjectablesRecord] = useState<InjectablesRecord>(
     () => createEmptyInjectablesRecord()
   );
+  // Expandable cards: aberto/fechado (não afeta dados; só UI)
+  const [isBotoxOpen, setIsBotoxOpen] = useState(false);
+  const [isFillersOpen, setIsFillersOpen] = useState(false);
+
+  // Badges de status para os cards (quando há dados preenchidos)
+  const botoxStatusBadge = (() => {
+    const b = injectablesRecord.botulinumToxin;
+    if (!b) return null;
+    const count = Object.values(b).filter(
+      (v) => v !== null && v !== undefined && v !== ''
+    ).length;
+    return count > 0 ? (count <= 5 ? `${count} campos` : 'Preenchido') : null;
+  })();
+  const fillersStatusBadge = (() => {
+    const rows = getFillerRowsForForm(injectablesRecord.fillers);
+    const filled = rows.filter((r) => !isFillerRowEmpty(r)).length;
+    return filled > 0 ? (filled === 1 ? '1 item' : `${filled} itens`) : null;
+  })();
 
   // Fotos do procedimento (antes de salvar)
   const [consultationPhotos, setConsultationPhotos] = useState<Array<{
@@ -531,10 +652,26 @@ const MedicalRecordScreen: React.FC = () => {
       treatment: consultation.treatment || '',
       notes: consultation.notes || '',
       next_appointment: toDateOnly(consultation.next_appointment),
+      weight_initial_kg: consultation.weight_initial_kg ?? null,
+      weight_final_kg: consultation.weight_final_kg ?? null,
+      abdomen_cm: consultation.abdomen_cm ?? null,
+      waist_cm: consultation.waist_cm ?? null,
     });
     // Carregar registro de injetáveis existente (se houver)
     const existingInjectables = (consultation as any).injectables_record;
-    setInjectablesRecord(deserializeInjectablesRecord(existingInjectables));
+    const parsed = deserializeInjectablesRecord(existingInjectables);
+    setInjectablesRecord(parsed);
+    // Abrir cards que já têm dados
+    const hasBotoxData =
+      !!parsed.botulinumToxin &&
+      Object.values(parsed.botulinumToxin).some(
+        (v) => v !== null && v !== undefined && v !== ''
+      );
+    const hasFillersData = Array.isArray(parsed.fillers)
+      ? parsed.fillers.some((row) => !isFillerRowEmpty(row))
+      : false;
+    setIsBotoxOpen(hasBotoxData);
+    setIsFillersOpen(hasFillersData);
     // Limpar fotos selecionadas (fotos existentes já estão em consultationAttachments)
     setConsultationPhotos([]);
     // Scroll para o formulário
@@ -552,8 +689,14 @@ const MedicalRecordScreen: React.FC = () => {
       treatment: '',
       notes: '',
       next_appointment: null,
+      weight_initial_kg: null,
+      weight_final_kg: null,
+      abdomen_cm: null,
+      waist_cm: null,
     });
     setInjectablesRecord(createEmptyInjectablesRecord());
+    setIsBotoxOpen(false);
+    setIsFillersOpen(false);
     setConsultationPhotos([]);
   };
 
@@ -576,7 +719,7 @@ const MedicalRecordScreen: React.FC = () => {
     try {
       let consultationData;
       const injectablesPayload = sanitizeInjectablesForSave(injectablesRecord);
-      
+
       // Se estiver editando, atualizar; senão, criar nova
       if (editingConsultationId) {
         consultationData = await updateConsultation(editingConsultationId, {
@@ -850,6 +993,10 @@ const MedicalRecordScreen: React.FC = () => {
         treatment: '',
         notes: '',
         next_appointment: null,
+        weight_initial_kg: null,
+        weight_final_kg: null,
+        abdomen_cm: null,
+        waist_cm: null,
       });
       setConsultationPhotos([]);
       setEditingConsultationId(null);
@@ -2100,6 +2247,82 @@ Data: {{signed_at}}`;
                     placeholder="Descreva os sintomas..."
                   />
                 </div>
+
+                {/* Antropometria */}
+                <div className="md:col-span-2 grid grid-cols-1 sm:grid-cols-2 gap-4">
+                  <div>
+                    <label className="block text-sm font-medium text-gray-200 mb-1">Peso inicial (kg)</label>
+                    <input
+                      type="number"
+                      step="0.1"
+                      min={0}
+                      value={newConsultation.weight_initial_kg ?? ''}
+                      onChange={(e) => {
+                        const v = e.target.value;
+                        setNewConsultation(prev => ({
+                          ...prev,
+                          weight_initial_kg: v === '' ? null : Number(v),
+                        }));
+                      }}
+                      className="w-full px-4 py-3 rounded-xl bg-white/5 border border-white/10 text-white placeholder:text-gray-400 focus:ring-2 focus:ring-cyan-500 focus:border-cyan-500 outline-none transition-all"
+                      placeholder="Ex: 70.5"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-sm font-medium text-gray-200 mb-1">Peso final (kg)</label>
+                    <input
+                      type="number"
+                      step="0.1"
+                      min={0}
+                      value={newConsultation.weight_final_kg ?? ''}
+                      onChange={(e) => {
+                        const v = e.target.value;
+                        setNewConsultation(prev => ({
+                          ...prev,
+                          weight_final_kg: v === '' ? null : Number(v),
+                        }));
+                      }}
+                      className="w-full px-4 py-3 rounded-xl bg-white/5 border border-white/10 text-white placeholder:text-gray-400 focus:ring-2 focus:ring-cyan-500 focus:border-cyan-500 outline-none transition-all"
+                      placeholder="Ex: 68.2"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-sm font-medium text-gray-200 mb-1">Circunferência do abdômen (cm)</label>
+                    <input
+                      type="number"
+                      step="0.1"
+                      min={0}
+                      value={newConsultation.abdomen_cm ?? ''}
+                      onChange={(e) => {
+                        const v = e.target.value;
+                        setNewConsultation(prev => ({
+                          ...prev,
+                          abdomen_cm: v === '' ? null : Number(v),
+                        }));
+                      }}
+                      className="w-full px-4 py-3 rounded-xl bg-white/5 border border-white/10 text-white placeholder:text-gray-400 focus:ring-2 focus:ring-cyan-500 focus:border-cyan-500 outline-none transition-all"
+                      placeholder="Ex: 92"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-sm font-medium text-gray-200 mb-1">Circunferência da cintura (cm)</label>
+                    <input
+                      type="number"
+                      step="0.1"
+                      min={0}
+                      value={newConsultation.waist_cm ?? ''}
+                      onChange={(e) => {
+                        const v = e.target.value;
+                        setNewConsultation(prev => ({
+                          ...prev,
+                          waist_cm: v === '' ? null : Number(v),
+                        }));
+                      }}
+                      className="w-full px-4 py-3 rounded-xl bg-white/5 border border-white/10 text-white placeholder:text-gray-400 focus:ring-2 focus:ring-cyan-500 focus:border-cyan-500 outline-none transition-all"
+                      placeholder="Ex: 78"
+                    />
+                  </div>
+                </div>
                 
                 {/* Seção de Fotos do Procedimento */}
                 <div className="md:col-span-2">
@@ -2155,9 +2378,23 @@ Data: {{signed_at}}`;
                   )}
                 </div>
 
-                {/* Registro de Injetáveis - Toxina Botulinica */}
-                <div className="md:col-span-2 space-y-3">
-                  <h4 className="text-sm font-semibold text-gray-200">Toxina Botulinica:</h4>
+                {/* Registro de Injetáveis - Toxina Botulínica (expandable card) */}
+                <div className="md:col-span-2">
+                  <ExpandableSection
+                    id="botox-section"
+                    title="Toxina Botulínica"
+                    subtextWhenClosed="Clique para adicionar detalhes"
+                    icon={<Syringe size={20} />}
+                    statusBadge={botoxStatusBadge}
+                    isOpen={isBotoxOpen}
+                    onToggle={() => setIsBotoxOpen((prev) => !prev)}
+                    onClear={() =>
+                      setInjectablesRecord((prev) => ({
+                        ...prev,
+                        botulinumToxin: createEmptyInjectablesRecord().botulinumToxin,
+                      }))
+                    }
+                  >
                   <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
                     <div className="flex items-center gap-2">
                       <input
@@ -2408,13 +2645,29 @@ Data: {{signed_at}}`;
                       />
                     </div>
                   </div>
+                  </ExpandableSection>
                 </div>
 
-                {/* Registro de Injetáveis - Preenchedor / Bioestimulador */}
-                <div className="md:col-span-2 space-y-3">
+                {/* Registro de Injetáveis - Preenchedor / Bioestimulador (expandable card) */}
+                <div className="md:col-span-2">
+                  <ExpandableSection
+                    id="fillers-section"
+                    title="Preenchedor / Bioestimulador"
+                    subtextWhenClosed="Clique para adicionar detalhes"
+                    icon={<Sparkles size={20} />}
+                    statusBadge={fillersStatusBadge}
+                    isOpen={isFillersOpen}
+                    onToggle={() => setIsFillersOpen((prev) => !prev)}
+                    onClear={() =>
+                      setInjectablesRecord((prev) => ({
+                        ...prev,
+                        fillers: [{ region: null, volume: null, product: null }],
+                      }))
+                    }
+                  >
                   <div className="flex items-center justify-between">
                     <h4 className="text-sm font-semibold text-gray-200">
-                      Preenchedor/ Bioestimulador:
+                      Preenchedor / Bioestimulador
                     </h4>
                     <button
                       type="button"
@@ -2422,7 +2675,7 @@ Data: {{signed_at}}`;
                         setInjectablesRecord((prev) => ({
                           ...prev,
                           fillers: [
-                            ...(prev.fillers || []),
+                            ...getFillerRowsForForm(prev.fillers),
                             { region: null, volume: null, product: null },
                           ],
                         }))
@@ -2433,21 +2686,22 @@ Data: {{signed_at}}`;
                     </button>
                   </div>
                   <div className="border border-white/10 rounded-xl overflow-hidden">
-                    <div className="grid grid-cols-3 gap-2 bg-white/5 px-3 py-2 text-xs font-medium text-gray-300">
+                    <div className="grid grid-cols-[1fr_1fr_1fr_auto] gap-2 bg-white/5 px-3 py-2 text-xs font-medium text-gray-300">
                       <span>Região a ser tratada</span>
                       <span>Volume</span>
                       <span>Produto</span>
+                      <span className="w-9" aria-hidden />
                     </div>
                     <div className="divide-y divide-white/5">
-                      {ensureMinimumFillerRows(injectablesRecord.fillers).map((row, index) => (
-                        <div key={index} className="grid grid-cols-3 gap-2 px-3 py-2">
+                      {getFillerRowsForForm(injectablesRecord.fillers).map((row, index) => (
+                        <div key={index} className="grid grid-cols-[1fr_1fr_1fr_auto] gap-2 px-3 py-2 items-center">
                           <input
                             type="text"
                             value={row.region ?? ''}
                             onChange={(e) => {
                               const value = e.target.value;
                               setInjectablesRecord((prev) => {
-                                const current = ensureMinimumFillerRows(prev.fillers);
+                                const current = getFillerRowsForForm(prev.fillers);
                                 const next = [...current];
                                 next[index] = {
                                   ...next[index],
@@ -2465,7 +2719,7 @@ Data: {{signed_at}}`;
                             onChange={(e) => {
                               const value = e.target.value;
                               setInjectablesRecord((prev) => {
-                                const current = ensureMinimumFillerRows(prev.fillers);
+                                const current = getFillerRowsForForm(prev.fillers);
                                 const next = [...current];
                                 next[index] = {
                                   ...next[index],
@@ -2483,7 +2737,7 @@ Data: {{signed_at}}`;
                             onChange={(e) => {
                               const value = e.target.value;
                               setInjectablesRecord((prev) => {
-                                const current = ensureMinimumFillerRows(prev.fillers);
+                                const current = getFillerRowsForForm(prev.fillers);
                                 const next = [...current];
                                 next[index] = {
                                   ...next[index],
@@ -2495,10 +2749,32 @@ Data: {{signed_at}}`;
                             placeholder="Produto"
                             className="px-2 py-1.5 rounded-lg bg-white/5 border border-white/10 text-white text-xs placeholder:text-gray-400 focus:ring-2 focus:ring-cyan-500 focus:border-cyan-500 outline-none"
                           />
+                          <div className="flex items-center justify-center w-9">
+                            {getFillerRowsForForm(injectablesRecord.fillers).length > 1 ? (
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  setInjectablesRecord((prev) => {
+                                    const cur = getFillerRowsForForm(prev.fillers);
+                                    const next = cur.filter((_, i) => i !== index);
+                                    if (next.length === 0) {
+                                      return { ...prev, fillers: [{ region: null, volume: null, product: null }] };
+                                    }
+                                    return { ...prev, fillers: next };
+                                  });
+                                }}
+                                className="p-1.5 rounded-lg text-red-400 hover:bg-red-500/20 transition-colors"
+                                title="Remover linha"
+                              >
+                                <Trash2 size={16} />
+                              </button>
+                            ) : null}
+                          </div>
                         </div>
                       ))}
                     </div>
                   </div>
+                  </ExpandableSection>
                 </div>
 
                 <div className="md:col-span-2">
@@ -2596,6 +2872,30 @@ Data: {{signed_at}}`;
                         <div>
                           <span className="text-sm font-medium text-gray-300">Conduta:</span>
                           <p className="text-sm text-gray-400">{consultation.treatment}</p>
+                        </div>
+                      )}
+
+                      {/* Antropometria - compact block */}
+                      {(consultation.weight_initial_kg != null ||
+                        consultation.weight_final_kg != null ||
+                        consultation.abdomen_cm != null ||
+                        consultation.waist_cm != null) && (
+                        <div className="mt-3 pt-3 border-t border-white/10">
+                          <span className="text-sm font-medium text-gray-300 block mb-2">Antropometria</span>
+                          <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 text-sm text-gray-400">
+                            {consultation.weight_initial_kg != null && (
+                              <span>Peso inicial: {consultation.weight_initial_kg} kg</span>
+                            )}
+                            {consultation.weight_final_kg != null && (
+                              <span>Peso final: {consultation.weight_final_kg} kg</span>
+                            )}
+                            {consultation.abdomen_cm != null && (
+                              <span>Abdômen: {consultation.abdomen_cm} cm</span>
+                            )}
+                            {consultation.waist_cm != null && (
+                              <span>Cintura: {consultation.waist_cm} cm</span>
+                            )}
+                          </div>
                         </div>
                       )}
 
