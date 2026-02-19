@@ -1,13 +1,14 @@
 // src/App.tsx - DESIGN FUTURISTA COMPLETO
-import React from "react";
+import React, { useEffect } from "react";
 import {
   BrowserRouter as Router,
   Routes,
   Route,
   Navigate,
 } from "react-router-dom";
-import { Toaster } from "react-hot-toast";
+import { Toaster, toast } from "react-hot-toast";
 import { AuthProvider } from "./contexts/AuthContext";
+import { runSupabaseEnvCheck } from "./utils/supabaseEnvCheck";
 import { SupabaseProvider } from "./contexts/SupabaseContext";
 import { OfflineProvider } from "./contexts/OfflineContext";
 import ProtectedRoute from "./components/ProtectedRoute";
@@ -37,6 +38,13 @@ import "./styles/futurist.css";
 import "./styles/neonTokens.css";
 
 function App() {
+  useEffect(() => {
+    const { configured, message } = runSupabaseEnvCheck();
+    if (!configured && message) {
+      toast.error("Supabase não configurado. " + message, { duration: 8000 });
+    }
+  }, []);
+
   return (
     <SupabaseProvider>
       <AuthProvider>

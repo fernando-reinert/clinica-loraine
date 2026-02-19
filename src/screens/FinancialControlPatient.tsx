@@ -1,5 +1,5 @@
 // src/screens/FinancialControlPatient.tsx - Financeiro dedicado ao paciente (sem abas da clínica)
-import React, { useState, useEffect, useMemo } from "react";
+import React, { useState, useEffect, useMemo, useCallback, useRef } from "react";
 import { useParams, useNavigate } from "react-router-dom";
 import {
   ChevronDown,
@@ -12,6 +12,8 @@ import {
   Clock,
   TrendingUp,
   AlertCircle,
+  RefreshCw,
+  ArrowLeft,
 } from "lucide-react";
 
 import ResponsiveAppLayout from "../components/Layout/ResponsiveAppLayout";
@@ -32,6 +34,8 @@ import {
   type GrossNetBucket,
   type Installment,
 } from "../services/financial/financialService";
+import { getSupabaseEnvStatus } from "../services/supabase/client";
+import { withRetry, logStructuredError } from "../utils/retryFetch";
 
 const HIDDEN_VALUE = "••••";
 
@@ -82,39 +86,97 @@ export default function FinancialControlPatient() {
   const [hideValues, setHideValues] = useState(false);
   const [expandedRecords, setExpandedRecords] = useState<Set<string>>(new Set());
   const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+  const [hasLoadedOnce, setHasLoadedOnce] = useState(false);
 
-  useEffect(() => {
-    if (!patientId) return;
-    let cancelled = false;
-    setLoading(true);
-    Promise.all([
-      getPatient(patientId),
-      listFeeRules("infinitypay"),
-      getPatientFinancialTimeline(patientId),
-      getPatientFinancialSummaryGrossNet(patientId),
-      getPatientPaidByMonthGrossNet(patientId, monthYear),
-    ])
-      .then(([p, rules, tl, summary, paid]) => {
-        if (cancelled) return;
+  const inFlightRef = useRef(false);
+  const requestIdRef = useRef(0);
+  const prevPatientIdRef = useRef<string | null>(null);
+  const hasLoadedOnceRef = useRef(false);
+
+  const loadData = useCallback(
+    async (isRetry = false) => {
+      if (!patientId) return;
+      if (inFlightRef.current) return;
+      inFlightRef.current = true;
+      const myId = ++requestIdRef.current;
+      const showFullLoading = !hasLoadedOnceRef.current || isRetry;
+      setError(null);
+      if (showFullLoading) setLoading(true);
+      try {
+        const [p, rules, tl, summary] = await withRetry(
+          () =>
+            Promise.all([
+              getPatient(patientId),
+              listFeeRules("infinitypay"),
+              getPatientFinancialTimeline(patientId),
+              getPatientFinancialSummaryGrossNet(patientId),
+            ]),
+          { screen: "FinancialControlPatient", maxRetries: 2 }
+        );
+        if (myId !== requestIdRef.current) return;
         if (p) setPatient({ id: p.id, name: p.name, created_at: p.created_at });
         setFeeRulesCache(rules ?? []);
         setTimeline(tl ?? { records: [] });
         setSummaryGrossNet(summary ?? null);
-        setPaidMonth(paid ?? null);
+        hasLoadedOnceRef.current = true;
+        setHasLoadedOnce(true);
+      } catch (err: unknown) {
+        if (myId !== requestIdRef.current) return;
+        logStructuredError({
+          screen: "FinancialControlPatient",
+          message: (err as Error)?.message,
+          code: (err as { code?: string })?.code,
+          status: (err as { status?: number })?.status,
+          details: err,
+          hint: "Verifique conexão e configurações do Supabase (URL/CORS).",
+          error: err,
+        });
+        setError((err as Error)?.message ?? "Falha ao carregar dados");
+      } finally {
+        if (myId === requestIdRef.current) inFlightRef.current = false;
+        setLoading(false);
+      }
+    },
+    [patientId, getPatient]
+  );
+
+  useEffect(() => {
+    if (!patientId) return;
+    if (patientId !== prevPatientIdRef.current) {
+      setHasLoadedOnce(false);
+      hasLoadedOnceRef.current = false;
+      prevPatientIdRef.current = patientId;
+    }
+    loadData();
+  }, [patientId, loadData]);
+
+  useEffect(() => {
+    console.debug("[FinancialControlPatient] mount", patientId);
+    return () => {
+      console.debug("[FinancialControlPatient] unmount", patientId);
+    };
+  }, [patientId]);
+
+  useEffect(() => {
+    if (!patientId) {
+      navigate("/patients", { replace: true });
+    }
+  }, [patientId, navigate]);
+
+  // Apenas PAGO (MÊS): atualiza paidMonth quando monthYear muda; cancelado se desmontar
+  useEffect(() => {
+    if (!patientId || error) return;
+    let cancelled = false;
+    getPatientPaidByMonthGrossNet(patientId, monthYear)
+      .then((data) => {
+        if (!cancelled) setPaidMonth(data ?? null);
       })
-      .finally(() => {
-        if (!cancelled) setLoading(false);
-      });
+      .catch(() => {});
     return () => {
       cancelled = true;
     };
-  }, [patientId, monthYear, getPatient]);
-
-  // Recarregar apenas PAGO (MÊS) quando mudar o mês
-  useEffect(() => {
-    if (!patientId) return;
-    getPatientPaidByMonthGrossNet(patientId, monthYear).then(setPaidMonth);
-  }, [patientId, monthYear]);
+  }, [patientId, monthYear, error]);
 
   const formatCurrency = (value: number): string => {
     if (hideValues) return HIDDEN_VALUE;
@@ -136,17 +198,51 @@ export default function FinancialControlPatient() {
     });
   };
 
-  if (!patientId) {
-    navigate("/patients");
-    return null;
-  }
+  if (!patientId) return null;
 
   const displayName = patient?.name ?? timeline.patient?.name ?? "Paciente";
   const sinceText = patient?.created_at
     ? `Desde ${formatDate(patient.created_at)}`
     : "";
 
-  if (loading && !timeline.records.length) {
+  if (error) {
+    const envStatus = getSupabaseEnvStatus();
+    return (
+      <ResponsiveAppLayout title="Financeiro do Paciente" showBack>
+        <div className="glass-card p-6 border border-red-500/30 max-w-lg mx-auto mt-6">
+          <h2 className="text-xl font-bold text-red-200 mb-2">Falha ao carregar dados financeiros</h2>
+          <p className="text-gray-300 text-sm mb-4">
+            Verifique sua conexão e as configurações do Supabase (URL/CORS).
+            {!envStatus.configured && (
+              <span className="block mt-2 text-amber-300">
+                Variáveis de ambiente ausentes: configure VITE_SUPABASE_URL e VITE_SUPABASE_ANON_KEY no build (ex.: Hostinger).
+              </span>
+            )}
+          </p>
+          <div className="flex flex-wrap gap-3">
+            <button
+              type="button"
+              onClick={() => loadData(true)}
+              className="flex items-center gap-2 px-4 py-2 rounded-xl bg-cyan-500/20 border border-cyan-400/40 text-cyan-100 hover:bg-cyan-500/30"
+            >
+              <RefreshCw size={18} />
+              Tentar novamente
+            </button>
+            <button
+              type="button"
+              onClick={() => navigate(-1)}
+              className="flex items-center gap-2 px-4 py-2 rounded-xl bg-white/10 border border-white/20 text-white hover:bg-white/20"
+            >
+              <ArrowLeft size={18} />
+              Voltar
+            </button>
+          </div>
+        </div>
+      </ResponsiveAppLayout>
+    );
+  }
+
+  if (!hasLoadedOnce && loading) {
     return (
       <ResponsiveAppLayout title="Financeiro do Paciente" showBack>
         <div className="flex items-center justify-center min-h-[40vh]">
