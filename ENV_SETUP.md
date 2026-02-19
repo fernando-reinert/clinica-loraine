@@ -38,6 +38,13 @@ VITE_PUBLIC_APP_URL=https://seu-dominio.com
 - ✅ As variáveis devem começar com `VITE_` para funcionar com Vite
 - ✅ Reinicie o servidor de desenvolvimento após criar/alterar o `.env`
 
+## Deploy em produção (Hostinger)
+
+Para build de produção, as mesmas variáveis devem estar definidas no ambiente de build. Veja **SUPABASE_CONFIG.md** para:
+
+- Quais variáveis configurar na Hostinger
+- Configuração de URL e CORS no painel do Supabase (Site URL, Redirect URLs, Allowed Origins)
+
 ## Verificação
 
 Após configurar, execute:

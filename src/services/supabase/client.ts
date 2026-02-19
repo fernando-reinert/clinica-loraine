@@ -1,19 +1,52 @@
 import { createClient } from '@supabase/supabase-js'
 import { Database } from '../../types/database'
 
-const supabaseUrl = import.meta.env.VITE_SUPABASE_URL
-const supabaseAnonKey = import.meta.env.VITE_SUPABASE_ANON_KEY
+const envUrl = import.meta.env.VITE_SUPABASE_URL as string | undefined
+const envKey = import.meta.env.VITE_SUPABASE_ANON_KEY as string | undefined
 
-if (!supabaseUrl || !supabaseAnonKey) {
-  throw new Error(
-    'Missing Supabase env vars. Set VITE_SUPABASE_URL and VITE_SUPABASE_ANON_KEY in the .env file'
-  )
+const supabaseUrl = envUrl?.trim() || ''
+const supabaseAnonKey = envKey?.trim() || ''
+
+export const SUPABASE_CONFIGURED = Boolean(supabaseUrl && supabaseAnonKey)
+
+const effectiveUrl = SUPABASE_CONFIGURED ? supabaseUrl : 'https://placeholder.supabase.co'
+const effectiveKey = SUPABASE_CONFIGURED ? supabaseAnonKey : 'placeholder-key'
+
+export const SUPABASE_URL = effectiveUrl
+
+export interface SupabaseEnvStatus {
+  configured: boolean
+  urlPresent: boolean
+  urlFormat: 'ok' | 'empty' | 'invalid'
+  anonKeyPresent: boolean
 }
 
-// Exportar URL para logs
-export const SUPABASE_URL = supabaseUrl
+export function getSupabaseEnvStatus(): SupabaseEnvStatus {
+  const urlPresent = Boolean(envUrl?.trim())
+  const anonKeyPresent = Boolean(envKey?.trim())
+  let urlFormat: 'ok' | 'empty' | 'invalid' = 'empty'
+  if (urlPresent) {
+    try {
+      const u = new URL(envUrl!.trim())
+      urlFormat = u.protocol === 'https:' && u.hostname.endsWith('.supabase.co') ? 'ok' : 'invalid'
+    } catch {
+      urlFormat = 'invalid'
+    }
+  }
+  return {
+    configured: SUPABASE_CONFIGURED,
+    urlPresent,
+    urlFormat,
+    anonKeyPresent,
+  }
+}
 
-export const supabase = createClient<Database>(supabaseUrl, supabaseAnonKey, {
+export function maskAnonKey(key: string | undefined): string {
+  if (!key || key.length < 8) return '(vazio ou inválido)'
+  return `${key.slice(0, 4)}...${key.slice(-4)}`
+}
+
+export const supabase = createClient<Database>(effectiveUrl, effectiveKey, {
   auth: {
     autoRefreshToken: true,
     persistSession: true,
