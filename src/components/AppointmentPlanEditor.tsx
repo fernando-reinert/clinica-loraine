@@ -30,9 +30,11 @@ const AppointmentPlanEditor: React.FC<AppointmentPlanEditorProps> = ({
 
   const handleUpdateItem = (index: number, updates: Partial<AppointmentPlanItem>) => {
     if (readOnly) return;
-    
     const updated = [...items];
     updated[index] = { ...updated[index], ...updates };
+    if (process.env.NODE_ENV === 'development' && updated[0]) {
+      console.debug('[PLAN_EDITOR] item after change', { cost_price: updated[0].cost_price, sale_price: updated[0].sale_price, final_price: updated[0].final_price });
+    }
     onChange(updated);
   };
 
