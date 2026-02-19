@@ -21,6 +21,7 @@ import AppointmentCreateScreen from "./screens/AppointmentCreateScreen";
 import ProfileScreen from "./screens/ProfileScreen";
 import NewPatient from "./screens/NewPatient";
 import FinancialControl from "./screens/FinancialControl";
+import FinancialControlPatient from "./screens/FinancialControlPatient";
 import MedicalRecordScreen from "./screens/MedicalRecordScreen";
 import GalleryScreen from "./screens/GalleryScreen";
 import PatientGalleryScreen from "./screens/PatientGalleryScreen";
@@ -106,6 +107,12 @@ function App() {
                 <Route path="/patients/:id/gallery" element={
                   <ProtectedRoute>
                     <PatientGalleryScreen />
+                  </ProtectedRoute>
+                } />
+
+                <Route path="/patients/:id/financial" element={
+                  <ProtectedRoute>
+                    <FinancialControlPatient />
                   </ProtectedRoute>
                 } />
 

@@ -16,18 +16,22 @@ import {
   X,
   MapPin,
   CreditCard,
+  DollarSign,
   Heart,
   Clock,
   Plus,
   Stethoscope,
   GalleryVertical,
-  Sparkles
+  Sparkles,
+  Eye,
+  EyeOff,
 } from "lucide-react";
 import ResponsiveAppLayout from "../components/Layout/ResponsiveAppLayout";
 import LoadingSpinner from "../components/LoadingSpinner";
 import toast from "react-hot-toast";
 import { usePatients } from "../hooks/usePatients";
 import { supabase } from "../services/supabase/client";
+import { getPatientFinancialSummaryGrossNet, type PatientFinancialSummaryGrossNet } from "../services/financial/financialService";
 
 const PatientDetailScreen: React.FC = () => {
   const { id } = useParams<{ id: string }>();
@@ -44,6 +48,10 @@ const PatientDetailScreen: React.FC = () => {
   const [editCpf, setEditCpf] = useState("");
   const [editBirthDate, setEditBirthDate] = useState("");
   const [editAddress, setEditAddress] = useState("");
+
+  const [showFinancialValues, setShowFinancialValues] = useState(false);
+  const [financialSummary, setFinancialSummary] = useState<PatientFinancialSummaryGrossNet | null>(null);
+  const [loadingFinancialSummary, setLoadingFinancialSummary] = useState(false);
 
   useEffect(() => {
     if (id) {
@@ -62,6 +70,15 @@ const PatientDetailScreen: React.FC = () => {
         setEditCpf(patientData.cpf);
         setEditBirthDate(patientData.birth_date);
         setEditAddress(patientData.address || "");
+        setLoadingFinancialSummary(true);
+        try {
+          const summary = await getPatientFinancialSummaryGrossNet(patientId);
+          setFinancialSummary(summary);
+        } catch {
+          setFinancialSummary(null);
+        } finally {
+          setLoadingFinancialSummary(false);
+        }
       } else {
         toast.error("Paciente não encontrado");
       }
@@ -70,6 +87,12 @@ const PatientDetailScreen: React.FC = () => {
       toast.error("Erro ao carregar dados do paciente");
     }
   };
+
+  const formatCurrency = (value: number) =>
+    value.toLocaleString("pt-BR", { style: "currency", currency: "BRL" });
+
+  const maskBRL = (show: boolean, value: number) =>
+    show ? formatCurrency(value) : "R$ ••••";
 
   const handleSaveEdit = async () => {
     if (!editName || !editPhone || !editCpf || !editBirthDate) {
@@ -166,6 +189,12 @@ const PatientDetailScreen: React.FC = () => {
       action: () => navigate(`/appointments?patientId=${id}`),
     },
     {
+      title: "Ver Financeiro",
+      icon: DollarSign,
+      gradient: "from-emerald-500 to-teal-500",
+      action: () => navigate(`/patients/${id}/financial`),
+    },
+    {
       title: "Galeria",
       icon: GalleryVertical,
       gradient: "from-purple-500 to-pink-500",
@@ -239,7 +268,7 @@ const PatientDetailScreen: React.FC = () => {
               ) : (
                 <>
                   <h2 className="text-2xl font-bold glow-text mb-2">{patient.name}</h2>
-                  <div className="flex items-center space-x-4 text-gray-300">
+                  <div className="flex flex-wrap items-center gap-x-4 gap-y-2 text-gray-300">
                     <div className="flex items-center space-x-1">
                       <Heart size={16} />
                       <span>{calculateAge(patient.birth_date)} anos</span>
@@ -248,6 +277,30 @@ const PatientDetailScreen: React.FC = () => {
                       <Calendar size={16} />
                       <span>Desde {formatDate(patient.created_at)}</span>
                     </div>
+                    {!loadingFinancialSummary && financialSummary && (
+                      <div className="flex flex-wrap items-center gap-2 ml-auto">
+                        <button
+                          type="button"
+                          onClick={() => setShowFinancialValues((v) => !v)}
+                          className="p-2 rounded-xl bg-white/5 border border-white/10 hover:bg-white/10 text-gray-300"
+                          title={showFinancialValues ? "Ocultar valores" : "Mostrar valores"}
+                        >
+                          {showFinancialValues ? <EyeOff size={16} /> : <Eye size={16} />}
+                        </button>
+                        {financialSummary.overdue.gross > 0 && (
+                          <div className="px-2.5 py-1.5 rounded-xl bg-red-500/20 border border-red-400/30 text-red-200 text-xs">
+                            <span className="font-medium">EM ATRASO</span>
+                            <div className="mt-0.5 text-[11px]">Bruto: {maskBRL(showFinancialValues, financialSummary.overdue.gross)}</div>
+                            <div className="text-[11px]">Líquido: {maskBRL(showFinancialValues, financialSummary.overdue.net)}</div>
+                          </div>
+                        )}
+                        <div className="px-2.5 py-1.5 rounded-xl bg-white/5 border border-white/10 text-gray-300 text-xs">
+                          <span className="font-medium">Pendente</span>
+                          <div className="mt-0.5 text-[11px]">Bruto: {maskBRL(showFinancialValues, financialSummary.pending.gross)}</div>
+                          <div className="text-[11px]">Líquido: {maskBRL(showFinancialValues, financialSummary.pending.net)}</div>
+                        </div>
+                      </div>
+                    )}
                   </div>
                 </>
               )}

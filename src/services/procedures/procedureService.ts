@@ -1,5 +1,10 @@
 // src/services/procedures/procedureService.ts
 // Serviço centralizado para o Catálogo de Procedimentos
+//
+// IMPORTANTE: O catálogo usa a tabela procedure_catalog (não a tabela procedures).
+// A tabela procedures é usada pelo módulo financeiro para registros de atendimento
+// (patient_id, total_amount, parcelas, etc.). listActiveProcedures() consulta
+// apenas procedure_catalog (name, cost_price, sale_price, duration_minutes, is_active).
 
 import { supabase } from '../supabase/client';
 import logger from '../../utils/logger';
