@@ -146,6 +146,32 @@ export const todayISO = (): string =>
   new Date().toLocaleDateString('en-CA', { timeZone: 'America/Sao_Paulo' });
 
 /**
+ * Range do mês para filtro semiaberto [start, nextStart): evita datas inválidas (ex.: -31).
+ * Entrada: monthYear "YYYY-MM". Saída: start = primeiro dia, nextStart = primeiro dia do mês seguinte.
+ */
+export function getMonthDateRange(monthYear: string): { start: string; nextStart: string } {
+  const parts = (monthYear || '').trim().split('-');
+  const y = parseInt(parts[0], 10);
+  const m = parseInt(parts[1], 10);
+  if (!Number.isFinite(y) || !Number.isFinite(m) || m < 1 || m > 12) {
+    if (import.meta.env?.DEV) {
+      logger.warn('[FINANCIAL] getMonthDateRange: monthYear inválido', { monthYear, parsed: { y, m } });
+    }
+    const fallback = new Date();
+    const fy = fallback.getFullYear();
+    const fm = fallback.getMonth() + 1;
+    const start = `${fy}-${String(fm).padStart(2, '0')}-01`;
+    const nextStart = fm === 12 ? `${fy + 1}-01-01` : `${fy}-${String(fm + 1).padStart(2, '0')}-01`;
+    return { start, nextStart };
+  }
+  const YYYY = String(y);
+  const MM = String(m).padStart(2, '0');
+  const start = `${YYYY}-${MM}-01`;
+  const nextStart = m === 12 ? `${y + 1}-01-01` : `${y}-${String(m + 1).padStart(2, '0')}-01`;
+  return { start, nextStart };
+}
+
+/**
  * Parcela está atrasada? (due_date < hoje)
  */
 export const isOverdueISO = (dueISO: string, todayISOStr: string): boolean => {
@@ -1141,15 +1167,14 @@ export const getPatientPaidByMonthGrossNet = async (
       procMap.set(p.id, { payment_method: p.payment_method ?? 'pix', total_installments: p.total_installments ?? 1 })
     );
 
-    const start = `${monthYear}-01`;
-    const end = `${monthYear}-31`;
+    const { start, nextStart } = getMonthDateRange(monthYear);
     const { data: installments, error: instError } = await supabase
       .from('installments')
       .select('*')
       .in('procedure_id', procedureIds)
       .eq('status', 'pago')
       .gte('paid_date', start)
-      .lte('paid_date', end);
+      .lt('paid_date', nextStart);
 
     if (instError || !installments?.length) return empty;
 
