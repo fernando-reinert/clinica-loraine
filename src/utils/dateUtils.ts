@@ -283,3 +283,10 @@ export function buildEndTimeIso(
     return null;
   }
 }
+
+/**
+ * Calcula end_time ISO a partir de start_time e duração em minutos (para dropdown de duração).
+ */
+export function buildEndTimeFromDurationMinutes(startIso: string, durationMinutes: number): string | null {
+  return addMinutesToDate(startIso, durationMinutes);
+}

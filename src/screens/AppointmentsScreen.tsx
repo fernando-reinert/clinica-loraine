@@ -1,6 +1,6 @@
-// src/screens/AppointmentsScreen.tsx
-import React, { useState, useEffect, useRef } from "react";
-import { useNavigate, useSearchParams } from "react-router-dom";
+// src/screens/AppointmentsScreen.tsx - Calendar-first: visão do dia + drawer create/edit
+import React, { useState, useEffect, useRef, useCallback } from "react";
+import { useNavigate } from "react-router-dom";
 import { supabase } from "../services/supabase/client";
 import toast from "react-hot-toast";
 import {
@@ -12,19 +12,24 @@ import {
   Filter,
   ChevronDown,
   ChevronUp,
-  Plus,
+  ChevronLeft,
+  ChevronRight,
   Sparkles,
   Stethoscope,
 } from "lucide-react";
 import ResponsiveAppLayout from "../components/Layout/ResponsiveAppLayout";
 import LoadingSpinner from "../components/LoadingSpinner";
-import AppointmentDetailsForm from "../components/appointments/AppointmentDetailsForm";
-import type { AppointmentForForm, PatientForForm } from "../components/appointments/AppointmentDetailsForm";
+import DayCalendarView from "../components/appointments/DayCalendarView";
+import type { DayCalendarEvent } from "../components/appointments/DayCalendarView";
+import AppointmentDrawer from "../components/appointments/AppointmentDrawer";
+import type { DrawerAppointment } from "../components/appointments/AppointmentDrawer";
 import { convertToBrazilianFormat } from "../utils/dateUtils";
 import { cancelGcalEvent } from "../services/calendar";
+import { listAppointmentsByDay } from "../services/appointments/appointmentService";
 
 interface Appointment {
   id: string;
+  patient_id?: string | null;
   patient_name: string;
   patient_phone: string;
   start_time: string;
@@ -36,172 +41,249 @@ interface Appointment {
   gcal_event_id?: string | null;
 }
 
-interface Patient {
-  id: string;
-  name: string;
-  phone: string;
-  email?: string;
+function formatDayLabel(d: Date): string {
+  return d.toLocaleDateString("pt-BR", {
+    weekday: "long",
+    day: "numeric",
+    month: "long",
+    year: "numeric",
+  });
 }
 
 const AppointmentsScreen: React.FC = () => {
   const navigate = useNavigate();
-  const [searchParams] = useSearchParams();
-  const patientIdFromUrl = searchParams.get("patientId");
 
+  const [selectedDay, setSelectedDay] = useState<Date>(() => {
+    const t = new Date();
+    return new Date(t.getFullYear(), t.getMonth(), t.getDate(), 0, 0, 0, 0);
+  });
+  const [dayAppointments, setDayAppointments] = useState<DayCalendarEvent[]>([]);
+  const [dayLoading, setDayLoading] = useState(true);
   const [appointments, setAppointments] = useState<Appointment[]>([]);
   const [filteredAppointments, setFilteredAppointments] = useState<Appointment[]>([]);
-  const [patients, setPatients] = useState<Patient[]>([]);
-  const [patientFromUrl, setPatientFromUrl] = useState<PatientForForm | null>(null);
   const [loading, setLoading] = useState(true);
-  const [patientsLoading, setPatientsLoading] = useState(false);
-  const [editingAppointment, setEditingAppointment] = useState<Appointment | null>(null);
-  const [deleteConfirming, setDeleteConfirming] = useState<Appointment | null>(null);
   const [filter, setFilter] = useState<"all" | "upcoming" | "past">("upcoming");
   const [sortOrder, setSortOrder] = useState<"asc" | "desc">("asc");
-  const [formResetKey, setFormResetKey] = useState(0);
-  const formFirstInputRef = useRef<HTMLInputElement>(null);
-  const titleInputRef = useRef<HTMLInputElement>(null);
+  const [drawerOpen, setDrawerOpen] = useState(false);
+  const [drawerMode, setDrawerMode] = useState<"create" | "edit">("create");
+  const [drawerInitialDate, setDrawerInitialDate] = useState<Date | undefined>();
+  const [drawerInitialHour, setDrawerInitialHour] = useState(8);
+  const [drawerInitialMinute, setDrawerInitialMinute] = useState(0);
+  const [drawerAppointment, setDrawerAppointment] = useState<DrawerAppointment | null>(null);
+  const [deleteConfirming, setDeleteConfirming] = useState<Appointment | null>(null);
+  const [historyExpanded, setHistoryExpanded] = useState(false);
+  const [expandedPatientKeys, setExpandedPatientKeys] = useState<Set<string>>(new Set());
+  const requestIdRef = useRef(0);
 
-  useEffect(() => {
-    loadAppointments();
-    loadPatients();
-  }, []);
-
-  useEffect(() => {
-    filterAndSortAppointments();
-  }, [appointments, filter, sortOrder]);
-
-  useEffect(() => {
-    if (!patientIdFromUrl) {
-      setPatientFromUrl(null);
-      return;
+  const historyGroups = React.useMemo(() => {
+    const map = new Map<string, { patientName: string; appointments: Appointment[] }>();
+    for (const a of filteredAppointments) {
+      const key = a.patient_id ?? a.patient_name ?? "sem-nome";
+      const name = a.patient_name?.trim() || "Sem nome";
+      if (!map.has(key)) map.set(key, { patientName: name, appointments: [] });
+      map.get(key)!.appointments.push(a);
     }
-    let cancelled = false;
-    (async () => {
-      const { data, error } = await supabase
-        .from("patients")
-        .select("id, name, phone, email")
-        .eq("id", patientIdFromUrl)
-        .single();
-      if (!cancelled && !error && data) {
-        setPatientFromUrl(data as PatientForForm);
-      } else {
-        setPatientFromUrl(null);
-      }
-    })();
-    return () => {
-      cancelled = true;
-    };
-  }, [patientIdFromUrl]);
+    return Array.from(map.entries())
+      .map(([key, { patientName, appointments }]) => ({
+        key,
+        patientName,
+        appointments: [...appointments].sort(
+          (x, y) => new Date(x.start_time).getTime() - new Date(y.start_time).getTime()
+        ),
+      }))
+      .sort((a, b) => a.patientName.localeCompare(b.patientName, "pt-BR"));
+  }, [filteredAppointments]);
 
-  const loadAppointments = async () => {
+  const togglePatientGroup = (key: string) => {
+    setExpandedPatientKeys((prev) => {
+      const next = new Set(prev);
+      if (next.has(key)) next.delete(key);
+      else next.add(key);
+      return next;
+    });
+  };
+
+  const loadDayAppointments = useCallback(async () => {
+    const myId = ++requestIdRef.current;
+    setDayLoading(true);
+    try {
+      const data = await listAppointmentsByDay(selectedDay);
+      if (myId !== requestIdRef.current) return;
+      setDayAppointments(
+        (data ?? []).map((a: any) => ({
+          id: a.id,
+          start_time: a.start_time,
+          end_time: a.end_time,
+          patient_name: a.patient_name ?? "",
+          title: a.title ?? "",
+          status: a.status,
+          budget: a.budget,
+        }))
+      );
+    } catch (err) {
+      if (myId === requestIdRef.current) toast.error("Erro ao carregar agenda do dia.");
+    } finally {
+      if (myId === requestIdRef.current) setDayLoading(false);
+    }
+  }, [selectedDay]);
+
+  useEffect(() => {
+    loadDayAppointments();
+  }, [loadDayAppointments]);
+
+  const loadAppointments = useCallback(async () => {
     try {
       setLoading(true);
       const { data, error } = await supabase.from("appointments").select("*").order("start_time", { ascending: true });
-
       if (error) throw error;
-
-      const formattedAppointments =
-        data?.map((appointment: any) => ({
-          id: appointment.id,
-          patient_name: appointment.patient_name,
-          patient_phone: appointment.patient_phone,
-          start_time: appointment.start_time,
-          end_time: appointment.end_time ?? null,
-          description: appointment.description,
-          title: appointment.title,
-          status: appointment.status,
-          budget: appointment.budget,
-          gcal_event_id: appointment.gcal_event_id ?? appointment.google_event_id ?? null,
-        })) || [];
-
-      setAppointments(formattedAppointments);
-      setFilteredAppointments(formattedAppointments);
-    } catch (error) {
-      console.error("Erro ao carregar agendamentos:", error);
+      const formatted =
+        data?.map((a: any) => ({
+          id: a.id,
+          patient_id: a.patient_id,
+          patient_name: a.patient_name,
+          patient_phone: a.patient_phone,
+          start_time: a.start_time,
+          end_time: a.end_time ?? null,
+          description: a.description,
+          title: a.title,
+          status: a.status,
+          budget: a.budget,
+          gcal_event_id: a.gcal_event_id ?? a.google_event_id ?? null,
+        })) ?? [];
+      setAppointments(formatted);
+      setFilteredAppointments(formatted);
+    } catch (err) {
+      console.error("Erro ao carregar agendamentos:", err);
+      toast.error("Erro ao carregar lista.");
     } finally {
       setLoading(false);
     }
-  };
+  }, []);
 
-  const loadPatients = async () => {
-    try {
-      setPatientsLoading(true);
-      const { data, error } = await supabase.from("patients").select("id, name, phone, email").order("name", { ascending: true });
+  useEffect(() => {
+    loadAppointments();
+  }, [loadAppointments]);
 
-      if (error) throw error;
-      setPatients(data || []);
-    } catch (error) {
-      console.error("Erro ao carregar pacientes:", error);
-    } finally {
-      setPatientsLoading(false);
-    }
-  };
-
-  const filterAndSortAppointments = () => {
+  useEffect(() => {
     const now = new Date();
-
-    let filtered = appointments.filter((appointment) => {
-      const appointmentDate = new Date(appointment.start_time);
-      switch (filter) {
-        case "upcoming":
-          return appointmentDate >= now;
-        case "past":
-          return appointmentDate < now;
-        default:
-          return true;
-      }
+    let filtered = appointments.filter((a) => {
+      const d = new Date(a.start_time);
+      if (filter === "upcoming") return d >= now;
+      if (filter === "past") return d < now;
+      return true;
     });
-
     filtered.sort((a, b) => {
-      const dateA = new Date(a.start_time);
-      const dateB = new Date(b.start_time);
-      return sortOrder === "asc" ? dateA.getTime() - dateB.getTime() : dateB.getTime() - dateA.getTime();
+      const ta = new Date(a.start_time).getTime();
+      const tb = new Date(b.start_time).getTime();
+      return sortOrder === "asc" ? ta - tb : tb - ta;
     });
-
     setFilteredAppointments(filtered);
+  }, [appointments, filter, sortOrder]);
+
+  const handleSlotClick = (date: Date, hour: number, minute: number) => {
+    setDrawerInitialDate(new Date(date.getFullYear(), date.getMonth(), date.getDate(), 0, 0, 0, 0));
+    setDrawerInitialHour(hour);
+    setDrawerInitialMinute(minute);
+    setDrawerAppointment(null);
+    setDrawerMode("create");
+    setDrawerOpen(true);
   };
 
-  const startEdit = (appointment: Appointment) => {
-    setEditingAppointment(appointment);
-    window.scrollTo({ top: 0, behavior: "smooth" });
-    setTimeout(() => titleInputRef.current?.focus(), 150);
+  const handleEventClick = (ev: DayCalendarEvent) => {
+    const full = appointments.find((a) => a.id === ev.id);
+    if (full) {
+setDrawerAppointment({
+      id: full.id,
+      patient_id: full.patient_id,
+      patient_name: full.patient_name,
+      patient_phone: full.patient_phone ?? "",
+      start_time: full.start_time,
+      end_time: full.end_time,
+      title: full.title,
+      description: full.description,
+      status: full.status,
+      budget: full.budget,
+      gcal_event_id: full.gcal_event_id,
+    });
+    } else {
+      setDrawerAppointment({
+        id: ev.id,
+        patient_name: ev.patient_name,
+        patient_phone: "",
+        start_time: ev.start_time,
+        end_time: ev.end_time,
+        title: ev.title,
+      });
+    }
+    setDrawerMode("edit");
+    setDrawerInitialDate(undefined);
+    setDrawerOpen(true);
   };
 
-  const cancelEdit = () => {
-    setEditingAppointment(null);
-  };
-
-  const handleFormCreated = () => {
-    setFormResetKey((k) => k + 1);
-    setEditingAppointment(null);
+  const handleDrawerSaved = () => {
+    loadDayAppointments();
     loadAppointments();
   };
 
-  const handleFormUpdated = () => {
-    setEditingAppointment(null);
-    loadAppointments();
+  const goPrevDay = () => {
+    const d = new Date(selectedDay);
+    d.setDate(d.getDate() - 1);
+    setSelectedDay(d);
+  };
+  const goNextDay = () => {
+    const d = new Date(selectedDay);
+    d.setDate(d.getDate() + 1);
+    setSelectedDay(d);
+  };
+  const goToday = () => {
+    const t = new Date();
+    setSelectedDay(new Date(t.getFullYear(), t.getMonth(), t.getDate(), 0, 0, 0, 0));
   };
 
-  const deleteAppointment = (appointment: Appointment) => {
-    setDeleteConfirming(appointment);
+  const openEditFromList = (appointment: Appointment) => {
+    setDrawerAppointment({
+      id: appointment.id,
+      patient_id: appointment.patient_id,
+      patient_name: appointment.patient_name,
+      patient_phone: appointment.patient_phone ?? "",
+      start_time: appointment.start_time,
+      end_time: appointment.end_time,
+      title: appointment.title,
+      description: appointment.description,
+      status: appointment.status,
+      budget: appointment.budget,
+      gcal_event_id: appointment.gcal_event_id,
+    });
+    setDrawerMode("edit");
+    setDrawerOpen(true);
   };
 
   const confirmDeleteAppointment = async () => {
     const appointment = deleteConfirming;
     if (!appointment) return;
     setDeleteConfirming(null);
+    let gcalFailed = false;
     try {
       if (appointment.gcal_event_id) {
-        await cancelGcalEvent(appointment.gcal_event_id);
+        try {
+          await cancelGcalEvent(appointment.gcal_event_id);
+        } catch (gcalErr: any) {
+          console.warn("Google Calendar: falha ao remover evento", gcalErr);
+          gcalFailed = true;
+        }
       }
       const { error } = await supabase.from("appointments").delete().eq("id", appointment.id);
       if (error) throw error;
-      toast.success("Agendamento excluído com sucesso!");
+      toast.success(
+        gcalFailed
+          ? "Agendamento excluído. Não foi possível remover do Google Calendar."
+          : "Agendamento excluído."
+      );
+      loadDayAppointments();
       loadAppointments();
-    } catch (error: any) {
-      console.error("Erro ao excluir agendamento:", error);
-      toast.error("Erro ao excluir agendamento.");
+    } catch (err: any) {
+      console.error(err);
+      toast.error("Erro ao excluir.");
     }
   };
 
@@ -219,335 +301,319 @@ const AppointmentsScreen: React.FC = () => {
           })
           .eq("id", appointment.id);
       } else {
-        const { error } = await supabase.from("appointments").update({ status }).eq("id", appointment.id);
-        if (error) throw error;
+        await supabase.from("appointments").update({ status }).eq("id", appointment.id);
       }
+      loadDayAppointments();
       loadAppointments();
-    } catch (error: any) {
-      console.error("Erro ao atualizar status:", error);
-      toast.error("Erro ao atualizar status do agendamento.");
+    } catch (err: any) {
+      console.error(err);
+      toast.error("Erro ao atualizar status.");
     }
   };
 
-  const formatCurrency = (value: number) =>
-    new Intl.NumberFormat("pt-BR", { style: "currency", currency: "BRL" }).format(value);
-
-  const isPastAppointment = (appointment: Appointment) => new Date(appointment.start_time) < new Date();
-
-  if (loading) {
-    return (
-      <ResponsiveAppLayout title="Agendamentos" showBack={true}>
-        <div className="flex items-center justify-center h-96">
-          <div className="text-center">
-            <div className="relative">
-              <LoadingSpinner size="lg" className="text-blue-500" />
-              <Sparkles className="absolute -top-2 -right-2 text-purple-500 animate-pulse" size={20} />
-            </div>
-            <p className="mt-4 text-gray-300">Carregando universo de agendamentos...</p>
-          </div>
-        </div>
-      </ResponsiveAppLayout>
-    );
-  }
+  const formatCurrency = (v: number) =>
+    new Intl.NumberFormat("pt-BR", { style: "currency", currency: "BRL" }).format(v);
+  const isPastAppointment = (a: Appointment) => new Date(a.start_time) < new Date();
 
   const total = appointments.length;
   const upcoming = appointments.filter((a) => !isPastAppointment(a)).length;
   const confirmed = appointments.filter((a) => a.status === "confirmed").length;
 
   return (
-    <ResponsiveAppLayout title="Agendamentos" showBack={true}>
-      <div className="space-y-6 sm:space-y-8 w-full max-w-full min-w-0">
-        {/* Header (padrão Dashboard) */}
-        <div className="glass-card p-4 sm:p-6 md:p-8 relative overflow-hidden">
+    <ResponsiveAppLayout title="Agendamentos" showBack>
+      <div className="space-y-6 w-full max-w-full min-w-0">
+        {/* Header: dia selecionado + navegação */}
+        <div className="glass-card p-4 sm:p-6 relative overflow-hidden">
           <div className="absolute inset-0 bg-gradient-to-br from-blue-500/10 via-purple-500/10 to-cyan-500/10" />
-          <div className="relative z-10 flex flex-col lg:flex-row justify-between items-start lg:items-center gap-4 sm:gap-6 min-w-0">
-            <div className="flex-1 min-w-0">
-              <div className="flex flex-wrap items-center gap-3 sm:gap-4 mb-4 min-w-0">
-                <div className="p-3 bg-blue-500/20 rounded-2xl backdrop-blur-sm border border-blue-400/30 flex-shrink-0">
-                  <Sparkles className="text-blue-300" size={28} />
-                </div>
-                <div className="min-w-0">
-                  <h1 className="text-2xl sm:text-3xl font-bold glow-text mb-2 whitespace-normal break-words">Gestão de Agendamentos</h1>
-                  <p className="text-gray-300 text-base sm:text-lg whitespace-normal break-words">Controle completo da agenda da clínica</p>
-                </div>
+          <div className="relative z-10 flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+            <div className="flex items-center gap-3 flex-wrap">
+              <div className="p-3 bg-blue-500/20 rounded-2xl border border-blue-400/30">
+                <Sparkles className="text-blue-300" size={28} />
               </div>
-
-              {/* Stats */}
-              <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 mt-4 sm:mt-6 max-w-2xl w-full min-w-0">
-                <div className="glass-card p-4 border border-white/10">
-                  <p className="text-2xl font-bold text-white">{total}</p>
-                  <p className="text-gray-400 text-sm">Total</p>
-                </div>
-                <div className="glass-card p-4 border border-white/10">
-                  <p className="text-2xl font-bold text-green-300">{upcoming}</p>
-                  <p className="text-gray-400 text-sm">Futuros</p>
-                </div>
-                <div className="glass-card p-4 border border-white/10">
-                  <p className="text-2xl font-bold text-cyan-300">{confirmed}</p>
-                  <p className="text-gray-400 text-sm">Confirmados</p>
-                </div>
+              <div>
+                <h1 className="text-xl sm:text-2xl font-bold glow-text">Agenda do dia</h1>
+                <p className="text-gray-300 capitalize">{formatDayLabel(selectedDay)}</p>
               </div>
             </div>
-
-            <button
-              onClick={() => {
-                window.scrollTo({ top: 0, behavior: "smooth" });
-              }}
-              className="neon-button group relative overflow-hidden w-full sm:w-auto min-h-[44px] inline-flex items-center justify-center"
-              type="button"
-            >
-              <div className="absolute inset-0 bg-gradient-to-r from-white/20 to-transparent opacity-0 group-hover:opacity-100 transition-opacity" />
-              <Plus size={22} className="mr-2 sm:mr-3 relative z-10 shrink-0" />
-              <span className="relative z-10 font-semibold whitespace-normal break-words">{editingAppointment ? "Editando..." : "Novo Agendamento"}</span>
-            </button>
+            <div className="flex items-center gap-2">
+              <button
+                type="button"
+                onClick={goPrevDay}
+                className="p-2.5 rounded-xl bg-white/5 hover:bg-white/10 border border-white/10 text-white"
+                aria-label="Dia anterior"
+              >
+                <ChevronLeft size={22} />
+              </button>
+              <button
+                type="button"
+                onClick={goToday}
+                className="px-3 py-2 rounded-xl bg-white/5 hover:bg-white/10 border border-white/10 text-white text-sm font-medium"
+              >
+                Hoje
+              </button>
+              <button
+                type="button"
+                onClick={goNextDay}
+                className="p-2.5 rounded-xl bg-white/5 hover:bg-white/10 border border-white/10 text-white"
+                aria-label="Próximo dia"
+              >
+                <ChevronRight size={22} />
+              </button>
+            </div>
+          </div>
+          <div className="relative z-10 grid grid-cols-3 gap-3 mt-4 max-w-xs">
+            <div className="glass-card p-3 border border-white/10">
+              <p className="text-lg font-bold text-white">{total}</p>
+              <p className="text-gray-400 text-xs">Total</p>
+            </div>
+            <div className="glass-card p-3 border border-white/10">
+              <p className="text-lg font-bold text-green-300">{upcoming}</p>
+              <p className="text-gray-400 text-xs">Futuros</p>
+            </div>
+            <div className="glass-card p-3 border border-white/10">
+              <p className="text-lg font-bold text-cyan-300">{confirmed}</p>
+              <p className="text-gray-400 text-xs">Confirmados</p>
+            </div>
           </div>
         </div>
 
-        {/* Formulário padrão "Detalhes do Agendamento" — único componente reutilizado */}
-        <AppointmentDetailsForm
-          key={editingAppointment?.id ?? `new-${formResetKey}`}
-          mode={editingAppointment ? "edit" : "create"}
-          showPatientPicker={!patientIdFromUrl}
-          initialPatientId={patientIdFromUrl ?? undefined}
-          initialPatient={patientFromUrl}
-          initialAppointment={editingAppointment ? (editingAppointment as AppointmentForForm) : null}
-          patients={patients as PatientForForm[]}
-          patientsLoading={patientsLoading}
-          onCreated={handleFormCreated}
-          onUpdated={handleFormUpdated}
-          onCancel={cancelEdit}
-          formFirstInputRef={formFirstInputRef}
-          titleInputRef={titleInputRef}
-        />
-
-        {/* Filtros (padrão Dashboard) */}
-        <div className="glass-card p-6 border border-white/10">
-          <div className="flex flex-col lg:flex-row gap-4 justify-between items-start lg:items-center">
-            <div className="flex flex-wrap gap-2">
-              {(["upcoming", "past", "all"] as const).map((key) => (
-                <button
-                  key={key}
-                  type="button"
-                  onClick={() => setFilter(key)}
-                  className={`px-4 py-2 rounded-2xl font-medium transition-all ${
-                    filter === key ? "bg-white/15 text-white border border-white/20" : "bg-white/5 text-gray-200 border border-white/10 hover:bg-white/10"
-                  }`}
-                >
-                  {key === "upcoming" ? "Próximos" : key === "past" ? "Passados" : "Todos"}
-                </button>
-              ))}
+        {/* Visão do dia: grid de horários + eventos */}
+        <div className="glass-card p-4 sm:p-6 border border-white/10">
+          {dayLoading ? (
+            <div className="flex items-center justify-center min-h-[400px]">
+              <LoadingSpinner size="lg" className="text-cyan-500" />
             </div>
-
-            <button
-              type="button"
-              onClick={() => setSortOrder(sortOrder === "asc" ? "desc" : "asc")}
-              className="flex items-center gap-2 px-4 py-2 rounded-2xl bg-white/5 hover:bg-white/10 border border-white/10 text-gray-200 transition-all"
-            >
-              <Filter size={16} />
-              Ordenar: {sortOrder === "asc" ? "Mais Antigos" : "Mais Recentes"}
-              {sortOrder === "asc" ? <ChevronDown size={16} /> : <ChevronUp size={16} />}
-            </button>
-          </div>
+          ) : (
+            <DayCalendarView
+              day={selectedDay}
+              appointments={dayAppointments}
+              onSlotClick={handleSlotClick}
+              onEventClick={handleEventClick}
+            />
+          )}
         </div>
 
-        {/* Lista / Histórico de agendamentos — sempre visível abaixo do formulário e dos filtros */}
-        <div id="historico-agendamentos" className="glass-card p-8 border border-white/10">
-          <div className="flex items-center gap-3 mb-6">
-            <Clock className="text-cyan-300" size={26} />
-            <h3 className="text-2xl font-bold glow-text">
-              Histórico de Agendamentos ({filteredAppointments.length})
-              {filter === "upcoming" && " — Próximos"}
-              {filter === "past" && " — Passados"}
-            </h3>
-          </div>
-
-          {filteredAppointments.length > 0 ? (
-            <div className="space-y-4">
-              {filteredAppointments.map((appointment) => {
-                const isPast = isPastAppointment(appointment);
-
-                const statusLabel =
-                  appointment.status === "scheduled"
-                    ? "Agendado"
-                    : appointment.status === "confirmed"
-                    ? "Confirmado"
-                    : appointment.status === "completed"
-                    ? "Concluído"
-                    : "Cancelado";
-
-                const statusClass =
-                  appointment.status === "scheduled"
-                    ? "bg-amber-500/15 text-amber-200 border border-amber-400/20"
-                    : appointment.status === "confirmed"
-                    ? "bg-cyan-500/15 text-cyan-200 border border-cyan-400/20"
-                    : appointment.status === "completed"
-                    ? "bg-green-500/15 text-green-200 border border-green-400/20"
-                    : "bg-red-500/15 text-red-200 border border-red-400/20";
-
-                return (
-                  <div
-                    key={appointment.id}
-                    className={`glass-card p-6 border border-white/10 transition-all duration-300 hover:scale-[1.01] ${
-                      isPast ? "opacity-75" : ""
+        {/* Histórico (secundário): accordion */}
+        <div className="glass-card border border-white/10 overflow-hidden">
+          <button
+            type="button"
+            onClick={() => setHistoryExpanded((e) => !e)}
+            className="w-full flex items-center justify-between p-4 sm:p-6 text-left hover:bg-white/5 transition-colors"
+          >
+            <div className="flex items-center gap-3">
+              <Clock className="text-cyan-300" size={24} />
+              <h3 className="text-lg font-bold text-white">
+                Histórico ({filteredAppointments.length})
+                {filter === "upcoming" && " — Próximos"}
+                {filter === "past" && " — Passados"}
+              </h3>
+            </div>
+            {historyExpanded ? <ChevronUp size={20} /> : <ChevronDown size={20} />}
+          </button>
+          {historyExpanded && (
+            <div className="border-t border-white/10 p-4 sm:p-6">
+              <div className="flex flex-wrap gap-2 mb-4">
+                {(["upcoming", "past", "all"] as const).map((key) => (
+                  <button
+                    key={key}
+                    type="button"
+                    onClick={() => setFilter(key)}
+                    className={`px-4 py-2 rounded-2xl font-medium transition-all ${
+                      filter === key ? "bg-white/15 text-white border border-white/20" : "bg-white/5 text-gray-200 border border-white/10 hover:bg-white/10"
                     }`}
                   >
-                    <div className="flex flex-col lg:flex-row lg:items-start justify-between gap-4">
-                      <div className="flex-1">
-                        <div className="flex items-start gap-4 mb-3">
-                          <div
-                            className={`w-12 h-12 rounded-2xl flex items-center justify-center border ${
-                              isPast ? "bg-white/5 border-white/10" : "bg-gradient-to-r from-purple-500 to-pink-500 border-white/10"
-                            }`}
-                          >
-                            <User className="text-white" size={22} />
+                    {key === "upcoming" ? "Próximos" : key === "past" ? "Passados" : "Todos"}
+                  </button>
+                ))}
+                <button
+                  type="button"
+                  onClick={() => setSortOrder((s) => (s === "asc" ? "desc" : "asc"))}
+                  className="flex items-center gap-2 px-4 py-2 rounded-2xl bg-white/5 hover:bg-white/10 border border-white/10 text-gray-200"
+                >
+                  <Filter size={16} />
+                  {sortOrder === "asc" ? "Mais antigos" : "Mais recentes"}
+                </button>
+              </div>
+              {filteredAppointments.length > 0 ? (
+                <div className="space-y-3">
+                  {historyGroups.map((group) => {
+                    const isGroupExpanded = expandedPatientKeys.has(group.key);
+                    return (
+                      <div key={group.key} className="rounded-xl border border-white/10 overflow-hidden bg-white/[0.02]">
+                        <button
+                          type="button"
+                          onClick={() => togglePatientGroup(group.key)}
+                          className="w-full flex items-center justify-between p-4 text-left hover:bg-white/5 transition-colors"
+                        >
+                          <div className="flex items-center gap-3 min-w-0">
+                            <div className="w-10 h-10 rounded-xl bg-cyan-500/20 border border-cyan-400/30 flex items-center justify-center flex-shrink-0">
+                              <User className="text-cyan-200" size={20} />
+                            </div>
+                            <div className="min-w-0">
+                              <h4 className="font-bold text-white truncate">{group.patientName}</h4>
+                              <p className="text-gray-400 text-sm">
+                                {group.appointments.length} agendamento{group.appointments.length !== 1 ? "s" : ""}
+                              </p>
+                            </div>
                           </div>
-
-                          <div className="flex-1 min-w-0">
-                            <h4 className="font-bold text-white text-lg truncate">{appointment.patient_name}</h4>
-                            <p className="text-gray-300 font-medium">{appointment.title}</p>
-
-                            {appointment.budget != null && (
-                              <p className="text-green-300 font-bold text-sm mt-1">{formatCurrency(appointment.budget)}</p>
-                            )}
-                          </div>
-                        </div>
-
-                        <div className="flex flex-wrap items-center gap-3 text-sm text-gray-300">
-                          <div className="flex items-center gap-2">
-                            <Clock size={16} />
-                            <span>{convertToBrazilianFormat(appointment.start_time)}</span>
-                          </div>
-
-                          {isPast && (
-                            <span className="text-xs font-medium bg-red-500/15 text-red-200 border border-red-400/20 px-3 py-1 rounded-full">
-                              Passado
-                            </span>
+                          {isGroupExpanded ? (
+                            <ChevronUp className="text-gray-400 flex-shrink-0" size={20} />
+                          ) : (
+                            <ChevronDown className="text-gray-400 flex-shrink-0" size={20} />
                           )}
-                        </div>
-
-                        {appointment.description && <p className="text-gray-300 mt-3 text-sm">{appointment.description}</p>}
-                      </div>
-
-                      <div className="flex flex-col items-end gap-3">
-                        <span className={`px-3 py-1 text-sm font-medium rounded-full ${statusClass}`}>{statusLabel}</span>
-
-                        <div className="flex gap-2">
-                          <button
-                            type="button"
-                            onClick={(e) => {
-                              e.preventDefault();
-                              e.stopPropagation();
-                              startEdit(appointment);
-                            }}
-                            className="p-2 rounded-xl bg-white/5 hover:bg-white/10 border border-white/10 text-cyan-200 transition-colors"
-                            title="Editar"
-                          >
-                            <Edit size={18} />
-                          </button>
-                          <button
-                            type="button"
-                            onClick={(e) => {
-                              e.preventDefault();
-                              e.stopPropagation();
-                              deleteAppointment(appointment);
-                            }}
-                            className="p-2 rounded-xl bg-white/5 hover:bg-white/10 border border-white/10 text-red-200 transition-colors"
-                            title="Excluir"
-                          >
-                            <Trash2 size={18} />
-                          </button>
-                        </div>
-
-                        {!isPast && appointment.status !== "cancelled" && (
-                          <div className="flex gap-2 flex-wrap justify-end">
-                            {appointment.status === "confirmed" && (
-                              <button
-                                type="button"
-                                onClick={() => navigate(`/appointments/${appointment.id}/treatment`)}
-                                className="text-xs px-3 py-2 rounded-xl bg-purple-500/20 hover:bg-purple-500/30 border border-purple-400/20 text-purple-100 transition-all flex items-center gap-1"
-                              >
-                                <Stethoscope size={14} />
-                                <span>Iniciar Atendimento</span>
-                              </button>
-                            )}
-                            {appointment.status !== "confirmed" && (
-                              <button
-                                type="button"
-                                onClick={() => updateAppointmentStatus(appointment, "confirmed")}
-                                className="text-xs px-3 py-2 rounded-xl bg-cyan-500/20 hover:bg-cyan-500/30 border border-cyan-400/20 text-cyan-100 transition-all"
-                              >
-                                Confirmar
-                              </button>
-                            )}
-                            {appointment.status !== "completed" && (
-                              <button
-                                type="button"
-                                onClick={() => updateAppointmentStatus(appointment, "completed")}
-                                className="text-xs px-3 py-2 rounded-xl bg-green-500/20 hover:bg-green-500/30 border border-green-400/20 text-green-100 transition-all"
-                              >
-                                Concluir
-                              </button>
-                            )}
-                            <button
-                              type="button"
-                              onClick={() => updateAppointmentStatus(appointment, "cancelled")}
-                              className="text-xs px-3 py-2 rounded-xl bg-red-500/20 hover:bg-red-500/30 border border-red-400/20 text-red-100 transition-all"
-                            >
-                              Cancelar
-                            </button>
+                        </button>
+                        {isGroupExpanded && (
+                          <div className="border-t border-white/10 p-3 pt-2 space-y-2">
+                            {group.appointments.map((appointment) => {
+                              const isPast = isPastAppointment(appointment);
+                              const statusLabel =
+                                appointment.status === "scheduled"
+                                  ? "Agendado"
+                                  : appointment.status === "confirmed"
+                                  ? "Confirmado"
+                                  : appointment.status === "completed"
+                                  ? "Concluído"
+                                  : "Cancelado";
+                              const statusClass =
+                                appointment.status === "scheduled"
+                                  ? "bg-amber-500/15 text-amber-200 border-amber-400/20"
+                                  : appointment.status === "confirmed"
+                                  ? "bg-cyan-500/15 text-cyan-200 border-cyan-400/20"
+                                  : appointment.status === "completed"
+                                  ? "bg-green-500/15 text-green-200 border-green-400/20"
+                                  : "bg-red-500/15 text-red-200 border-red-400/20";
+                              return (
+                                <div
+                                  key={appointment.id}
+                                  className={`glass-card p-4 border border-white/10 ${isPast ? "opacity-75" : ""}`}
+                                >
+                                  <div className="flex flex-col sm:flex-row sm:items-start justify-between gap-3">
+                                    <div className="flex-1 min-w-0">
+                                      <p className="text-gray-300 text-sm truncate mb-1">{appointment.title}</p>
+                                      <div className="flex items-center gap-2 text-sm text-gray-400">
+                                        <Clock size={14} />
+                                        {convertToBrazilianFormat(appointment.start_time)}
+                                      </div>
+                                      {appointment.budget != null && (
+                                        <p className="text-green-300 text-sm font-semibold mt-1">{formatCurrency(appointment.budget)}</p>
+                                      )}
+                                    </div>
+                                    <div className="flex items-center gap-2 flex-wrap">
+                                      <span className={`px-2.5 py-1 text-xs font-medium rounded-full border ${statusClass}`}>
+                                        {statusLabel}
+                                      </span>
+                                      <button
+                                        type="button"
+                                        onClick={() => openEditFromList(appointment)}
+                                        className="p-2 rounded-xl bg-white/5 hover:bg-white/10 border border-white/10 text-cyan-200"
+                                        title="Editar"
+                                      >
+                                        <Edit size={18} />
+                                      </button>
+                                      <button
+                                        type="button"
+                                        onClick={() => setDeleteConfirming(appointment)}
+                                        className="p-2 rounded-xl bg-white/5 hover:bg-white/10 border border-white/10 text-red-200"
+                                        title="Excluir"
+                                      >
+                                        <Trash2 size={18} />
+                                      </button>
+                                      {!isPast && appointment.status !== "cancelled" && (
+                                        <>
+                                          {appointment.status === "confirmed" && (
+                                            <button
+                                              type="button"
+                                              onClick={() => navigate(`/appointments/${appointment.id}/treatment`)}
+                                              className="text-xs px-3 py-2 rounded-xl bg-purple-500/20 hover:bg-purple-500/30 border border-purple-400/20 text-purple-100 flex items-center gap-1"
+                                            >
+                                              <Stethoscope size={14} />
+                                              Atendimento
+                                            </button>
+                                          )}
+                                          {appointment.status !== "confirmed" && (
+                                            <button
+                                              type="button"
+                                              onClick={() => updateAppointmentStatus(appointment, "confirmed")}
+                                              className="text-xs px-3 py-2 rounded-xl bg-cyan-500/20 border border-cyan-400/20 text-cyan-100"
+                                            >
+                                              Confirmar
+                                            </button>
+                                          )}
+                                          {appointment.status !== "completed" && (
+                                            <button
+                                              type="button"
+                                              onClick={() => updateAppointmentStatus(appointment, "completed")}
+                                              className="text-xs px-3 py-2 rounded-xl bg-green-500/20 border border-green-400/20 text-green-100"
+                                            >
+                                              Concluir
+                                            </button>
+                                          )}
+                                          <button
+                                            type="button"
+                                            onClick={() => updateAppointmentStatus(appointment, "cancelled")}
+                                            className="text-xs px-3 py-2 rounded-xl bg-red-500/20 border border-red-400/20 text-red-100"
+                                          >
+                                            Cancelar
+                                          </button>
+                                        </>
+                                      )}
+                                    </div>
+                                  </div>
+                                </div>
+                              );
+                            })}
                           </div>
                         )}
                       </div>
-                    </div>
-                  </div>
-                );
-              })}
-            </div>
-          ) : (
-            <div className="text-center py-12">
-              <div className="w-24 h-24 bg-white/5 rounded-2xl flex items-center justify-center mx-auto mb-4 border border-white/10">
-                <Calendar className="text-gray-400" size={40} />
-              </div>
-              <h4 className="text-lg font-semibold text-white mb-2">
-                {filter === "upcoming"
-                  ? "Nenhum agendamento futuro"
-                  : filter === "past"
-                  ? "Nenhum agendamento passado"
-                  : "Nenhum agendamento encontrado"}
-              </h4>
-              <p className="text-gray-300">
-                {filter === "upcoming"
-                  ? "Todos os agendamentos futuros aparecerão aqui."
-                  : "Comece criando seu primeiro agendamento."}
-              </p>
+                    );
+                  })}
+                </div>
+              ) : (
+                <div className="text-center py-8 text-gray-400">
+                  {filter === "upcoming" ? "Nenhum agendamento futuro." : filter === "past" ? "Nenhum agendamento passado." : "Nenhum agendamento."}
+                </div>
+              )}
             </div>
           )}
         </div>
       </div>
 
-      {/* Modal de confirmação de exclusão */}
+      <AppointmentDrawer
+        open={drawerOpen}
+        onClose={() => setDrawerOpen(false)}
+        onSaved={handleDrawerSaved}
+        mode={drawerMode}
+        initialDate={drawerInitialDate}
+        initialHour={drawerInitialHour}
+        initialMinute={drawerInitialMinute}
+        initialAppointment={drawerMode === "edit" ? drawerAppointment : null}
+      />
+
       {deleteConfirming && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm" onClick={() => setDeleteConfirming(null)}>
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm"
+          onClick={() => setDeleteConfirming(null)}
+        >
           <div
-            className="glass-card p-6 border border-white/20 rounded-2xl shadow-2xl max-w-sm w-full"
+            className="glass-card p-6 border border-white/20 rounded-2xl max-w-sm w-full"
             onClick={(e) => e.stopPropagation()}
           >
             <h3 className="text-lg font-semibold text-white mb-2">Excluir agendamento?</h3>
             <p className="text-gray-300 text-sm mb-4">
-              Tem certeza que deseja excluir o agendamento de <strong className="text-white">{deleteConfirming.patient_name}</strong>? Esta ação não pode ser desfeita.
+              Excluir agendamento de <strong className="text-white">{deleteConfirming.patient_name}</strong>?
             </p>
             <div className="flex gap-3">
               <button
                 type="button"
                 onClick={() => setDeleteConfirming(null)}
-                className="flex-1 px-4 py-2.5 rounded-xl bg-white/10 hover:bg-white/15 border border-white/10 text-white transition-all"
+                className="flex-1 px-4 py-2.5 rounded-xl bg-white/10 hover:bg-white/15 border border-white/10 text-white"
               >
                 Cancelar
               </button>
               <button
                 type="button"
                 onClick={confirmDeleteAppointment}
-                className="flex-1 px-4 py-2.5 rounded-xl bg-red-500/20 hover:bg-red-500/30 border border-red-400/30 text-red-200 transition-all"
+                className="flex-1 px-4 py-2.5 rounded-xl bg-red-500/20 hover:bg-red-500/30 border border-red-400/30 text-red-200"
               >
                 Excluir
               </button>
