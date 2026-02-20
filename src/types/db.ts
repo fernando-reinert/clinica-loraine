@@ -173,6 +173,7 @@ export interface Appointment {
   gcal_status?: string | null;
   gcal_last_error?: string | null;
   gcal_updated_at?: string | null;
+  recurrence_group_id?: string | null;
   created_at: string;
   updated_at: string;
 }
