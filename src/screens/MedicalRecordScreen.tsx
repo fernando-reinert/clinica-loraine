@@ -1,5 +1,5 @@
 // src/screens/MedicalRecordScreen.tsx (Prontuário Profissional)
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { supabase } from '../services/supabase/client';
 import { 
@@ -32,7 +32,15 @@ import type { TermoContext } from '../termos/types';
 import { useAuth } from '../contexts/AuthContext';
 import { useProfessional } from '../hooks/useProfessional';
 import ProfessionalSetupModal from '../components/ProfessionalSetupModal';
-import { uploadSignature, uploadConsultationPhoto, getViewableUrl, deleteFile, STORAGE_BUCKETS } from '../services/storage/storageService';
+import {
+  uploadSignature,
+  uploadConsultationPhoto,
+  getViewableUrl,
+  deleteFile,
+  STORAGE_BUCKETS,
+  isStoragePath,
+  getSafeFallbackUrl,
+} from '../services/storage/storageService';
 import { upsertProfessional, ensureDefaultProfessionalProfile } from '../services/professionals/professionalService';
 import { deleteConsentForm } from '../services/consents/consentService';
 import { createConsultation, updateConsultation } from '../services/consultations/consultationService';
@@ -168,6 +176,61 @@ function compareConsultationsByDateDesc(a: any, b: any): number {
   const cb = b?.created_at ? new Date(b.created_at).getTime() : 0;
   if (ca !== cb) return cb - ca;
   return String(b?.id ?? '').localeCompare(String(a?.id ?? ''));
+}
+
+/** Concurrency limit: run at most `max` async tasks at once. No new deps. */
+function createConcurrencyLimit(max: number) {
+  let running = 0;
+  const queue: Array<() => void> = [];
+  const run = () => {
+    if (running >= max || queue.length === 0) return;
+    running++;
+    const next = queue.shift()!;
+    next();
+  };
+  return (fn: () => Promise<void>): Promise<void> =>
+    new Promise((resolve, reject) => {
+      queue.push(async () => {
+        try {
+          await fn();
+          resolve();
+        } catch (e) {
+          reject(e);
+        } finally {
+          running--;
+          run();
+        }
+      });
+      run();
+    });
+}
+
+// Signed URL TTL: 1h. Refresh if less than this remains (avoid 400 InvalidJWT).
+const SIGNED_URL_TTL_SEC = 3600;
+const SIGNED_URL_REFRESH_BUFFER_MS = 2 * 60 * 1000;
+const VIEWPORT_THROTTLE_MS = 250;
+const LIGHTBOX_BATCH_SIZE = 6;
+const LIGHTBOX_BATCH_DELAY_MS = 250;
+
+/** Cache key by bucket+path so same path is never requested twice concurrently. */
+function getPathKey(bucket: string, path: string): string {
+  return `${bucket}:${path}`;
+}
+
+/**
+ * Storage path only (path or file_path). Never use file_url as path — it is a URL, not a storage path.
+ * Signed URLs must not be persisted; on reload they expire and cause 400 InvalidJWT.
+ *
+ * SQL cleanup (run once; do not auto-execute):
+ *   UPDATE consultation_attachments SET file_url = NULL WHERE file_url ILIKE '%token=%';
+ * Optionally add CHECK (path IS NOT NULL) if schema allows.
+ */
+function getStoragePath(att: { path?: string | null; file_path?: string | null; file_url?: string | null }): string {
+  const path = att.path ?? att.file_path ?? '';
+  if (typeof path !== 'string') return '';
+  const trimmed = path.trim();
+  if (!trimmed || !isStoragePath(trimmed)) return '';
+  return trimmed;
 }
 
 const sanitizeInjectablesForSave = (
@@ -484,138 +547,300 @@ const MedicalRecordScreen: React.FC = () => {
   const [deleteAttachmentTarget, setDeleteAttachmentTarget] = useState<{ consultationId: string; attachment: any } | null>(null);
   const [deletingAttachment, setDeletingAttachment] = useState(false);
 
+  // Evitar aplicar resultados de um load obsoleto ao trocar de paciente/rota
+  const loadIdRef = useRef(0);
+  // Cache por path (bucket:path): mesmo path nunca é pedido duas vezes em paralelo.
+  const attachmentUrlCacheRef = useRef<Record<string, { url: string; expiresAt: number }>>({});
+  const signedUrlInflightRef = useRef<Record<string, { promise: Promise<void>; attachmentIds: Set<string> }>>({});
+  const signedUrlLimiterRef = useRef(createConcurrencyLimit(4));
+  const processedConsultationIdsRef = useRef<Set<string>>(new Set());
+  const viewportQueueRef = useRef<string[]>([]);
+  const viewportThrottleTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
   useEffect(() => {
     if (id) {
+      processedConsultationIdsRef.current = new Set();
       loadPatientAndRecord();
     }
   }, [id]);
 
+  // Processa fila de viewport: no máximo 1 consulta a cada VIEWPORT_THROTTLE_MS.
+  const processViewportQueueRef = useRef<() => void>(() => {});
+  processViewportQueueRef.current = () => {
+    const queue = viewportQueueRef.current;
+    if (queue.length === 0) {
+      viewportThrottleTimerRef.current = null;
+      return;
+    }
+    const cid = queue.shift()!;
+    ensureConsultationAttachmentUrls(cid, 'viewport');
+    if (queue.length > 0) {
+      viewportThrottleTimerRef.current = setTimeout(
+        () => processViewportQueueRef.current(),
+        VIEWPORT_THROTTLE_MS
+      );
+    } else {
+      viewportThrottleTimerRef.current = null;
+    }
+  };
+
+  // On-demand signed URLs: card no viewport enfileira; throttle processa 1 consulta a cada 250ms.
+  useEffect(() => {
+    if (activeTab !== 'historico' || Object.keys(consultationAttachments).length === 0) return;
+    const el = document.querySelector('[data-consultation-cards-container]');
+    if (!el) return;
+    const cards = el.querySelectorAll('[data-consultation-id]');
+    if (cards.length === 0) return;
+    const processed = processedConsultationIdsRef.current;
+    const observer = new IntersectionObserver(
+      (entries) => {
+        entries.forEach((entry) => {
+          if (!entry.isIntersecting) return;
+          const cid = (entry.target as HTMLElement).getAttribute('data-consultation-id');
+          if (!cid || processed.has(cid)) return;
+          processed.add(cid);
+          viewportQueueRef.current.push(cid);
+          if (viewportThrottleTimerRef.current == null) {
+            processViewportQueueRef.current();
+          }
+        });
+      },
+      { rootMargin: '150px', threshold: 0 }
+    );
+    cards.forEach((card) => observer.observe(card));
+    return () => {
+      observer.disconnect();
+      if (viewportThrottleTimerRef.current != null) {
+        clearTimeout(viewportThrottleTimerRef.current);
+        viewportThrottleTimerRef.current = null;
+      }
+    };
+  }, [activeTab, consultationAttachments]);
+
+  /**
+   * Carrega apenas a lista de anexos (uma query batelada). Não gera signed URLs aqui;
+   * URLs são geradas on-demand quando o card fica visível ou ao abrir o lightbox.
+   */
+  const loadConsultationAttachmentsInBackground = async (consultationIds: string[], currentLoadId: number) => {
+    if (consultationIds.length === 0) return;
+    if ((window as any).__consultationAttachmentsTableMissing) return;
+
+    const { data: allAttachments, error: attachmentsError } = await supabase
+      .from('consultation_attachments')
+      .select('*')
+      .in('consultation_id', consultationIds)
+      .order('created_at', { ascending: false });
+
+    if (attachmentsError) {
+      const is404 = attachmentsError.code === 'PGRST116' ||
+        attachmentsError.message?.includes('404') ||
+        attachmentsError.message?.includes('does not exist');
+      if (is404) {
+        (window as any).__consultationAttachmentsTableMissing = true;
+        logger.warn('[MEDICAL_RECORD] Tabela consultation_attachments não encontrada. Execute a migration 20250125000011_consultation_attachments.sql');
+      } else {
+        logger.error('[MEDICAL_RECORD] Erro ao buscar anexos (batch):', attachmentsError);
+      }
+      return;
+    }
+
+    if (currentLoadId !== loadIdRef.current) return;
+    const attachmentsMap: Record<string, any[]> = {};
+    const cache = attachmentUrlCacheRef.current;
+    const urlsFromCache: Record<string, string> = {};
+    const now = Date.now();
+    const bucket = STORAGE_BUCKETS.CONSULTATION_ATTACHMENTS;
+    for (const a of allAttachments || []) {
+      const cid = (a as any).consultation_id;
+      if (!attachmentsMap[cid]) attachmentsMap[cid] = [];
+      attachmentsMap[cid].push(a);
+      const path = getStoragePath(a);
+      const pathKey = path ? getPathKey(bucket, path) : '';
+      const entry = pathKey ? cache[pathKey] : null;
+      if (entry && entry.expiresAt > now + SIGNED_URL_REFRESH_BUFFER_MS) {
+        urlsFromCache[a.id] = entry.url;
+      } else {
+        const safe = getSafeFallbackUrl(a);
+        if (safe) urlsFromCache[a.id] = safe;
+      }
+    }
+    setConsultationAttachments(attachmentsMap);
+    if (currentLoadId === loadIdRef.current && Object.keys(urlsFromCache).length > 0) {
+      setImageUrls((prev) => ({ ...prev, ...urlsFromCache }));
+    }
+  };
+
+  /**
+   * Gera signed URL on-demand. Path MUST be a storage path (not a URL). Never call getViewableUrl with
+   * a URL string — expired signed URLs from DB cause 400 InvalidJWT on reload.
+   */
+  const ensureAttachmentUrl = (attachmentId: string, path: string, fileUrlFallback: string): Promise<void> => {
+    const bucket = STORAGE_BUCKETS.CONSULTATION_ATTACHMENTS;
+    const safeFallback = getSafeFallbackUrl({ file_url: fileUrlFallback });
+    if (!path || path.trim() === '' || !isStoragePath(path)) {
+      if (!(window as any).__attachmentPathWarnLogged?.[attachmentId]) {
+        logger.warn('[MEDICAL_RECORD] Attachment sem path válido (path não é storage path); não gerar signed URL.', {
+          attachmentId,
+          hasPath: !!path,
+        });
+        (window as any).__attachmentPathWarnLogged = (window as any).__attachmentPathWarnLogged || {};
+        (window as any).__attachmentPathWarnLogged[attachmentId] = true;
+      }
+      setImageUrls((prev) => (prev[attachmentId] ? prev : { ...prev, [attachmentId]: safeFallback }));
+      return Promise.resolve();
+    }
+    const pathKey = getPathKey(bucket, path);
+    const cache = attachmentUrlCacheRef.current;
+    const entry = cache[pathKey];
+    const now = Date.now();
+    if (entry && entry.expiresAt > now + SIGNED_URL_REFRESH_BUFFER_MS) {
+      setImageUrls((prev) => ({ ...prev, [attachmentId]: entry.url }));
+      return Promise.resolve();
+    }
+    const inflight = signedUrlInflightRef.current;
+    if (pathKey in inflight) {
+      inflight[pathKey].attachmentIds.add(attachmentId);
+      return inflight[pathKey].promise.then(() => {});
+    }
+    const attachmentIds = new Set<string>([attachmentId]);
+    const promise = signedUrlLimiterRef.current(async () => {
+      const url = await getViewableUrl(bucket, path, SIGNED_URL_TTL_SEC);
+      const expiresAt = Date.now() + SIGNED_URL_TTL_SEC * 1000;
+      attachmentUrlCacheRef.current[pathKey] = { url, expiresAt };
+      attachmentIds.forEach((aid) => {
+        setImageUrls((prev) => ({ ...prev, [aid]: url }));
+      });
+      delete signedUrlInflightRef.current[pathKey];
+    }).catch(() => {
+      delete signedUrlInflightRef.current[pathKey];
+      const fallback = getSafeFallbackUrl({ file_url: fileUrlFallback }) || '';
+      attachmentIds.forEach((aid) => {
+        setImageUrls((prev) => ({ ...prev, [aid]: fallback }));
+      });
+    });
+    inflight[pathKey] = { promise, attachmentIds };
+    return promise.then(() => {});
+  };
+
+  /**
+   * viewport: só ativo + vizinhos (max 3). lightbox: primeiro clicked + vizinhos (max 3), depois resto em lotes de 6 com delay.
+   * activeIndexOverride: índice ativo (viewport ou carousel). lightboxClickedIndex: índice clicado ao abrir lightbox.
+   */
+  const ensureConsultationAttachmentUrls = (
+    consultationId: string,
+    mode: 'viewport' | 'lightbox' = 'viewport',
+    activeIndexOverride?: number,
+    lightboxClickedIndex?: number
+  ) => {
+    const list = consultationAttachments[consultationId] || [];
+    if (list.length === 0) return;
+
+    const active =
+      activeIndexOverride !== undefined ? activeIndexOverride : (consultationCarouselIndex[consultationId] ?? 0);
+
+    if (mode === 'viewport') {
+      const pickIndexes = Array.from(
+        new Set([active, active - 1, active + 1].filter((i) => i >= 0 && i < list.length))
+      );
+      pickIndexes.forEach((i) => {
+        const att: any = list[i];
+        if (!att) return;
+        const path = getStoragePath(att);
+        ensureAttachmentUrl(att.id, path, getSafeFallbackUrl(att));
+      });
+      return;
+    }
+
+    // lightbox: primeiro clicked + vizinhos (max 3), depois resto em lotes de LIGHTBOX_BATCH_SIZE com delay
+    const clicked = lightboxClickedIndex ?? active;
+    const priorityIndexes = Array.from(
+      new Set([clicked, clicked - 1, clicked + 1].filter((i) => i >= 0 && i < list.length))
+    );
+    priorityIndexes.forEach((i) => {
+      const att: any = list[i];
+      if (!att) return;
+      const path = getStoragePath(att);
+      ensureAttachmentUrl(att.id, path, getSafeFallbackUrl(att));
+    });
+    const restIndexes = list
+      .map((_, i) => i)
+      .filter((i) => !priorityIndexes.includes(i));
+    if (restIndexes.length === 0) return;
+    const batches: number[][] = [];
+    for (let i = 0; i < restIndexes.length; i += LIGHTBOX_BATCH_SIZE) {
+      batches.push(restIndexes.slice(i, i + LIGHTBOX_BATCH_SIZE));
+    }
+    batches.forEach((batch, idx) => {
+      setTimeout(() => {
+        batch.forEach((i) => {
+          const att: any = list[i];
+          if (!att) return;
+          const path = getStoragePath(att);
+          ensureAttachmentUrl(att.id, path, getSafeFallbackUrl(att));
+        });
+      }, (idx + 1) * LIGHTBOX_BATCH_DELAY_MS);
+    });
+  };
+
   const loadPatientAndRecord = async () => {
+    const thisLoadId = ++loadIdRef.current;
     try {
       setLoading(true);
 
-      // Carregar paciente
-      const { data: patientData, error: patientError } = await supabase
+      // Carregar em paralelo: paciente, histórico, consent forms, consultas (core data)
+      const patientPromise = supabase
         .from('patients')
         .select('*')
         .eq('id', id)
         .single();
 
-      if (patientError) throw patientError;
-      setPatient(patientData);
-
-      // Carregar histórico médico completo (visits + procedures + consents)
-      if (id) {
-        const history = await getPatientMedicalHistory(id);
-        setMedicalHistory(history);
-
-        // Carregar todos os termos de consentimento do paciente
-        const allConsents = await getConsentFormsByPatient(id);
-        setConsentForms(allConsents);
-      }
-
-      // Carregar consultas (legado)
-      const { data: consultationsData } = await supabase
+      const historyPromise = id ? getPatientMedicalHistory(id) : Promise.resolve([]);
+      const consentsPromise = id ? getConsentFormsByPatient(id) : Promise.resolve([]);
+      const consultationsPromise = supabase
         .from('consultations')
         .select('*')
         .eq('patient_id', id)
         .order('date', { ascending: false });
 
+      const [patientRes, history, allConsents, consultationsRes] = await Promise.all([
+        patientPromise,
+        historyPromise,
+        consentsPromise,
+        consultationsPromise,
+      ]);
+
+      if (thisLoadId !== loadIdRef.current) return;
+
+      const { data: patientData, error: patientError } = patientRes;
+      if (patientError) throw patientError;
+      setPatient(patientData);
+
+      if (id) {
+        setMedicalHistory(Array.isArray(history) ? history : []);
+        setConsentForms(Array.isArray(allConsents) ? allConsents : []);
+      }
+
+      const consultationsData = consultationsRes.data;
       if (consultationsData) {
         const sorted = [...consultationsData].sort(compareConsultationsByDateDesc);
         setConsultations(sorted);
+      } else {
+        setConsultations([]);
+      }
 
-        // Carregar anexos de cada consulta
-        const attachmentsMap: Record<string, any[]> = {};
-        const urlsMap: Record<string, string> = {};
-        
-        // Verificar se já sabemos que a tabela não existe
-        const tableMissing = (window as any).__consultationAttachmentsTableMissing;
-        
-        // Se já sabemos que a tabela não existe, pular todas as requisições
-        if (!tableMissing) {
-          for (const consultation of consultationsData) {
-            // Tentar buscar anexos
-            const { data: attachments, error: attachmentsError } = await supabase
-              .from('consultation_attachments')
-              .select('*')
-              .eq('consultation_id', consultation.id)
-              .order('created_at', { ascending: false });
-            
-            // Se erro 404 (tabela não existe), marcar e parar
-            if (attachmentsError) {
-              // Verificar se é erro 404 (tabela não existe)
-              const is404Error = attachmentsError.code === 'PGRST116' || 
-                                 attachmentsError.message?.includes('404') || 
-                                 attachmentsError.message?.includes('does not exist');
-              
-              if (is404Error) {
-                // Tabela não existe - marcar e parar todas as requisições
-                (window as any).__consultationAttachmentsTableMissing = true;
-                if (!tableMissing) {
-                  logger.warn('[MEDICAL_RECORD] Tabela consultation_attachments não encontrada. Execute a migration 20250125000011_consultation_attachments.sql');
-                  console.warn('[MEDICAL_RECORD] ⚠️ Tabela consultation_attachments não existe. Execute a migration no Supabase.');
-                }
-                break; // Parar loop - não fazer mais requisições
-              } else {
-                // Outro tipo de erro - logar normalmente
-                logger.error('[MEDICAL_RECORD] Erro ao buscar anexos:', attachmentsError);
-              }
-              continue;
-            }
-            
-            if (attachments && attachments.length > 0) {
-              attachmentsMap[consultation.id] = attachments;
-              
-              // Carregar URLs visualizáveis (signed URLs para buckets privados)
-              for (const attachment of attachments) {
-                // Priorizar 'path' se existir, senão 'file_path', senão 'file_url'
-                const pathToUse = (attachment as any).path || attachment.file_path || attachment.file_url || '';
-                
-                if (pathToUse) {
-                  try {
-                    // Sempre usar getViewableUrl para gerar signed URL (bucket é privado)
-                    const viewableUrl = await getViewableUrl(
-                      STORAGE_BUCKETS.CONSULTATION_ATTACHMENTS,
-                      pathToUse,
-                      3600 // 1 hora de expiração
-                    );
-                    urlsMap[attachment.id] = viewableUrl;
-                  } catch (error) {
-                    // Log apenas uma vez por attachment para evitar spam
-                    if (!(window as any).__attachmentUrlErrorLogged?.[attachment.id]) {
-                      logger.warn('[MEDICAL_RECORD] Erro ao obter URL visualizável da imagem:', {
-                        attachmentId: attachment.id,
-                        path: pathToUse,
-                        error: error instanceof Error ? error.message : String(error),
-                      });
-                      (window as any).__attachmentUrlErrorLogged = (window as any).__attachmentUrlErrorLogged || {};
-                      (window as any).__attachmentUrlErrorLogged[attachment.id] = true;
-                    }
-                    // Fallback para file_url se getViewableUrl falhar
-                    urlsMap[attachment.id] = attachment.file_url || '';
-                  }
-                } else {
-                  // Fallback se não houver path
-                  urlsMap[attachment.id] = attachment.file_url || '';
-                }
-              }
-            }
-          }
-        }
-        
-        // Só atualizar state se tiver dados
-        if (Object.keys(attachmentsMap).length > 0) {
-          setConsultationAttachments(attachmentsMap);
-          setImageUrls(urlsMap);
-        }
+      // Anexos e signed URLs em background (não bloqueiam UI; uma query batelada + URLs em paralelo)
+      if (consultationsData?.length) {
+        const ids = consultationsData.map((c: any) => c.id);
+        loadConsultationAttachmentsInBackground(ids, thisLoadId);
       }
 
     } catch (error) {
       logger.error('[MEDICAL_RECORD] Erro ao carregar dados:', error);
       toast.error('Erro ao carregar prontuário');
     } finally {
-      setLoading(false);
+      if (thisLoadId === loadIdRef.current) {
+        setLoading(false);
+      }
     }
   };
 
@@ -776,7 +1001,7 @@ const MedicalRecordScreen: React.FC = () => {
               viewableUrl = await getViewableUrl(
                 STORAGE_BUCKETS.CONSULTATION_ATTACHMENTS,
                 path,
-                3600 // 1 hora
+                SIGNED_URL_TTL_SEC
               );
             } catch (urlError) {
               // Se falhar, usar url pública se disponível
@@ -784,27 +1009,18 @@ const MedicalRecordScreen: React.FC = () => {
               logger.warn('[MEDICAL_RECORD] Erro ao gerar signed URL, usando URL pública:', urlError);
             }
 
-            // Salvar anexo no banco - usar apenas colunas básicas que existem
-            // Colunas obrigatórias: consultation_id, patient_id, path (ou file_path)
-            // Enviar ambos 'path' e 'file_path' para compatibilidade com diferentes schemas
+            // Salvar anexo no banco: apenas path/file_path (storage path). Do NOT persist signed URLs —
+            // they expire (JWT exp) and cause 400 InvalidJWT on reload when UI loads them from DB.
             const attachmentData: Record<string, any> = {
               consultation_id: consultationData.id,
               patient_id: id,
-              path: path, // Coluna obrigatória (NOT NULL)
-              file_path: path, // Também enviar como file_path (compatibilidade)
+              path,
+              file_path: path,
             };
+            if (photo.file.name) attachmentData.file_name = photo.file.name;
+            if (photo.file.type) attachmentData.mime_type = photo.file.type;
+            // file_url omitted for private bucket; if column exists and is nullable, it stays NULL
 
-            // Adicionar colunas opcionais se disponíveis
-            if (photo.file.name) {
-              attachmentData.file_name = photo.file.name;
-            }
-            if (photo.file.type) {
-              attachmentData.mime_type = photo.file.type;
-            }
-            if (viewableUrl) {
-              attachmentData.file_url = viewableUrl;
-            }
-            
             const { error: attachmentError, data: insertedAttachment } = await supabase
               .from('consultation_attachments')
               .insert([attachmentData])
@@ -852,34 +1068,32 @@ const MedicalRecordScreen: React.FC = () => {
               }
             } else if (insertedAttachment) {
               uploadedPaths.push(path);
-              
-              // Cachear URL visualizável (já foi gerada acima)
               if (viewableUrl) {
-                setImageUrls(prev => ({
-                  ...prev,
-                  [insertedAttachment.id]: viewableUrl!,
-                }));
+                const expiresAt = Date.now() + SIGNED_URL_TTL_SEC * 1000;
+                const pathKey = getPathKey(STORAGE_BUCKETS.CONSULTATION_ATTACHMENTS, path);
+                attachmentUrlCacheRef.current[pathKey] = { url: viewableUrl, expiresAt };
+              }
+              setConsultationAttachments(prev => ({
+                ...prev,
+                [consultationData.id]: [...(prev[consultationData.id] || []), insertedAttachment],
+              }));
+              if (viewableUrl) {
+                setImageUrls(prev => ({ ...prev, [insertedAttachment.id]: viewableUrl }));
               } else {
-                // Se não tiver URL, tentar gerar novamente
                 try {
                   const generatedUrl = await getViewableUrl(
                     STORAGE_BUCKETS.CONSULTATION_ATTACHMENTS,
                     path,
-                    3600 // 1 hora
+                    SIGNED_URL_TTL_SEC
                   );
-                  setImageUrls(prev => ({
-                    ...prev,
-                    [insertedAttachment.id]: generatedUrl,
-                  }));
+                  const expiresAt = Date.now() + SIGNED_URL_TTL_SEC * 1000;
+                  const pathKey = getPathKey(STORAGE_BUCKETS.CONSULTATION_ATTACHMENTS, path);
+                  attachmentUrlCacheRef.current[pathKey] = { url: generatedUrl, expiresAt };
+                  setImageUrls(prev => ({ ...prev, [insertedAttachment.id]: generatedUrl }));
                 } catch (urlError) {
                   logger.warn('[MEDICAL_RECORD] Erro ao gerar signed URL:', urlError);
-                  // Usar file_url do banco se disponível
-                  if (insertedAttachment.file_url) {
-                    setImageUrls(prev => ({
-                      ...prev,
-                      [insertedAttachment.id]: insertedAttachment.file_url,
-                    }));
-                  }
+                  const safe = getSafeFallbackUrl(insertedAttachment);
+                  if (safe) setImageUrls(prev => ({ ...prev, [insertedAttachment.id]: safe }));
                 }
               }
             }
@@ -919,70 +1133,7 @@ const MedicalRecordScreen: React.FC = () => {
           toast.error(`Algumas fotos não puderam ser enviadas: ${failedUploads.join(', ')}`);
         }
 
-        // Recarregar todos os anexos da consulta (incluindo os recém-criados)
-        // Isso garante que os anexos apareçam imediatamente após salvar
-        const tableMissingCheck = (window as any).__consultationAttachmentsTableMissing;
-        if (!tableMissingCheck) {
-          const { data: savedAttachments, error: reloadError } = await supabase
-            .from('consultation_attachments')
-            .select('*')
-            .eq('consultation_id', consultationData.id)
-            .order('created_at', { ascending: false });
-          
-          // Se erro 404 ou PGRST204 (tabela/coluna não existe), apenas continuar sem anexos
-          if (reloadError) {
-            if (reloadError.code === 'PGRST116' || 
-                reloadError.code === 'PGRST204' ||
-                reloadError.message?.includes('404') || 
-                reloadError.message?.includes('does not exist') ||
-                reloadError.message?.includes('Could not find')) {
-              // Tabela não existe ou coluna não encontrada - marcar e continuar
-              const wasMissing = (window as any).__consultationAttachmentsTableMissing;
-              (window as any).__consultationAttachmentsTableMissing = true;
-              if (!wasMissing) {
-                logger.warn('[MEDICAL_RECORD] Tabela consultation_attachments não encontrada ou schema incompatível. Execute a migration 20250125000011_consultation_attachments.sql');
-              }
-            } else {
-              logger.error('[MEDICAL_RECORD] Erro ao recarregar anexos:', reloadError);
-            }
-          } else if (savedAttachments && savedAttachments.length > 0) {
-            // Atualizar state com anexos salvos
-            setConsultationAttachments(prev => ({
-              ...prev,
-              [consultationData.id]: savedAttachments,
-            }));
-            
-            // Gerar signed URLs para todos os anexos (apenas os que ainda não têm URL cacheada)
-            const urlsMap: Record<string, string> = {};
-            for (const attachment of savedAttachments) {
-              // Se já tem URL cacheada, usar ela
-              if (imageUrls[attachment.id]) {
-                urlsMap[attachment.id] = imageUrls[attachment.id];
-                continue;
-              }
-              
-              // Gerar signed URL para o anexo
-              // Usar 'path' se existir, senão 'file_path', senão 'file_url'
-              const pathToUse = (attachment as any).path || attachment.file_path || attachment.file_url || '';
-              if (pathToUse) {
-                try {
-                  const viewableUrl = await getViewableUrl(
-                    STORAGE_BUCKETS.CONSULTATION_ATTACHMENTS,
-                    pathToUse,
-                    3600 // 1 hora
-                  );
-                  urlsMap[attachment.id] = viewableUrl;
-                } catch (error) {
-                  // Fallback para file_url se signed URL falhar
-                  urlsMap[attachment.id] = attachment.file_url || '';
-                }
-              } else {
-                urlsMap[attachment.id] = attachment.file_url || '';
-              }
-            }
-            setImageUrls(prev => ({ ...prev, ...urlsMap }));
-          }
-        }
+        // Anexos já foram atualizados de forma otimista acima; loadPatientAndRecord() ao final atualiza a lista em batch.
       }
 
       // Mensagem de sucesso (com contagem de fotos)
@@ -1866,14 +2017,14 @@ Data: {{signed_at}}`;
               {consultations.length === 0 ? (
                 <p className="text-sm text-gray-400">Nenhuma consulta registrada.</p>
               ) : (
-                <div className="space-y-6">
+                <div className="space-y-6" data-consultation-cards-container>
                   {consultations.map((consultation) => {
                     const injectables = deserializeInjectablesRecord((consultation as any).injectables_record);
                     const hasBotox = !!injectables?.botulinumToxin && Object.values(injectables.botulinumToxin).some((v) => v !== null && v !== undefined && v !== '');
                     const hasFillers = Array.isArray(injectables?.fillers) && injectables.fillers.some((row) => !isFillerRowEmpty(row));
                     const fillersArray = (injectables?.fillers || []).filter((row) => !isFillerRowEmpty(row));
                     return (
-                      <div key={consultation.id} className="p-4 rounded-xl bg-white/5 border border-white/10">
+                      <div key={consultation.id} data-consultation-id={consultation.id} className="p-4 rounded-xl bg-white/5 border border-white/10">
                         <div className="flex justify-between items-start mb-3">
                           <div>
                             <h4 className="font-semibold text-white">{consultation.reason}</h4>
@@ -2007,18 +2158,32 @@ Data: {{signed_at}}`;
                               <ImageCarousel
                                 images={consultationAttachments[consultation.id].map((att: any) => ({
                                   id: att.id,
-                                  url: imageUrls[att.id] || att.file_url || '',
+                                  url: imageUrls[att.id] || getSafeFallbackUrl(att) || '',
                                 }))}
                                 variant="before"
                                 activeIndex={consultationCarouselIndex[consultation.id] ?? 0}
-                                onChangeIndex={(i) => setConsultationCarouselIndex(prev => ({ ...prev, [consultation.id]: i }))}
-                                onImageClick={(index) => {
-                                  const allImages = consultationAttachments[consultation.id]
-                                    .map((att: any) => ({
-                                      id: att.id,
-                                      url: imageUrls[att.id] || att.file_url || '',
-                                      name: att.file_name || 'Foto',
-                                    }))
+                                onChangeIndex={(i) => {
+                                  setConsultationCarouselIndex(prev => ({ ...prev, [consultation.id]: i }));
+                                  ensureConsultationAttachmentUrls(consultation.id, 'viewport', i);
+                                }}
+                                onImageClick={async (index) => {
+                                  const list = consultationAttachments[consultation.id] || [];
+                                  const clicked = list[index];
+                                  if (clicked) {
+                                    const path = getStoragePath(clicked);
+                                    await ensureAttachmentUrl(clicked.id, path, getSafeFallbackUrl(clicked));
+                                  }
+                                  ensureConsultationAttachmentUrls(consultation.id, 'lightbox', undefined, index);
+                                  const cache = attachmentUrlCacheRef.current;
+                                  const bucket = STORAGE_BUCKETS.CONSULTATION_ATTACHMENTS;
+                                  const allImages = list
+                                    .map((att: any) => {
+                                      const path = getStoragePath(att);
+                                      const pathKey = path ? getPathKey(bucket, path) : '';
+                                      const url =
+                                        (pathKey && cache[pathKey]?.url) || imageUrls[att.id] || getSafeFallbackUrl(att) || '';
+                                      return { id: att.id, url, name: att.file_name || 'Foto' };
+                                    })
                                     .filter((img: any) => img.url);
                                   if (allImages.length > 0) {
                                     setLightboxState({
