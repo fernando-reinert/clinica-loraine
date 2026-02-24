@@ -159,6 +159,17 @@ const getTodayDateOnly = (): string => {
   return `${y}-${m}-${d}`;
 };
 
+/** Ordenação por data da consulta (date) descendente; datas nulas/inválidas vão para o final. Desempate: created_at desc, depois id. */
+function compareConsultationsByDateDesc(a: any, b: any): number {
+  const dA = toDateOnly(a?.date) || '0000-00-00';
+  const dB = toDateOnly(b?.date) || '0000-00-00';
+  if (dA !== dB) return dB.localeCompare(dA);
+  const ca = a?.created_at ? new Date(a.created_at).getTime() : 0;
+  const cb = b?.created_at ? new Date(b.created_at).getTime() : 0;
+  if (ca !== cb) return cb - ca;
+  return String(b?.id ?? '').localeCompare(String(a?.id ?? ''));
+}
+
 const sanitizeInjectablesForSave = (
   record: InjectablesRecord | null | undefined
 ): InjectablesRecord | null => {
@@ -511,8 +522,9 @@ const MedicalRecordScreen: React.FC = () => {
         .order('date', { ascending: false });
 
       if (consultationsData) {
-        setConsultations(consultationsData);
-        
+        const sorted = [...consultationsData].sort(compareConsultationsByDateDesc);
+        setConsultations(sorted);
+
         // Carregar anexos de cada consulta
         const attachmentsMap: Record<string, any[]> = {};
         const urlsMap: Record<string, string> = {};
@@ -674,8 +686,11 @@ const MedicalRecordScreen: React.FC = () => {
     setIsFillersOpen(hasFillersData);
     // Limpar fotos selecionadas (fotos existentes já estão em consultationAttachments)
     setConsultationPhotos([]);
-    // Scroll para o formulário
-    document.getElementById('consultation-form')?.scrollIntoView({ behavior: 'smooth' });
+    // Ir para a aba consultas e depois scroll para o formulário
+    setActiveTab('consultas');
+    requestAnimationFrame(() => {
+      document.getElementById('consultation-form')?.scrollIntoView({ behavior: 'smooth' });
+    });
   };
 
   // Função para cancelar edição
@@ -970,11 +985,6 @@ const MedicalRecordScreen: React.FC = () => {
         }
       }
 
-      // Se não estava editando, adicionar nova consulta no início da lista
-      if (!editingConsultationId) {
-        setConsultations(prev => [consultationData, ...prev]);
-      }
-      
       // Mensagem de sucesso (com contagem de fotos)
       const photosCount = consultationPhotos.length;
       if (photosCount > 0) {
@@ -1847,6 +1857,187 @@ Data: {{signed_at}}`;
                 </div>
               ))
             )}
+
+            {/* Histórico de Consultas */}
+            <div className="glass-card p-6 border border-white/10">
+              <div className="flex justify-between items-start mb-3">
+                <h4 className="font-semibold text-white">Histórico de Consultas</h4>
+              </div>
+              {consultations.length === 0 ? (
+                <p className="text-sm text-gray-400">Nenhuma consulta registrada.</p>
+              ) : (
+                <div className="space-y-6">
+                  {consultations.map((consultation) => {
+                    const injectables = deserializeInjectablesRecord((consultation as any).injectables_record);
+                    const hasBotox = !!injectables?.botulinumToxin && Object.values(injectables.botulinumToxin).some((v) => v !== null && v !== undefined && v !== '');
+                    const hasFillers = Array.isArray(injectables?.fillers) && injectables.fillers.some((row) => !isFillerRowEmpty(row));
+                    const fillersArray = (injectables?.fillers || []).filter((row) => !isFillerRowEmpty(row));
+                    return (
+                      <div key={consultation.id} className="p-4 rounded-xl bg-white/5 border border-white/10">
+                        <div className="flex justify-between items-start mb-3">
+                          <div>
+                            <h4 className="font-semibold text-white">{consultation.reason}</h4>
+                            <p className="text-sm text-gray-400">
+                              {formatDateOnlyPtBr(toDateOnly(consultation.date) || '')}
+                            </p>
+                          </div>
+                          <div className="flex space-x-2">
+                            <button
+                              onClick={() => handleEditConsultation(consultation)}
+                              className="p-1 text-cyan-400 hover:text-cyan-300 transition-colors"
+                              title="Editar consulta"
+                            >
+                              <Edit size={16} />
+                            </button>
+                            <button
+                              onClick={() => handleDeleteConsultation(consultation.id)}
+                              className="p-1 text-red-400 hover:text-red-300 transition-colors"
+                              title="Excluir consulta"
+                            >
+                              <Trash2 size={16} />
+                            </button>
+                          </div>
+                        </div>
+                        {consultation.diagnosis && (
+                          <div className="mb-2">
+                            <span className="text-sm font-medium text-gray-300">Diagnóstico:</span>
+                            <p className="text-sm text-gray-400">{consultation.diagnosis}</p>
+                          </div>
+                        )}
+                        {consultation.treatment && (
+                          <div>
+                            <span className="text-sm font-medium text-gray-300">Conduta:</span>
+                            <p className="text-sm text-gray-400">{consultation.treatment}</p>
+                          </div>
+                        )}
+                        {(consultation.weight_initial_kg != null ||
+                          consultation.weight_final_kg != null ||
+                          consultation.abdomen_cm != null ||
+                          consultation.waist_cm != null) && (
+                          <div className="mt-3 pt-3 border-t border-white/10">
+                            <span className="text-sm font-medium text-gray-300 block mb-2">Antropometria</span>
+                            <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 text-sm text-gray-400">
+                              {consultation.weight_initial_kg != null && (
+                                <span>Peso inicial: {consultation.weight_initial_kg} kg</span>
+                              )}
+                              {consultation.weight_final_kg != null && (
+                                <span>Peso final: {consultation.weight_final_kg} kg</span>
+                              )}
+                              {consultation.abdomen_cm != null && (
+                                <span>Abdômen: {consultation.abdomen_cm} cm</span>
+                              )}
+                              {consultation.waist_cm != null && (
+                                <span>Cintura: {consultation.waist_cm} cm</span>
+                              )}
+                            </div>
+                          </div>
+                        )}
+                        {(hasBotox || hasFillers) && (
+                          <div className="mt-4 pt-4 border-t border-white/10 space-y-3">
+                            {hasBotox && injectables?.botulinumToxin && (
+                              <div>
+                                <h5 className="text-sm font-medium text-gray-300 mb-2">Toxina Botulinica:</h5>
+                                <div className="grid grid-cols-1 md:grid-cols-2 gap-2 text-xs text-gray-300">
+                                  <div><span className="font-medium">Frontal:</span> {injectables.botulinumToxin.frontalUnits ?? '-'} U</div>
+                                  <div><span className="font-medium">Conrrugador:</span> {injectables.botulinumToxin.corrugatorUnits ?? '-'} U</div>
+                                  <div><span className="font-medium">Prócero:</span> {injectables.botulinumToxin.procerusUnits ?? '-'} U</div>
+                                  <div><span className="font-medium">Orbicular do olho:</span> {injectables.botulinumToxin.orbicularisOculiUnits ?? '-'} U</div>
+                                  <div><span className="font-medium">Levantador do lábio Sup:</span> {injectables.botulinumToxin.levatorLabiiSuperiorisUnits ?? '-'} U</div>
+                                  <div><span className="font-medium">Depressor do ângulo da boca:</span> {injectables.botulinumToxin.depressorAnguliOrisUnits ?? '-'} U</div>
+                                  <div><span className="font-medium">Platisma:</span> {injectables.botulinumToxin.platysmaUnits ?? '-'} U</div>
+                                  {(injectables.botulinumToxin.otherUnits ?? injectables.botulinumToxin.otherDescription) && (
+                                    <div className="md:col-span-2"><span className="font-medium">Outras:</span> {injectables.botulinumToxin.otherUnits ?? '-'} U {injectables.botulinumToxin.otherDescription ? `(${injectables.botulinumToxin.otherDescription})` : ''}</div>
+                                  )}
+                                  {injectables.botulinumToxin.totalUnitsInjected != null && (
+                                    <div className="md:col-span-2"><span className="font-medium">Total de unidades injetadas:</span> {injectables.botulinumToxin.totalUnitsInjected} U</div>
+                                  )}
+                                  {(injectables.botulinumToxin.expiryDate || injectables.botulinumToxin.lot || injectables.botulinumToxin.dilutionVolume) && (
+                                    <div className="md:col-span-2 mt-1 space-y-1">
+                                      {injectables.botulinumToxin.expiryDate && <div><span className="font-medium">Validade:</span> {injectables.botulinumToxin.expiryDate}</div>}
+                                      {injectables.botulinumToxin.lot && <div><span className="font-medium">Lote:</span> {injectables.botulinumToxin.lot}</div>}
+                                      {injectables.botulinumToxin.dilutionVolume && <div><span className="font-medium">Volume de diluição:</span> {injectables.botulinumToxin.dilutionVolume}</div>}
+                                    </div>
+                                  )}
+                                </div>
+                              </div>
+                            )}
+                            {hasFillers && (
+                              <div>
+                                <h5 className="text-sm font-medium text-gray-300 mb-2">Preenchedor/ Bioestimulador:</h5>
+                                <div className="border border-white/10 rounded-lg overflow-hidden">
+                                  <div className="grid grid-cols-3 gap-2 bg-white/5 px-3 py-1.5 text-xs font-medium text-gray-300">
+                                    <span>Região</span><span>Volume</span><span>Produto</span>
+                                  </div>
+                                  <div className="divide-y divide-white/5">
+                                    {fillersArray.map((row, idx) => (
+                                      <div key={idx} className="grid grid-cols-3 gap-2 px-3 py-1.5 text-xs text-gray-200">
+                                        <span>{row.region || '-'}</span><span>{row.volume || '-'}</span><span>{row.product || '-'}</span>
+                                      </div>
+                                    ))}
+                                  </div>
+                                </div>
+                              </div>
+                            )}
+                          </div>
+                        )}
+                        {consultationAttachments[consultation.id] && consultationAttachments[consultation.id].length > 0 && (
+                          <div className="mt-4 pt-4 border-t border-white/10 group/att">
+                            <div className="flex items-center justify-between gap-2 mb-3">
+                              <h5 className="text-sm font-medium text-gray-300 flex items-center gap-2">
+                                <ImageIcon size={16} className="text-cyan-400" />
+                                Fotos do Procedimento ({consultationAttachments[consultation.id].length})
+                              </h5>
+                              <div className="flex items-center gap-1 opacity-80 md:opacity-60 md:group-hover/att:opacity-100 transition-opacity">
+                                <button
+                                  type="button"
+                                  onClick={() => {
+                                    const idx = consultationCarouselIndex[consultation.id] ?? 0;
+                                    const att = consultationAttachments[consultation.id][idx];
+                                    if (att) setDeleteAttachmentTarget({ consultationId: consultation.id, attachment: att });
+                                  }}
+                                  className="p-1.5 rounded-lg text-red-400 hover:bg-red-500/20 text-sm inline-flex items-center gap-1"
+                                  title="Excluir foto atual"
+                                >
+                                  <Trash2 size={16} />
+                                  <span className="hidden sm:inline">Excluir atual</span>
+                                </button>
+                              </div>
+                            </div>
+                            <div className="min-h-[180px]">
+                              <ImageCarousel
+                                images={consultationAttachments[consultation.id].map((att: any) => ({
+                                  id: att.id,
+                                  url: imageUrls[att.id] || att.file_url || '',
+                                }))}
+                                variant="before"
+                                activeIndex={consultationCarouselIndex[consultation.id] ?? 0}
+                                onChangeIndex={(i) => setConsultationCarouselIndex(prev => ({ ...prev, [consultation.id]: i }))}
+                                onImageClick={(index) => {
+                                  const allImages = consultationAttachments[consultation.id]
+                                    .map((att: any) => ({
+                                      id: att.id,
+                                      url: imageUrls[att.id] || att.file_url || '',
+                                      name: att.file_name || 'Foto',
+                                    }))
+                                    .filter((img: any) => img.url);
+                                  if (allImages.length > 0) {
+                                    setLightboxState({
+                                      isOpen: true,
+                                      images: allImages,
+                                      currentIndex: Math.min(index, allImages.length - 1),
+                                    });
+                                  }
+                                }}
+                              />
+                            </div>
+                          </div>
+                        )}
+                      </div>
+                    );
+                  })}
+                </div>
+              )}
+            </div>
           </div>
         )}
 
@@ -2807,269 +2998,6 @@ Data: {{signed_at}}`;
                   <span>{editingConsultationId ? 'Salvar Alterações' : 'Registrar Consulta'}</span>
                 </button>
               </div>
-            </div>
-
-            {/* Histórico de Consultas */}
-            <div className="glass-card p-6 border border-white/10">
-              <h3 className="text-lg font-semibold glow-text mb-4">Histórico de Consultas</h3>
-              
-              {consultations.length === 0 ? (
-                <div className="text-center py-8 text-gray-400">
-                  <Stethoscope size={48} className="mx-auto mb-4 text-gray-500" />
-                  <p>Nenhuma consulta registrada</p>
-                </div>
-              ) : (
-                <div className="space-y-4">
-                  {consultations.map((consultation) => {
-                    const injectables = (consultation as any).injectables_record as
-                      | InjectablesRecord
-                      | null
-                      | undefined;
-                    const hasBotox =
-                      !!injectables?.botulinumToxin &&
-                      Object.values(injectables.botulinumToxin).some(
-                        (value) => value !== null && value !== undefined && value !== ''
-                      );
-                    const fillersArray = Array.isArray(injectables?.fillers)
-                      ? injectables!.fillers!
-                      : [];
-                    const hasFillers = fillersArray.some((row) => !isFillerRowEmpty(row || {} as any));
-
-                    return (
-                    <div key={consultation.id} className="bg-white/5 rounded-xl p-4 border border-white/10 hover:border-cyan-400/30 transition-colors">
-                      <div className="flex justify-between items-start mb-3">
-                        <div>
-                          <h4 className="font-semibold text-white">{consultation.reason}</h4>
-                          <p className="text-sm text-gray-400">
-                            {formatDateOnlyPtBr(toDateOnly(consultation.date) || '')}
-                          </p>
-                        </div>
-                        <div className="flex space-x-2">
-                          <button 
-                            onClick={() => handleEditConsultation(consultation)}
-                            className="p-1 text-cyan-400 hover:text-cyan-300 transition-colors"
-                            title="Editar consulta"
-                          >
-                            <Edit size={16} />
-                          </button>
-                          <button 
-                            onClick={() => handleDeleteConsultation(consultation.id)}
-                            className="p-1 text-red-400 hover:text-red-300 transition-colors"
-                            title="Excluir consulta"
-                          >
-                            <Trash2 size={16} />
-                          </button>
-                        </div>
-                      </div>
-                      
-                      {consultation.diagnosis && (
-                        <div className="mb-2">
-                          <span className="text-sm font-medium text-gray-300">Diagnóstico:</span>
-                          <p className="text-sm text-gray-400">{consultation.diagnosis}</p>
-                        </div>
-                      )}
-                      {consultation.treatment && (
-                        <div>
-                          <span className="text-sm font-medium text-gray-300">Conduta:</span>
-                          <p className="text-sm text-gray-400">{consultation.treatment}</p>
-                        </div>
-                      )}
-
-                      {/* Antropometria - compact block */}
-                      {(consultation.weight_initial_kg != null ||
-                        consultation.weight_final_kg != null ||
-                        consultation.abdomen_cm != null ||
-                        consultation.waist_cm != null) && (
-                        <div className="mt-3 pt-3 border-t border-white/10">
-                          <span className="text-sm font-medium text-gray-300 block mb-2">Antropometria</span>
-                          <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 text-sm text-gray-400">
-                            {consultation.weight_initial_kg != null && (
-                              <span>Peso inicial: {consultation.weight_initial_kg} kg</span>
-                            )}
-                            {consultation.weight_final_kg != null && (
-                              <span>Peso final: {consultation.weight_final_kg} kg</span>
-                            )}
-                            {consultation.abdomen_cm != null && (
-                              <span>Abdômen: {consultation.abdomen_cm} cm</span>
-                            )}
-                            {consultation.waist_cm != null && (
-                              <span>Cintura: {consultation.waist_cm} cm</span>
-                            )}
-                          </div>
-                        </div>
-                      )}
-
-                      {/* Registro de Injetáveis - Visualização */}
-                      {(hasBotox || hasFillers) && (
-                        <div className="mt-4 pt-4 border-t border-white/10 space-y-3">
-                          {hasBotox && injectables?.botulinumToxin && (
-                            <div>
-                              <h5 className="text-sm font-medium text-gray-300 mb-2">
-                                Toxina Botulinica:
-                              </h5>
-                              <div className="grid grid-cols-1 md:grid-cols-2 gap-2 text-xs text-gray-300">
-                                <div>
-                                  <span className="font-medium">Frontal:</span>{' '}
-                                  {injectables.botulinumToxin.frontalUnits ?? '-'} U
-                                </div>
-                                <div>
-                                  <span className="font-medium">Conrrugador:</span>{' '}
-                                  {injectables.botulinumToxin.corrugatorUnits ?? '-'} U
-                                </div>
-                                <div>
-                                  <span className="font-medium">Prócero:</span>{' '}
-                                  {injectables.botulinumToxin.procerusUnits ?? '-'} U
-                                </div>
-                                <div>
-                                  <span className="font-medium">Orbicular do olho:</span>{' '}
-                                  {injectables.botulinumToxin.orbicularisOculiUnits ?? '-'} U
-                                </div>
-                                <div>
-                                  <span className="font-medium">Levantador do lábio Sup:</span>{' '}
-                                  {injectables.botulinumToxin.levatorLabiiSuperiorisUnits ?? '-'} U
-                                </div>
-                                <div>
-                                  <span className="font-medium">Depressor do ângulo da boca:</span>{' '}
-                                  {injectables.botulinumToxin.depressorAnguliOrisUnits ?? '-'} U
-                                </div>
-                                <div>
-                                  <span className="font-medium">Platisma:</span>{' '}
-                                  {injectables.botulinumToxin.platysmaUnits ?? '-'} U
-                                </div>
-                                {(injectables.botulinumToxin.otherUnits ||
-                                  injectables.botulinumToxin.otherDescription) && (
-                                  <div className="md:col-span-2">
-                                    <span className="font-medium">Outras:</span>{' '}
-                                    {injectables.botulinumToxin.otherUnits ?? '-'} U{' '}
-                                    {injectables.botulinumToxin.otherDescription
-                                      ? `(${injectables.botulinumToxin.otherDescription})`
-                                      : ''}
-                                  </div>
-                                )}
-                                {injectables.botulinumToxin.totalUnitsInjected !== null &&
-                                  injectables.botulinumToxin.totalUnitsInjected !== undefined && (
-                                  <div className="md:col-span-2">
-                                    <span className="font-medium">
-                                      Total de unidades injetadas:
-                                    </span>{' '}
-                                    {injectables.botulinumToxin.totalUnitsInjected} U
-                                  </div>
-                                )}
-                                {(injectables.botulinumToxin.expiryDate ||
-                                  injectables.botulinumToxin.lot ||
-                                  injectables.botulinumToxin.dilutionVolume) && (
-                                  <div className="md:col-span-2 mt-1 space-y-1">
-                                    {injectables.botulinumToxin.expiryDate && (
-                                      <div>
-                                        <span className="font-medium">Validade:</span>{' '}
-                                        {injectables.botulinumToxin.expiryDate}
-                                      </div>
-                                    )}
-                                    {injectables.botulinumToxin.lot && (
-                                      <div>
-                                        <span className="font-medium">Lote:</span>{' '}
-                                        {injectables.botulinumToxin.lot}
-                                      </div>
-                                    )}
-                                    {injectables.botulinumToxin.dilutionVolume && (
-                                      <div>
-                                        <span className="font-medium">Volume de diluição:</span>{' '}
-                                        {injectables.botulinumToxin.dilutionVolume}
-                                      </div>
-                                    )}
-                                  </div>
-                                )}
-                              </div>
-                            </div>
-                          )}
-
-                          {hasFillers && (
-                            <div>
-                              <h5 className="text-sm font-medium text-gray-300 mb-2">
-                                Preenchedor/ Bioestimulador:
-                              </h5>
-                              <div className="border border-white/10 rounded-lg overflow-hidden">
-                                <div className="grid grid-cols-3 gap-2 bg-white/5 px-3 py-1.5 text-xs font-medium text-gray-300">
-                                  <span>Região</span>
-                                  <span>Volume</span>
-                                  <span>Produto</span>
-                                </div>
-                                <div className="divide-y divide-white/5">
-                                  {fillersArray.map((row, idx) => (
-                                    <div
-                                      key={idx}
-                                      className="grid grid-cols-3 gap-2 px-3 py-1.5 text-xs text-gray-200"
-                                    >
-                                      <span>{row.region || '-'}</span>
-                                      <span>{row.volume || '-'}</span>
-                                      <span>{row.product || '-'}</span>
-                                    </div>
-                                  ))}
-                                </div>
-                              </div>
-                            </div>
-                          )}
-                        </div>
-                      )}
-                      
-                      {/* Fotos do Procedimento — carrossel + lightbox ao clicar; opcional excluir foto atual */}
-                      {consultationAttachments[consultation.id] && consultationAttachments[consultation.id].length > 0 && (
-                        <div className="mt-4 pt-4 border-t border-white/10 group/att">
-                          <div className="flex items-center justify-between gap-2 mb-3">
-                            <h5 className="text-sm font-medium text-gray-300 flex items-center gap-2">
-                              <ImageIcon size={16} className="text-cyan-400" />
-                              Fotos do Procedimento ({consultationAttachments[consultation.id].length})
-                            </h5>
-                            <div className="flex items-center gap-1 opacity-80 md:opacity-60 md:group-hover/att:opacity-100 transition-opacity">
-                              <button
-                                type="button"
-                                onClick={() => {
-                                  const idx = consultationCarouselIndex[consultation.id] ?? 0;
-                                  const att = consultationAttachments[consultation.id][idx];
-                                  if (att) setDeleteAttachmentTarget({ consultationId: consultation.id, attachment: att });
-                                }}
-                                className="p-1.5 rounded-lg text-red-400 hover:bg-red-500/20 text-sm inline-flex items-center gap-1"
-                                title="Excluir foto atual"
-                              >
-                                <Trash2 size={16} />
-                                <span className="hidden sm:inline">Excluir atual</span>
-                              </button>
-                            </div>
-                          </div>
-                          <div className="min-h-[180px]">
-                            <ImageCarousel
-                              images={consultationAttachments[consultation.id].map((att: any) => ({
-                                id: att.id,
-                                url: imageUrls[att.id] || att.file_url || '',
-                              }))}
-                              variant="before"
-                              activeIndex={consultationCarouselIndex[consultation.id] ?? 0}
-                              onChangeIndex={(i) => setConsultationCarouselIndex(prev => ({ ...prev, [consultation.id]: i }))}
-                              onImageClick={(index) => {
-                                const allImages = consultationAttachments[consultation.id]
-                                  .map((att: any) => ({
-                                    id: att.id,
-                                    url: imageUrls[att.id] || att.file_url || '',
-                                    name: att.file_name || 'Foto',
-                                  }))
-                                  .filter((img: any) => img.url);
-                                if (allImages.length > 0) {
-                                  setLightboxState({
-                                    isOpen: true,
-                                    images: allImages,
-                                    currentIndex: Math.min(index, allImages.length - 1),
-                                  });
-                                }
-                              }}
-                            />
-                          </div>
-                        </div>
-                      )}
-                    </div>
-                  );
-                  })}
-                </div>
-              )}
             </div>
           </div>
         )}
