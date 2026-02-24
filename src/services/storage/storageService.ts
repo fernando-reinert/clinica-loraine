@@ -343,6 +343,52 @@ export const getPublicUrl = (bucket: string, path: string): string => {
 };
 
 /**
+ * Signed URLs must NOT be persisted in the DB: they expire (JWT exp claim) and cause 400 InvalidJWT
+ * on reload when the UI tries to load them. Store only storage path (path/file_path); generate
+ * signed URLs on-demand and cache in memory with TTL.
+ */
+
+/** True if url contains a token query (signed URL / JWT). Such URLs expire and must not be stored in DB. */
+export function isSignedUrl(url: string | null | undefined): boolean {
+  if (!url || typeof url !== 'string') return false;
+  const u = url.trim().toLowerCase();
+  return u.includes('token=') || u.includes('x-supabase-signature=') || /\?.*[a-z_]*=.*jwt/i.test(u);
+}
+
+/** True if url looks like a public URL (no token param). Safe to use as fallback only when public. */
+export function isPublicUrl(url: string | null | undefined): boolean {
+  if (!url || typeof url !== 'string') return false;
+  return !isSignedUrl(url);
+}
+
+/**
+ * Returns a storage path string (not a URL). Path must be the object path in the bucket, e.g. "patientId/consultations/consultId/file.jpg".
+ * Never use file_url as path — it is a URL, not a path.
+ */
+export function isStoragePath(value: string | null | undefined): boolean {
+  if (!value || typeof value !== 'string') return false;
+  const v = value.trim();
+  if (v.length === 0) return false;
+  if (v.startsWith('http://') || v.startsWith('https://')) return false;
+  if (isSignedUrl(v)) return false;
+  return true;
+}
+
+/**
+ * Safe fallback URL for display. Returns file_url only if it is a public URL (no token).
+ * Never returns expired signed URLs from DB — they cause 400 InvalidJWT on reload.
+ */
+export function getSafeFallbackUrl(att: {
+  file_url?: string | null;
+  path?: string | null;
+  file_path?: string | null;
+}): string {
+  const url = att.file_url ?? '';
+  if (!url || typeof url !== 'string') return '';
+  return isPublicUrl(url) ? url.trim() : '';
+}
+
+/**
  * Obter URL visualizável para um arquivo (path ou URL)
  * 
  * Para buckets privados, sempre gera signed URL (não tenta public URL primeiro)
