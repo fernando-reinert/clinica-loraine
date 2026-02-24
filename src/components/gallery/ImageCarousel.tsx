@@ -89,7 +89,7 @@ const ImageCarousel: React.FC<ImageCarouselProps> = ({
 
   if (images.length === 0) {
     return (
-      <div className={`flex flex-col items-center justify-center min-h-[180px] rounded-xl border-2 border-dashed ${variant === 'before' ? 'border-cyan-400/40 bg-cyan-500/5' : 'border-purple-400/40 bg-purple-500/5'} ${className}`}>
+      <div className={`flex flex-col items-center justify-center min-h-[180px] lg:max-h-[220px] rounded-xl border-2 border-dashed ${variant === 'before' ? 'border-cyan-400/40 bg-cyan-500/5' : 'border-purple-400/40 bg-purple-500/5'} ${className}`}>
         {onAddMore && (
           <button
             type="button"
@@ -106,17 +106,17 @@ const ImageCarousel: React.FC<ImageCarouselProps> = ({
   }
 
   return (
-    <div className={`group relative w-full min-h-[180px] rounded-xl overflow-hidden ${borderColor} border ${className}`}>
+    <div className={`group relative w-full min-h-[180px] lg:max-h-[220px] rounded-xl overflow-hidden ${borderColor} border ${className}`}>
       <div
         ref={scrollRef}
-        className="scrollbar-hide flex overflow-x-auto overflow-y-hidden snap-x snap-mandatory scroll-smooth w-full h-full min-h-[180px] touch-pan-x"
+        className="scrollbar-hide flex overflow-x-auto overflow-y-hidden snap-x snap-mandatory scroll-smooth w-full h-full min-h-[180px] lg:max-h-[220px] touch-pan-x"
         style={{ WebkitOverflowScrolling: 'touch' }}
         onScroll={updateIndex}
       >
         {images.map((img, index) => (
           <div
             key={img.id}
-            className="relative flex-shrink-0 w-full min-h-[180px] snap-center"
+            className="relative flex-shrink-0 w-full min-h-[180px] lg:max-h-[220px] snap-center"
             style={{ aspectRatio: '4/3' }}
           >
             <img
