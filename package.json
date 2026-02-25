@@ -1,7 +1,7 @@
 {
   "name": "loraine-vilela-clinic",
   "private": true,
-  "version": "1.0.28",
+  "version": "1.0.29",
   "type": "module",
   "scripts": {
     "dev": "vite",
@@ -32,8 +32,10 @@
     "autoprefixer": "^10.4.16",
     "cross-env": "^7.0.3",
     "postcss": "^8.4.32",
+    "sharp": "^0.34.5",
     "supabase": "^2.76.7",
     "tailwindcss": "^3.3.6",
+    "to-ico": "^1.1.5",
     "typescript": "^5.2.2",
     "vite": "^5.4.19",
     "vite-plugin-pwa": "^0.17.4"
