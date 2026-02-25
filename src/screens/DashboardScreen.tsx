@@ -1,6 +1,6 @@
 // src/screens/DashboardScreen.tsx - DESIGN FUTURISTA COMPLETO
 import React from 'react'
-import { Users, Calendar, Package, Clock, CheckCircle, DollarSign, Plus, TrendingUp, Sparkles, Zap, Activity, Settings } from 'lucide-react'
+import { Users, Calendar, Package, Clock, CheckCircle, DollarSign, Plus, TrendingUp, Sparkles, Zap, Activity, Settings, Wallet } from 'lucide-react'
 import { useNavigate } from 'react-router-dom'
 import { useAuth } from '../contexts/AuthContext'
 import { useDashboardStats } from '../hooks/useDashboardStats'
@@ -36,6 +36,12 @@ const DashboardScreen: React.FC = () => {
       icon: DollarSign,
       gradient: 'from-green-500 to-emerald-500',
       action: () => navigate('/financial-control')
+    },
+    {
+      title: 'Monjaro',
+      icon: Wallet,
+      gradient: 'from-emerald-500 to-teal-500',
+      action: () => navigate('/monjaro')
     }
   ];
 

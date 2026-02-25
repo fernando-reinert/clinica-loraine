@@ -29,6 +29,7 @@ import PatientGalleryScreen from "./screens/PatientGalleryScreen";
 import AnamneseScreen from "./screens/AnamneseScreen";
 import AppointmentTreatmentScreen from "./screens/AppointmentTreatmentScreen";
 import ProceduresScreen from "./screens/ProceduresScreen";
+import MonjaroScreen from "./screens/MonjaroScreen";
 import PatientFormScreen from "./screens/PatientFormScreen";
 import PatientSignupScreen from "./screens/PatientSignupScreen";
 import SignupEntryScreen from "./screens/SignupEntryScreen";
@@ -157,6 +158,13 @@ function App() {
                 <Route path="/financial-control" element={
                   <ProtectedRoute>
                     <FinancialControl />
+                  </ProtectedRoute>
+                } />
+
+                {/* Monjaro - Caixa */}
+                <Route path="/monjaro" element={
+                  <ProtectedRoute>
+                    <MonjaroScreen />
                   </ProtectedRoute>
                 } />
 

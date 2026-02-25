@@ -1,8 +1,6 @@
 // src/services/financial/reportService.ts
 // Geração de PDF do relatório financeiro mensal (client-side)
-
-import { jsPDF } from 'jspdf';
-import autoTable from 'jspdf-autotable';
+// Import dinâmico de jspdf/jspdf-autotable para reduzir bundle inicial
 
 const formatCurrency = (value: number): string =>
   new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(value);
@@ -56,6 +54,10 @@ export interface MonthlyReportParams {
 }
 
 export async function generateMonthlyFinancialReportPDF(params: MonthlyReportParams): Promise<Blob> {
+  const [{ jsPDF }, { default: autoTable }] = await Promise.all([
+    import('jspdf'),
+    import('jspdf-autotable'),
+  ]);
   const doc = new jsPDF({ orientation: 'portrait', unit: 'mm', format: 'a4' });
   const pageW = doc.getPageWidth();
   let y = 18;
