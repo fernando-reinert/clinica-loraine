@@ -25,6 +25,7 @@ import {
   Sparkles,
   Eye,
   EyeOff,
+  ClipboardList,
 } from "lucide-react";
 import ResponsiveAppLayout from "../components/Layout/ResponsiveAppLayout";
 import LoadingSpinner from "../components/LoadingSpinner";
@@ -205,6 +206,12 @@ const PatientDetailScreen: React.FC = () => {
       icon: Stethoscope,
       gradient: "from-orange-500 to-red-500",
       action: () => navigate(`/patients/${id}/medical-record`),
+    },
+    {
+      title: "Planos",
+      icon: ClipboardList,
+      gradient: "from-teal-500 to-cyan-500",
+      action: () => navigate(`/patients/${id}/treatment-plans`),
     },
   ];
 
