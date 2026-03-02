@@ -444,7 +444,10 @@ export interface Database {
       [_ in never]: never
     }
     Functions: {
-      [_ in never]: never
+      get_public_treatment_plan: {
+        Args: { p_token: string }
+        Returns: Record<string, unknown>
+      }
     }
     Enums: {
       [_ in never]: never

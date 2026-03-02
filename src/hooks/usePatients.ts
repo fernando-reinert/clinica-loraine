@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import { useSupabase } from '../contexts/SupabaseContext';
 import { useAuth } from '../contexts/AuthContext';
 import toast from 'react-hot-toast';
@@ -25,22 +25,17 @@ export const usePatients = () => {
   const [patients, setPatients] = useState<Patient[]>([]);
   const [loading, setLoading] = useState(true);
 
-  const loadPatients = async () => {
+  const loadPatients = useCallback(async () => {
     if (!user || !supabase) {
       setLoading(false);
       return;
     }
-
     try {
       const { data, error } = await supabase
         .from('patients')
         .select('*')
         .order('created_at', { ascending: false });
-
-      if (error) {
-        throw error;
-      }
-
+      if (error) throw error;
       setPatients(data || []);
     } catch (error) {
       console.error('Error loading patients:', error);
@@ -48,34 +43,32 @@ export const usePatients = () => {
     } finally {
       setLoading(false);
     }
-  };
+  }, [user, supabase]);
 
-  const getPatient = async (id: string): Promise<Patient | null> => {
-    if (!user || !supabase) {
-      return null;
-    }
-
-    try {
-      const { data, error } = await supabase
-        .from('patients')
-        .select('*')
-        .eq('id', id)
-        .limit(1)
-        .single();
-
-      if (error) {
-        console.error('Error fetching patient:', error);
-        toast.error('Erro ao carregar dados do paciente');
+  const getPatient = useCallback(
+    async (id: string): Promise<Patient | null> => {
+      if (!user || !supabase) return null;
+      try {
+        const { data, error } = await supabase
+          .from('patients')
+          .select('*')
+          .eq('id', id)
+          .limit(1)
+          .single();
+        if (error) {
+          console.error('Error fetching patient:', error);
+          toast.error('Erro ao carregar dados do paciente');
+          return null;
+        }
+        return data;
+      } catch (error) {
+        console.error('Error getting patient:', error);
+        toast.error('Erro ao buscar dados do paciente');
         return null;
       }
-
-      return data;
-    } catch (error) {
-      console.error('Error getting patient:', error);
-      toast.error('Erro ao buscar dados do paciente');
-      return null;
-    }
-  };
+    },
+    [user, supabase]
+  );
 
   // ✅ FUNÇÃO UPDATE PATIENT CORRIGIDA
   const updatePatient = async (patientId: string, updates: any): Promise<Patient | null> => {
@@ -190,7 +183,7 @@ export const usePatients = () => {
 
   useEffect(() => {
     loadPatients();
-  }, [user]);
+  }, [loadPatients]);
 
   return {
     patients,

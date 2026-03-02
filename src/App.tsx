@@ -30,6 +30,9 @@ import AnamneseScreen from "./screens/AnamneseScreen";
 import AppointmentTreatmentScreen from "./screens/AppointmentTreatmentScreen";
 import ProceduresScreen from "./screens/ProceduresScreen";
 import MonjaroScreen from "./screens/MonjaroScreen";
+import TreatmentPlansScreen from "./screens/TreatmentPlansScreen";
+import TreatmentPlanFormScreen from "./screens/TreatmentPlanFormScreen";
+import PublicTreatmentPlanScreen from "./screens/PublicTreatmentPlanScreen";
 import PatientFormScreen from "./screens/PatientFormScreen";
 import PatientSignupScreen from "./screens/PatientSignupScreen";
 import SignupEntryScreen from "./screens/SignupEntryScreen";
@@ -63,6 +66,7 @@ function App() {
                 <Route path="/cadastro/:code" element={<PatientSignupScreen />} />
                 <Route path="/patient-signup/novopaciente/:code" element={<PatientSignupScreen />} />
                 <Route path="/patient-signup/:shareToken" element={<PatientSignupScreen />} />
+                <Route path="/t/:token" element={<PublicTreatmentPlanScreen />} />
                 
                 {/* ========== ROTAS PROTEGIDAS ========== */}
                 <Route path="/" element={<Navigate to="/dashboard" replace />} />
@@ -116,6 +120,22 @@ function App() {
                 <Route path="/patients/:id/gallery" element={
                   <ProtectedRoute>
                     <PatientGalleryScreen />
+                  </ProtectedRoute>
+                } />
+
+                <Route path="/patients/:id/treatment-plans" element={
+                  <ProtectedRoute>
+                    <TreatmentPlansScreen />
+                  </ProtectedRoute>
+                } />
+                <Route path="/patients/:id/treatment-plans/new" element={
+                  <ProtectedRoute>
+                    <TreatmentPlanFormScreen />
+                  </ProtectedRoute>
+                } />
+                <Route path="/patients/:id/treatment-plans/:planId" element={
+                  <ProtectedRoute>
+                    <TreatmentPlanFormScreen />
                   </ProtectedRoute>
                 } />
 
