@@ -141,6 +141,26 @@ export const brazilianStringToDate = (dateString: string): Date | null => {
 };
 
 /**
+ * Verifica se a data é o dia de hoje (mesmo dia civil, ignorando hora).
+ * @param date - Data (Date ou ISO string)
+ * @returns true se for hoje
+ */
+export const isToday = (date: Date | string): boolean => {
+  try {
+    const d = typeof date === 'string' ? new Date(date) : date;
+    if (isNaN(d.getTime())) return false;
+    const today = new Date();
+    return (
+      d.getFullYear() === today.getFullYear() &&
+      d.getMonth() === today.getMonth() &&
+      d.getDate() === today.getDate()
+    );
+  } catch {
+    return false;
+  }
+};
+
+/**
  * Valida se uma data é futura
  * @param isoString - Data no formato ISO
  * @returns true se a data é futura

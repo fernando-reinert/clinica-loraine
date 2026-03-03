@@ -1,7 +1,7 @@
 // src/screens/TreatmentPlansScreen.tsx – list of treatment plans for a patient
 import React, { useState, useCallback } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
-import { FileText, Plus, Pencil, Trash2, Send, Copy, Unlink, ExternalLink } from 'lucide-react';
+import { FileText, Plus, Pencil, Trash2, Send, Copy, Unlink, ExternalLink, CalendarCheck } from 'lucide-react';
 import ResponsiveAppLayout from '../components/Layout/ResponsiveAppLayout';
 import LoadingSpinner from '../components/LoadingSpinner';
 import toast from 'react-hot-toast';
@@ -131,6 +131,21 @@ const TreatmentPlansScreen: React.FC = () => {
                   </p>
                 </div>
                 <div className="flex flex-wrap gap-2">
+                  {plan.scheduled_appointment_id ? (
+                    <span className="min-h-[44px] px-4 rounded-xl bg-emerald-500/20 border border-emerald-400/40 text-emerald-300 inline-flex items-center gap-2">
+                      <CalendarCheck size={18} />
+                      Agendado
+                    </span>
+                  ) : (
+                    <button
+                      type="button"
+                      onClick={() => navigate(`/patients/${patientId}/treatment-plans/${plan.id}/confirm`)}
+                      className="min-h-[44px] px-4 rounded-xl bg-cyan-500/30 border border-cyan-400/50 hover:bg-cyan-500/40 inline-flex items-center gap-2"
+                    >
+                      <CalendarCheck size={18} />
+                      Confirmar procedimento
+                    </button>
+                  )}
                   {(!plan.public_token || plan.status === 'revoked') ? (
                     <button
                       type="button"

@@ -23,9 +23,17 @@ import DayCalendarView from "../components/appointments/DayCalendarView";
 import type { DayCalendarEvent } from "../components/appointments/DayCalendarView";
 import AppointmentDrawer from "../components/appointments/AppointmentDrawer";
 import type { DrawerAppointment } from "../components/appointments/AppointmentDrawer";
-import { convertToBrazilianFormat } from "../utils/dateUtils";
-import { cancelGcalEvent } from "../services/calendar";
-import { listAppointmentsByDay } from "../services/appointments/appointmentService";
+import { convertToBrazilianFormat, isToday } from "../utils/dateUtils";
+import {
+  listAppointmentsByDay,
+  deleteAppointment,
+  updateAppointmentStatus as updateAppointmentStatusService,
+  rescheduleAppointment,
+  getAppointmentHistory,
+} from "../services/appointments/appointmentService";
+import type { AppointmentStatus } from "../types/db";
+import { getStatusConfig } from "../constants/appointmentStatus";
+import ConfirmDialog from "../components/ConfirmDialog";
 
 interface Appointment {
   id: string;
@@ -36,7 +44,7 @@ interface Appointment {
   end_time?: string | null;
   description?: string;
   title: string;
-  status: "scheduled" | "confirmed" | "completed" | "cancelled";
+  status: AppointmentStatus;
   budget?: number;
   gcal_event_id?: string | null;
 }
@@ -71,6 +79,10 @@ const AppointmentsScreen: React.FC = () => {
   const [drawerInitialMinute, setDrawerInitialMinute] = useState(0);
   const [drawerAppointment, setDrawerAppointment] = useState<DrawerAppointment | null>(null);
   const [deleteConfirming, setDeleteConfirming] = useState<Appointment | null>(null);
+  const [cancelStatusConfirming, setCancelStatusConfirming] = useState<Appointment | null>(null);
+  const [rescheduleTarget, setRescheduleTarget] = useState<Appointment | null>(null);
+  const [rescheduleStart, setRescheduleStart] = useState("");
+  const [rescheduleEnd, setRescheduleEnd] = useState("");
   const [historyExpanded, setHistoryExpanded] = useState(false);
   const [expandedPatientKeys, setExpandedPatientKeys] = useState<Set<string>>(new Set());
   const requestIdRef = useRef(0);
@@ -148,7 +160,7 @@ const AppointmentsScreen: React.FC = () => {
           title: a.title,
           status: a.status,
           budget: a.budget,
-          gcal_event_id: a.gcal_event_id ?? a.google_event_id ?? null,
+          gcal_event_id: a.gcal_event_id ?? null,
         })) ?? [];
       setAppointments(formatted);
       setFilteredAppointments(formatted);
@@ -262,52 +274,59 @@ setDrawerAppointment({
     const appointment = deleteConfirming;
     if (!appointment) return;
     setDeleteConfirming(null);
-    let gcalFailed = false;
+    const id = appointment.id;
+    setAppointments((prev) => prev.filter((a) => a.id !== id));
+    setDayAppointments((prev) => prev.filter((e) => e.id !== id));
     try {
-      if (appointment.gcal_event_id) {
-        try {
-          await cancelGcalEvent(appointment.gcal_event_id);
-        } catch (gcalErr: any) {
-          console.warn("Google Calendar: falha ao remover evento", gcalErr);
-          gcalFailed = true;
-        }
-      }
-      const { error } = await supabase.from("appointments").delete().eq("id", appointment.id);
-      if (error) throw error;
+      const { gcalFailed } = await deleteAppointment(id);
       toast.success(
         gcalFailed
           ? "Agendamento excluído. Não foi possível remover do Google Calendar."
-          : "Agendamento excluído."
+          : "Agendamento excluído com sucesso."
       );
       loadDayAppointments();
       loadAppointments();
     } catch (err: any) {
-      console.error(err);
-      toast.error("Erro ao excluir.");
+      loadDayAppointments();
+      loadAppointments();
+      toast.error("Erro ao excluir agendamento.");
     }
   };
 
-  const updateAppointmentStatus = async (appointment: Appointment, status: Appointment["status"]) => {
+  const updateAppointmentStatus = async (appointment: Appointment, status: AppointmentStatus) => {
     try {
-      if (status === "cancelled" && appointment.gcal_event_id) {
-        const cancelResult = await cancelGcalEvent(appointment.gcal_event_id);
-        await supabase
-          .from("appointments")
-          .update({
-            status,
-            gcal_status: "cancelled",
-            gcal_updated_at: new Date().toISOString(),
-            ...(cancelResult.ok ? {} : { gcal_last_error: cancelResult.error ?? "Cancelamento no Google falhou" }),
-          })
-          .eq("id", appointment.id);
-      } else {
-        await supabase.from("appointments").update({ status }).eq("id", appointment.id);
-      }
+      await updateAppointmentStatusService(appointment.id, status);
       loadDayAppointments();
       loadAppointments();
+      if (status === "cancelled") setCancelStatusConfirming(null);
+      toast.success("Status atualizado.");
     } catch (err: any) {
-      console.error(err);
-      toast.error("Erro ao atualizar status.");
+      toast.error(err?.message ?? "Erro ao atualizar status.");
+    }
+  };
+
+  const handleConfirmCancelStatus = async () => {
+    const apt = cancelStatusConfirming;
+    if (!apt) return;
+    await updateAppointmentStatus(apt, "cancelled");
+  };
+
+  const handleRescheduleSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    const apt = rescheduleTarget;
+    if (!apt || !rescheduleStart || !rescheduleEnd) return;
+    const startIso = new Date(rescheduleStart).toISOString();
+    const endIso = new Date(rescheduleEnd).toISOString();
+    try {
+      await rescheduleAppointment(apt.id, startIso, endIso);
+      setRescheduleTarget(null);
+      setRescheduleStart("");
+      setRescheduleEnd("");
+      loadDayAppointments();
+      loadAppointments();
+      toast.success("Agendamento remarcado.");
+    } catch (err: any) {
+      toast.error(err?.message ?? "Erro ao remarcar.");
     }
   };
 
@@ -315,9 +334,12 @@ setDrawerAppointment({
     new Intl.NumberFormat("pt-BR", { style: "currency", currency: "BRL" }).format(v);
   const isPastAppointment = (a: Appointment) => new Date(a.start_time) < new Date();
 
-  const total = appointments.length;
-  const upcoming = appointments.filter((a) => !isPastAppointment(a)).length;
-  const confirmed = appointments.filter((a) => a.status === "confirmed").length;
+  const activeAppointments = appointments.filter((a) => a.status !== "cancelled");
+  const total = activeAppointments.length;
+  const upcoming = activeAppointments.filter(
+    (a) => !isPastAppointment(a) && ["scheduled", "confirmed", "rescheduled"].includes(a.status)
+  ).length;
+  const confirmed = activeAppointments.filter((a) => a.status === "confirmed").length;
 
   return (
     <ResponsiveAppLayout title="Agendamentos" showBack>
@@ -347,9 +369,10 @@ setDrawerAppointment({
               <button
                 type="button"
                 onClick={goToday}
-                className="px-3 py-2 rounded-xl bg-white/5 hover:bg-white/10 border border-white/10 text-white text-sm font-medium"
+                className="px-3 py-2 rounded-xl bg-white/5 hover:bg-white/10 border border-white/10 text-white text-sm font-medium min-w-[120px] sm:min-w-[160px]"
+                title={isToday(selectedDay) ? "Você está vendo hoje" : "Ir para hoje"}
               >
-                Hoje
+                {isToday(selectedDay) ? "Hoje" : formatDayLabel(selectedDay)}
               </button>
               <button
                 type="button"
@@ -466,26 +489,11 @@ setDrawerAppointment({
                           <div className="border-t border-white/10 p-3 pt-2 space-y-2">
                             {group.appointments.map((appointment) => {
                               const isPast = isPastAppointment(appointment);
-                              const statusLabel =
-                                appointment.status === "scheduled"
-                                  ? "Agendado"
-                                  : appointment.status === "confirmed"
-                                  ? "Confirmado"
-                                  : appointment.status === "completed"
-                                  ? "Concluído"
-                                  : "Cancelado";
-                              const statusClass =
-                                appointment.status === "scheduled"
-                                  ? "bg-amber-500/15 text-amber-200 border-amber-400/20"
-                                  : appointment.status === "confirmed"
-                                  ? "bg-cyan-500/15 text-cyan-200 border-cyan-400/20"
-                                  : appointment.status === "completed"
-                                  ? "bg-green-500/15 text-green-200 border-green-400/20"
-                                  : "bg-red-500/15 text-red-200 border-red-400/20";
+                              const statusConfig = getStatusConfig(appointment.status);
                               return (
                                 <div
                                   key={appointment.id}
-                                  className={`glass-card p-4 border border-white/10 ${isPast ? "opacity-75" : ""}`}
+                                  className={`glass-card p-4 border border-white/10 border-l-4 ${statusConfig.borderClass} ${isPast ? "opacity-75" : ""}`}
                                 >
                                   <div className="flex flex-col sm:flex-row sm:items-start justify-between gap-3">
                                     <div className="flex-1 min-w-0">
@@ -499,8 +507,8 @@ setDrawerAppointment({
                                       )}
                                     </div>
                                     <div className="flex items-center gap-2 flex-wrap">
-                                      <span className={`px-2.5 py-1 text-xs font-medium rounded-full border ${statusClass}`}>
-                                        {statusLabel}
+                                      <span className={`px-2.5 py-1 text-xs font-medium rounded-full border ${statusConfig.badgeClass}`}>
+                                        {statusConfig.label}
                                       </span>
                                       <button
                                         type="button"
@@ -534,7 +542,7 @@ setDrawerAppointment({
                                             <button
                                               type="button"
                                               onClick={() => updateAppointmentStatus(appointment, "confirmed")}
-                                              className="text-xs px-3 py-2 rounded-xl bg-cyan-500/20 border border-cyan-400/20 text-cyan-100"
+                                              className="text-xs px-3 py-2 rounded-xl bg-green-500/20 border border-green-400/20 text-green-100"
                                             >
                                               Confirmar
                                             </button>
@@ -543,14 +551,36 @@ setDrawerAppointment({
                                             <button
                                               type="button"
                                               onClick={() => updateAppointmentStatus(appointment, "completed")}
-                                              className="text-xs px-3 py-2 rounded-xl bg-green-500/20 border border-green-400/20 text-green-100"
+                                              className="text-xs px-3 py-2 rounded-xl bg-purple-500/20 border border-purple-400/20 text-purple-100"
                                             >
-                                              Concluir
+                                              Marcar como realizado
+                                            </button>
+                                          )}
+                                          {appointment.status !== "no_show" && (
+                                            <button
+                                              type="button"
+                                              onClick={() => updateAppointmentStatus(appointment, "no_show")}
+                                              className="text-xs px-3 py-2 rounded-xl bg-orange-500/20 border border-orange-400/20 text-orange-100"
+                                            >
+                                              Marcar falta
                                             </button>
                                           )}
                                           <button
                                             type="button"
-                                            onClick={() => updateAppointmentStatus(appointment, "cancelled")}
+                                            onClick={() => {
+                                              setRescheduleTarget(appointment);
+                                              const s = new Date(appointment.start_time);
+                                              const e = new Date(appointment.end_time ?? s.getTime() + 3600000);
+                                              setRescheduleStart(s.toISOString().slice(0, 16));
+                                              setRescheduleEnd(e.toISOString().slice(0, 16));
+                                            }}
+                                            className="text-xs px-3 py-2 rounded-xl bg-yellow-500/20 border border-yellow-400/20 text-yellow-100"
+                                          >
+                                            Remarcar
+                                          </button>
+                                          <button
+                                            type="button"
+                                            onClick={() => setCancelStatusConfirming(appointment)}
                                             className="text-xs px-3 py-2 rounded-xl bg-red-500/20 border border-red-400/20 text-red-100"
                                           >
                                             Cancelar
@@ -587,7 +617,91 @@ setDrawerAppointment({
         initialHour={drawerInitialHour}
         initialMinute={drawerInitialMinute}
         initialAppointment={drawerMode === "edit" ? drawerAppointment : null}
+        onDeleteRequested={(apt) => {
+          const full = appointments.find((a) => a.id === apt.id);
+          setDeleteConfirming(
+            full ?? {
+              id: apt.id,
+              patient_id: apt.patient_id ?? null,
+              patient_name: apt.patient_name,
+              patient_phone: apt.patient_phone ?? "",
+              start_time: apt.start_time,
+              end_time: apt.end_time ?? null,
+              title: apt.title,
+              description: apt.description ?? undefined,
+              status: (apt.status as Appointment["status"]) ?? "scheduled",
+              budget: apt.budget,
+              gcal_event_id: apt.gcal_event_id ?? null,
+            }
+          );
+          setDrawerOpen(false);
+          setDrawerAppointment(null);
+        }}
       />
+
+      <ConfirmDialog
+        isOpen={Boolean(cancelStatusConfirming)}
+        title="Cancelar agendamento?"
+        message="Isso marcará o agendamento como cancelado e atualizará a agenda."
+        confirmLabel="Cancelar agendamento"
+        cancelLabel="Voltar"
+        confirmVariant="danger"
+        onConfirm={handleConfirmCancelStatus}
+        onCancel={() => setCancelStatusConfirming(null)}
+      />
+
+      {rescheduleTarget && (
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm"
+          onClick={() => setRescheduleTarget(null)}
+        >
+          <form
+            className="glass-card p-6 border border-white/20 rounded-2xl max-w-sm w-full"
+            onClick={(e) => e.stopPropagation()}
+            onSubmit={handleRescheduleSubmit}
+          >
+            <h3 className="text-lg font-semibold text-white mb-2">Remarcar agendamento</h3>
+            <p className="text-gray-300 text-sm mb-4">{rescheduleTarget.patient_name}</p>
+            <div className="space-y-3 mb-4">
+              <label className="block">
+                <span className="text-gray-400 text-sm">Início</span>
+                <input
+                  type="datetime-local"
+                  value={rescheduleStart}
+                  onChange={(e) => setRescheduleStart(e.target.value)}
+                  className="w-full mt-1 px-3 py-2 rounded-xl bg-white/5 border border-white/10 text-white"
+                  required
+                />
+              </label>
+              <label className="block">
+                <span className="text-gray-400 text-sm">Fim</span>
+                <input
+                  type="datetime-local"
+                  value={rescheduleEnd}
+                  onChange={(e) => setRescheduleEnd(e.target.value)}
+                  className="w-full mt-1 px-3 py-2 rounded-xl bg-white/5 border border-white/10 text-white"
+                  required
+                />
+              </label>
+            </div>
+            <div className="flex gap-3">
+              <button
+                type="button"
+                onClick={() => setRescheduleTarget(null)}
+                className="flex-1 px-4 py-2.5 rounded-xl bg-white/10 hover:bg-white/15 border border-white/10 text-white"
+              >
+                Voltar
+              </button>
+              <button
+                type="submit"
+                className="flex-1 px-4 py-2.5 rounded-xl neon-button"
+              >
+                Remarcar
+              </button>
+            </div>
+          </form>
+        </div>
+      )}
 
       {deleteConfirming && (
         <div
@@ -600,7 +714,10 @@ setDrawerAppointment({
           >
             <h3 className="text-lg font-semibold text-white mb-2">Excluir agendamento?</h3>
             <p className="text-gray-300 text-sm mb-4">
-              Excluir agendamento de <strong className="text-white">{deleteConfirming.patient_name}</strong>?
+              Essa ação removerá o agendamento da agenda e do Google Calendar.
+              {deleteConfirming.patient_name && (
+                <> Agendamento de <strong className="text-white">{deleteConfirming.patient_name}</strong>.</>
+              )}
             </p>
             <div className="flex gap-3">
               <button

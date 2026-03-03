@@ -4,6 +4,7 @@
 import React from "react";
 import { Clock } from "lucide-react";
 import { formatTimeOnly } from "../../utils/dateUtils";
+import { getStatusConfig } from "../../constants/appointmentStatus";
 
 const HOUR_START = 7;
 const HOUR_END = 20;
@@ -121,19 +122,14 @@ export default function DayCalendarView({
           ))}
           {dayEvents.map((ev) => {
             const style = getEventStyle(ev.start_time, ev.end_time ?? undefined);
-            const statusClass =
-              ev.status === "confirmed"
-                ? "bg-cyan-500/25 border-cyan-400/40"
-                : ev.status === "completed"
-                ? "bg-green-500/20 border-green-400/30"
-                : ev.status === "cancelled"
-                ? "bg-gray-500/20 border-gray-400/30 opacity-70"
-                : "bg-purple-500/20 border-purple-400/30";
+            const config = getStatusConfig(ev.status);
+            const isCancelled = ev.status === "cancelled";
+            const blockClass = `border-l-4 ${config.borderClass} ${config.bgTintClass} border border-white/20`;
             return (
               <button
                 key={ev.id}
                 type="button"
-                className={`absolute left-1 right-1 rounded-xl border text-left px-2 py-1 overflow-hidden ${statusClass} hover:opacity-90 focus:outline-none focus:ring-2 focus:ring-cyan-400/50 transition-all`}
+                className={`absolute left-1 right-1 rounded-xl text-left px-2 py-1 overflow-hidden ${blockClass} ${isCancelled ? "opacity-70" : ""} hover:opacity-90 focus:outline-none focus:ring-2 focus:ring-cyan-400/50 transition-all`}
                 style={{
                   top: style.top,
                   height: style.height,
