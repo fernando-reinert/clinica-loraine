@@ -1,6 +1,6 @@
 // src/types/treatmentPlan.ts – domain types for Treatment Plans
 
-export type TreatmentPlanStatus = 'draft' | 'sent' | 'accepted' | 'expired' | 'revoked';
+export type TreatmentPlanStatus = 'draft' | 'sent' | 'accepted' | 'expired' | 'revoked' | 'scheduled';
 
 export interface TreatmentPlan {
   id: string;
@@ -21,6 +21,8 @@ export interface TreatmentPlan {
   first_viewed_at: string | null;
   view_count: number;
   public_link_generated_at: string | null;
+  scheduled_appointment_id: string | null;
+  confirmed_at: string | null;
   created_at: string;
   updated_at: string;
 }
@@ -67,6 +69,8 @@ export interface TreatmentPlanUpdateInput {
   public_token?: string | null;
   expires_at?: string | null;
   public_link_generated_at?: string | null;
+  scheduled_appointment_id?: string | null;
+  confirmed_at?: string | null;
 }
 
 /** For create item: omit id; optional procedure_catalog_id */

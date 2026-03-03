@@ -32,6 +32,7 @@ import ProceduresScreen from "./screens/ProceduresScreen";
 import MonjaroScreen from "./screens/MonjaroScreen";
 import TreatmentPlansScreen from "./screens/TreatmentPlansScreen";
 import TreatmentPlanFormScreen from "./screens/TreatmentPlanFormScreen";
+import TreatmentPlanConfirmScreen from "./screens/TreatmentPlanConfirmScreen";
 import PublicTreatmentPlanScreen from "./screens/PublicTreatmentPlanScreen";
 import PatientFormScreen from "./screens/PatientFormScreen";
 import PatientSignupScreen from "./screens/PatientSignupScreen";
@@ -136,6 +137,11 @@ function App() {
                 <Route path="/patients/:id/treatment-plans/:planId" element={
                   <ProtectedRoute>
                     <TreatmentPlanFormScreen />
+                  </ProtectedRoute>
+                } />
+                <Route path="/patients/:id/treatment-plans/:planId/confirm" element={
+                  <ProtectedRoute>
+                    <TreatmentPlanConfirmScreen />
                   </ProtectedRoute>
                 } />
 

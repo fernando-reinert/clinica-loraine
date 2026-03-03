@@ -1,7 +1,7 @@
 // src/services/treatmentPlans/validation.ts – Zod schemas for treatment plans
 import { z } from 'zod';
 
-const statusEnum = z.enum(['draft', 'sent', 'accepted', 'expired', 'revoked']);
+const statusEnum = z.enum(['draft', 'sent', 'accepted', 'expired', 'revoked', 'scheduled']);
 
 export const treatmentPlanCreateSchema = z.object({
   patient_id: z.string().uuid(),
@@ -25,6 +25,8 @@ export const treatmentPlanUpdateSchema = z.object({
   public_token: z.string().uuid().nullable().optional(),
   expires_at: z.string().nullable().optional(),
   public_link_generated_at: z.string().nullable().optional(),
+  scheduled_appointment_id: z.string().uuid().nullable().optional(),
+  confirmed_at: z.string().nullable().optional(),
 });
 
 export const treatmentPlanItemCreateSchema = z.object({
@@ -47,6 +49,14 @@ export const treatmentPlanItemUpdateSchema = z.object({
 
 /** Validity days for public link (1..365). Used by sendPlan. */
 export const sendPlanValidityDaysSchema = z.number().int().min(1).max(365);
+
+/** Payload for "Confirmar procedimento" (schedule plan as appointment). */
+export const confirmPlanPayloadSchema = z.object({
+  date: z.string().regex(/^\d{4}-\d{2}-\d{2}$/, 'Data inválida (use YYYY-MM-DD)'),
+  time: z.string().regex(/^\d{1,2}:\d{2}$/, 'Hora inválida (use HH:mm)'),
+  selectedItemIds: z.array(z.string().uuid()).min(1, 'Selecione pelo menos um item com procedimento do catálogo'),
+});
+export type ConfirmPlanPayload = z.infer<typeof confirmPlanPayloadSchema>;
 
 export type TreatmentPlanCreateInputValidated = z.infer<typeof treatmentPlanCreateSchema>;
 export type TreatmentPlanUpdateInputValidated = z.infer<typeof treatmentPlanUpdateSchema>;

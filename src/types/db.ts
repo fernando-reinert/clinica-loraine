@@ -157,6 +157,14 @@ export interface ProcedureAttachment {
 // ============================================
 // APPOINTMENTS
 // ============================================
+export type AppointmentStatus =
+  | 'scheduled'
+  | 'confirmed'
+  | 'completed'
+  | 'cancelled'
+  | 'no_show'
+  | 'rescheduled';
+
 export interface Appointment {
   id: string;
   patient_id: string;
@@ -165,7 +173,7 @@ export interface Appointment {
   description: string | null;
   start_time: string;
   end_time: string;
-  status: 'scheduled' | 'confirmed' | 'completed' | 'cancelled';
+  status: AppointmentStatus;
   google_event_id: string | null;
   /** Google Calendar event ID (idempotência create/update) */
   gcal_event_id?: string | null;
@@ -174,8 +182,30 @@ export interface Appointment {
   gcal_last_error?: string | null;
   gcal_updated_at?: string | null;
   recurrence_group_id?: string | null;
+  confirmed_at?: string | null;
+  completed_at?: string | null;
+  cancelled_at?: string | null;
+  no_show_at?: string | null;
+  rescheduled_at?: string | null;
   created_at: string;
   updated_at: string;
+}
+
+export type AppointmentHistoryActionType =
+  | 'created'
+  | 'updated'
+  | 'status_changed'
+  | 'deleted'
+  | 'google_sync_error';
+
+export interface AppointmentHistoryRow {
+  id: string;
+  appointment_id: string;
+  action_type: AppointmentHistoryActionType;
+  old_data: Record<string, unknown> | null;
+  new_data: Record<string, unknown> | null;
+  performed_by: string | null;
+  created_at: string;
 }
 
 // ============================================

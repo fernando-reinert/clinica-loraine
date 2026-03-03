@@ -2,16 +2,18 @@
 // Modal/drawer create/edit no estilo "Minha Agenda": data, horário, profissional, cliente, serviços, duração, repetir.
 
 import React, { useState, useEffect, useRef, useCallback } from "react";
-import { X, Search, Plus, Calendar, Clock, User } from "lucide-react";
+import { X, Search, Plus, Calendar, Clock, User, Trash2, History, ChevronDown, ChevronUp } from "lucide-react";
 import { supabase } from "../../services/supabase/client";
 import { useAuth } from "../../contexts/AuthContext";
 import {
   createAppointmentWithProcedures,
   updateAppointmentWithProcedures,
   createRecurringAppointments,
+  getAppointmentHistory,
   type CreateAppointmentPayload,
   type RecurrenceRule,
 } from "../../services/appointments/appointmentService";
+import type { AppointmentHistoryRow } from "../../types/db";
 import { updateGcalEvent } from "../../services/calendar";
 import { buildEndTimeFromDurationMinutes } from "../../utils/dateUtils";
 import { convertToSupabaseFormat } from "../../utils/dateUtils";
@@ -56,6 +58,8 @@ export interface AppointmentDrawerProps {
   initialHour?: number;
   initialMinute?: number;
   initialAppointment?: DrawerAppointment | null;
+  /** When provided and mode is "edit", shows Excluir button; called with current appointment then drawer closes. */
+  onDeleteRequested?: (appointment: DrawerAppointment) => void;
 }
 
 function toDatetimeLocal(iso: string): string {
@@ -78,6 +82,7 @@ export default function AppointmentDrawer({
   initialHour = 8,
   initialMinute = 0,
   initialAppointment,
+  onDeleteRequested,
 }: AppointmentDrawerProps) {
   const { user } = useAuth();
   const [dateTime, setDateTime] = useState("");
@@ -96,6 +101,9 @@ export default function AppointmentDrawer({
   const [occurrenceCount, setOccurrenceCount] = useState(OCCURRENCE_COUNT_DEFAULT);
   const [title, setTitle] = useState("");
   const [submitting, setSubmitting] = useState(false);
+  const [historySectionOpen, setHistorySectionOpen] = useState(false);
+  const [historyList, setHistoryList] = useState<AppointmentHistoryRow[]>([]);
+  const [historyLoading, setHistoryLoading] = useState(false);
   const procedureDropdownRef = useRef<HTMLDivElement>(null);
   const patientDropdownRef = useRef<HTMLDivElement>(null);
   const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -118,6 +126,23 @@ export default function AppointmentDrawer({
       }
     };
   }, [open]);
+
+  useEffect(() => {
+    if (!historySectionOpen || !initialAppointment?.id || mode !== "edit") return;
+    let cancelled = false;
+    setHistoryLoading(true);
+    getAppointmentHistory(initialAppointment.id)
+      .then((rows) => {
+        if (!cancelled) setHistoryList(rows);
+      })
+      .catch(() => {
+        if (!cancelled) setHistoryList([]);
+      })
+      .finally(() => {
+        if (!cancelled) setHistoryLoading(false);
+      });
+    return () => { cancelled = true; };
+  }, [historySectionOpen, initialAppointment?.id, mode]);
 
   const filteredProcedures = procedureSearch.trim()
     ? procedures.filter(
@@ -624,22 +649,103 @@ export default function AppointmentDrawer({
               </select>
             </div>
           )}
+
+          {mode === "edit" && initialAppointment && (
+            <div className="border-t border-white/10 pt-4 mt-2">
+              <button
+                type="button"
+                onClick={() => setHistorySectionOpen((v) => !v)}
+                className="w-full flex items-center justify-between gap-2 text-left py-2 rounded-xl hover:bg-white/5 transition-colors"
+              >
+                <span className="flex items-center gap-2 font-medium text-gray-200">
+                  <History size={18} className="text-cyan-400" />
+                  Histórico
+                </span>
+                {historySectionOpen ? <ChevronUp size={18} /> : <ChevronDown size={18} />}
+              </button>
+              {historySectionOpen && (
+                <div className="mt-2 space-y-2 max-h-48 overflow-y-auto">
+                  {historyLoading ? (
+                    <p className="text-gray-500 text-sm">Carregando...</p>
+                  ) : historyList.length === 0 ? (
+                    <p className="text-gray-500 text-sm">Nenhum registro.</p>
+                  ) : (
+                    historyList.map((row) => {
+                      const label =
+                        row.action_type === "created"
+                          ? "Criado"
+                          : row.action_type === "updated"
+                          ? "Atualizado"
+                          : row.action_type === "status_changed"
+                          ? "Status alterado"
+                          : row.action_type === "deleted"
+                          ? "Excluído"
+                          : "Erro Google Calendar";
+                      const time = new Date(row.created_at).toLocaleString("pt-BR", {
+                        day: "2-digit",
+                        month: "2-digit",
+                        year: "numeric",
+                        hour: "2-digit",
+                        minute: "2-digit",
+                      });
+                      const oldStatus = row.old_data && typeof row.old_data === "object" && "status" in row.old_data ? (row.old_data as { status?: string }).status : null;
+                      const newStatus = row.new_data && typeof row.new_data === "object" && "status" in row.new_data ? (row.new_data as { status?: string }).status : null;
+                      return (
+                        <div
+                          key={row.id}
+                          className="text-sm py-2 px-3 rounded-lg bg-white/5 border border-white/10"
+                        >
+                          <div className="flex items-center justify-between gap-2">
+                            <span className="font-medium text-white">{label}</span>
+                            <span className="text-gray-400 text-xs">{time}</span>
+                          </div>
+                          {row.action_type === "status_changed" && oldStatus != null && newStatus != null && (
+                            <p className="text-gray-400 text-xs mt-1">
+                              {oldStatus} → {newStatus}
+                            </p>
+                          )}
+                          {row.action_type === "google_sync_error" && row.new_data && typeof row.new_data === "object" && "error" in row.new_data && (
+                            <p className="text-amber-400 text-xs mt-1">{(row.new_data as { error?: string }).error}</p>
+                          )}
+                        </div>
+                      );
+                    })
+                  )}
+                </div>
+              )}
+            </div>
+          )}
+
           </div>
           <footer
-            className="flex-shrink-0 border-t border-white/10 p-4 flex gap-3 bg-slate-900/95 rounded-b-2xl"
+            className="flex-shrink-0 border-t border-white/10 p-4 flex flex-wrap gap-3 bg-slate-900/95 rounded-b-2xl"
             style={{ paddingBottom: "max(1rem, env(safe-area-inset-bottom))" }}
           >
+            {mode === "edit" && onDeleteRequested && initialAppointment && (
+              <button
+                type="button"
+                onClick={() => {
+                  onDeleteRequested(initialAppointment);
+                  onClose();
+                }}
+                className="px-4 py-3 rounded-xl bg-red-500/20 hover:bg-red-500/30 border border-red-400/30 text-red-200 font-medium inline-flex items-center gap-2"
+                title="Excluir agendamento"
+              >
+                <Trash2 size={18} />
+                Excluir
+              </button>
+            )}
             <button
               type="button"
               onClick={onClose}
-              className="flex-1 px-4 py-3 rounded-xl bg-white/5 hover:bg-white/10 border border-white/10 text-white font-medium"
+              className="flex-1 min-w-[100px] px-4 py-3 rounded-xl bg-white/5 hover:bg-white/10 border border-white/10 text-white font-medium"
             >
               Cancelar
             </button>
             <button
               type="submit"
               disabled={submitting}
-              className="flex-1 px-4 py-3 rounded-xl neon-button inline-flex items-center justify-center gap-2 disabled:opacity-60 font-medium"
+              className="flex-1 min-w-[100px] px-4 py-3 rounded-xl neon-button inline-flex items-center justify-center gap-2 disabled:opacity-60 font-medium"
             >
               <Plus size={18} />
               {submitting ? "Salvando..." : "Salvar"}

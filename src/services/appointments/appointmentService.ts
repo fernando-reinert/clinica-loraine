@@ -1,9 +1,9 @@
 // src/services/appointments/appointmentService.ts
 import { supabase } from '../supabase/client';
-import { createGcalEvent } from '../calendar';
+import { createGcalEvent, cancelGcalEvent, updateGcalEvent } from '../calendar';
 import logger from '../../utils/logger';
 import { addMinutesToDate } from '../../utils/dateUtils';
-import type { Appointment } from '../../types/db';
+import type { Appointment, AppointmentStatus, AppointmentHistoryRow } from '../../types/db';
 
 export interface AppointmentProcedureItemInput {
   procedureId: string;
@@ -44,7 +44,7 @@ const MAX_RECURRENCE_OCCURRENCES = 60;
  */
 export const createAppointmentWithProcedures = async (
   payload: CreateAppointmentPayload
-): Promise<void> => {
+): Promise<{ id: string }> => {
   const {
     patientId,
     patientName,
@@ -65,12 +65,14 @@ export const createAppointmentWithProcedures = async (
       0
     );
 
+    const endTimeResolved =
+      endTimeIso ?? addMinutesToDate(startTimeIso, 60) ?? new Date(new Date(startTimeIso).getTime() + 60 * 60 * 1000).toISOString();
     const appointmentData: any = {
       patient_id: patientId,
       patient_name: patientName,
       patient_phone: patientPhone,
       start_time: startTimeIso,
-      end_time: endTimeIso ?? null,
+      end_time: endTimeResolved,
       title,
       description: description || null,
       location: location || null,
@@ -103,11 +105,10 @@ export const createAppointmentWithProcedures = async (
       throw new Error(details ? `${message} - ${details}` : message);
     }
 
-    const endForGcal = endTimeIso ?? new Date(new Date(startTimeIso).getTime() + 60 * 60 * 1000).toISOString();
     const gcalResult = await createGcalEvent({
       patientName,
       start: startTimeIso,
-      end: endForGcal,
+      end: endTimeResolved,
       appointmentId: appointment.id,
     });
     const gcalUpdate: Record<string, unknown> = {
@@ -124,7 +125,7 @@ export const createAppointmentWithProcedures = async (
 
     if (!hasProcedures) {
       logger.info('[APPOINTMENTS] Agendamento criado sem procedimentos', { id: appointment.id });
-      return;
+      return { id: appointment.id };
     }
 
     const { data: { user } } = await supabase.auth.getUser();
@@ -174,6 +175,7 @@ export const createAppointmentWithProcedures = async (
       id: appointment.id,
       itemsCount: procedures.length,
     });
+    return { id: appointment.id };
   } catch (error: any) {
     logger.error('[APPOINTMENTS] Falha inesperada ao criar agendamento com procedimentos', {
       error: error?.message || String(error),
@@ -646,30 +648,278 @@ export const updateAppointmentWithProcedures = async (
   }
 };
 
+/** Timestamp column per status for professional flows */
+const STATUS_TIMESTAMP_MAP: Record<AppointmentStatus, string | null> = {
+  scheduled: null,
+  confirmed: 'confirmed_at',
+  completed: 'completed_at',
+  cancelled: 'cancelled_at',
+  no_show: 'no_show_at',
+  rescheduled: 'rescheduled_at',
+};
+
 /**
- * Atualiza o status de um agendamento
+ * Record a google_sync_error in appointment_history (does not block; logs on failure).
+ */
+export const recordAppointmentHistoryGoogleError = async (
+  appointmentId: string,
+  details: { error?: string; operation?: string; [k: string]: unknown }
+): Promise<void> => {
+  try {
+    const { data: { user } } = await supabase.auth.getUser();
+    await supabase.from('appointment_history').insert({
+      appointment_id: appointmentId,
+      action_type: 'google_sync_error',
+      new_data: details,
+      performed_by: user?.id ?? null,
+    });
+  } catch (e: any) {
+    logger.warn('[APPOINTMENTS] Falha ao registrar google_sync_error no histórico', {
+      appointmentId,
+      err: e?.message,
+    });
+  }
+};
+
+/**
+ * Atualiza o status de um agendamento (interno: clínica confirma manualmente).
+ * Define status e o timestamp correspondente; em cancelamento tenta remover do Google Calendar.
+ * Histórico é gravado pelo trigger; falhas do GCal são registradas em appointment_history sem bloquear.
+ */
+export const updateAppointmentStatus = async (
+  appointmentId: string,
+  status: AppointmentStatus
+): Promise<void> => {
+  const payload: Record<string, unknown> = { status };
+  const tsCol = STATUS_TIMESTAMP_MAP[status];
+  if (tsCol) {
+    payload[tsCol] = new Date().toISOString();
+  }
+
+  const eventId = await (async () => {
+    if (status !== 'cancelled') return null;
+    const { data } = await supabase
+      .from('appointments')
+      .select('gcal_event_id')
+      .eq('id', appointmentId)
+      .maybeSingle();
+    return data?.gcal_event_id ?? null;
+  })();
+
+  if (status === 'cancelled' && eventId) {
+    try {
+      const result = await cancelGcalEvent(eventId);
+      if (!result.ok) {
+        await recordAppointmentHistoryGoogleError(appointmentId, {
+          operation: 'cancel',
+          error: result.error,
+          details: result.details,
+        });
+      }
+      payload.gcal_status = 'cancelled';
+      payload.gcal_updated_at = new Date().toISOString();
+      if (!result.ok) payload.gcal_last_error = result.error ?? 'Cancelamento no Google falhou';
+    } catch (gcalErr: any) {
+      await recordAppointmentHistoryGoogleError(appointmentId, {
+        operation: 'cancel',
+        error: gcalErr?.message ?? String(gcalErr),
+      });
+      payload.gcal_status = 'error';
+      payload.gcal_last_error = gcalErr?.message ?? 'Exceção ao cancelar no Google';
+      payload.gcal_updated_at = new Date().toISOString();
+    }
+  }
+
+  const { error } = await supabase.from('appointments').update(payload).eq('id', appointmentId);
+  if (error) {
+    logger.error('[APPOINTMENTS] Erro ao atualizar status', { error, appointmentId, status });
+    throw new Error(error.message || 'Erro ao atualizar status do agendamento');
+  }
+  logger.info('[APPOINTMENTS] Status atualizado', { appointmentId, status });
+};
+
+/**
+ * Remarca o agendamento (atualiza data/hora e marca status rescheduled).
+ * Atualiza evento no Google Calendar se existir; falha do GCal é registrada no histórico sem bloquear.
+ */
+export const rescheduleAppointment = async (
+  appointmentId: string,
+  newStartTimeIso: string,
+  newEndTimeIso: string
+): Promise<void> => {
+  const { data: row, error: fetchErr } = await supabase
+    .from('appointments')
+    .select('id, gcal_event_id, patient_name')
+    .eq('id', appointmentId)
+    .maybeSingle();
+
+  if (fetchErr || !row) {
+    throw new Error('Agendamento não encontrado ou sem permissão.');
+  }
+
+  const eventId = row.gcal_event_id ?? null;
+  if (eventId) {
+    try {
+      const result = await updateGcalEvent({
+        eventId,
+        start: newStartTimeIso,
+        end: newEndTimeIso,
+        patientName: row.patient_name ?? undefined,
+      });
+      if (!result.ok) {
+        await recordAppointmentHistoryGoogleError(appointmentId, {
+          operation: 'reschedule',
+          error: result.error,
+          details: result.details,
+        });
+      }
+    } catch (gcalErr: any) {
+      await recordAppointmentHistoryGoogleError(appointmentId, {
+        operation: 'reschedule',
+        error: gcalErr?.message ?? String(gcalErr),
+      });
+    }
+  }
+
+  const { error: updateErr } = await supabase
+    .from('appointments')
+    .update({
+      start_time: newStartTimeIso,
+      end_time: newEndTimeIso,
+      status: 'rescheduled',
+      rescheduled_at: new Date().toISOString(),
+    })
+    .eq('id', appointmentId);
+
+  if (updateErr) {
+    logger.error('[APPOINTMENTS] Erro ao remarcar', { updateErr, appointmentId });
+    throw new Error(updateErr.message || 'Erro ao remarcar agendamento.');
+  }
+  logger.info('[APPOINTMENTS] Agendamento remarcado', { appointmentId });
+};
+
+/**
+ * Lista o histórico de alterações do agendamento (audit log).
+ */
+export const getAppointmentHistory = async (
+  appointmentId: string
+): Promise<AppointmentHistoryRow[]> => {
+  const { data, error } = await supabase
+    .from('appointment_history')
+    .select('id, appointment_id, action_type, old_data, new_data, performed_by, created_at')
+    .eq('appointment_id', appointmentId)
+    .order('created_at', { ascending: false });
+
+  if (error) {
+    logger.error('[APPOINTMENTS] Erro ao listar histórico', { error, appointmentId });
+    throw new Error(error.message || 'Erro ao carregar histórico.');
+  }
+  return (data ?? []) as AppointmentHistoryRow[];
+};
+
+/**
+ * @deprecated Use updateAppointmentStatus with status 'completed' or 'cancelled' instead.
+ * Atualiza o status de um agendamento (legado).
  */
 export const markAppointmentStatus = async (
   appointmentId: string,
   status: 'scheduled' | 'completed_with_sale' | 'completed_no_sale' | 'cancelled'
 ): Promise<void> => {
-  try {
-    const { error } = await supabase
-      .from('appointments')
-      .update({ status })
-      .eq('id', appointmentId);
+  const map: Record<string, AppointmentStatus> = {
+    completed_with_sale: 'completed',
+    completed_no_sale: 'completed',
+    cancelled: 'cancelled',
+    scheduled: 'scheduled',
+  };
+  await updateAppointmentStatus(appointmentId, map[status] ?? 'scheduled');
+};
 
-    if (error) {
-      logger.error('[APPOINTMENTS] Erro ao atualizar status', { error, appointmentId, status });
-      throw new Error(error.message || 'Erro ao atualizar status do agendamento');
+/**
+ * Exclui um agendamento por completo:
+ * - Busca apenas id e gcal_event_id (evita 400 por coluna inexistente).
+ * - Se não existir linha => considera já excluído e retorna sucesso.
+ * - Remove evento do Google Calendar se gcal_event_id existir; falha do GCal não bloqueia.
+ * - Exclui appointment_procedures, desvincula treatment_plans, exclui appointments.
+ * RLS garante que só o dono pode excluir.
+ */
+export const deleteAppointment = async (appointmentId: string): Promise<{ gcalFailed?: boolean }> => {
+  let gcalFailed = false;
+
+  try {
+    const { data: appointment, error: fetchError } = await supabase
+      .from('appointments')
+      .select('id, gcal_event_id')
+      .eq('id', appointmentId)
+      .maybeSingle();
+
+    if (fetchError) {
+      logger.error('[APPOINTMENTS] deleteAppointment failed', {
+        appointmentId,
+        code: (fetchError as any)?.code,
+        message: fetchError.message,
+        details: (fetchError as any)?.details,
+        hint: (fetchError as any)?.hint,
+      });
+      throw new Error(fetchError.message || 'Erro ao buscar agendamento');
     }
 
-    logger.info('[APPOINTMENTS] Status atualizado', { appointmentId, status });
+    if (!appointment) {
+      logger.info('[APPOINTMENTS] Agendamento já inexistente (idempotente)', { appointmentId });
+      return { gcalFailed: false };
+    }
+
+    const eventId = appointment.gcal_event_id ?? null;
+    if (eventId) {
+      try {
+        const result = await cancelGcalEvent(eventId);
+        if (!result.ok) {
+          logger.warn('[APPOINTMENTS] Google Calendar: falha ao remover evento (continuando exclusão)', {
+            appointmentId,
+            error: result.error,
+          });
+          gcalFailed = true;
+        }
+      } catch (gcalErr: any) {
+        logger.warn('[APPOINTMENTS] Google Calendar: exceção ao remover evento (continuando exclusão)', {
+          appointmentId,
+          error: gcalErr?.message,
+        });
+        gcalFailed = true;
+      }
+    }
+
+    const { error: proceduresError } = await supabase
+      .from('appointment_procedures')
+      .delete()
+      .eq('appointment_id', appointmentId);
+
+    if (proceduresError) {
+      logger.error('[APPOINTMENTS] Erro ao excluir procedimentos do agendamento', { proceduresError, appointmentId });
+      throw new Error(proceduresError.message || 'Erro ao excluir procedimentos do agendamento');
+    }
+
+    const { error: planError } = await supabase
+      .from('treatment_plans')
+      .update({ scheduled_appointment_id: null, confirmed_at: null })
+      .eq('scheduled_appointment_id', appointmentId);
+
+    if (planError) {
+      logger.warn('[APPOINTMENTS] Aviso ao desvincular planos do agendamento', { planError, appointmentId });
+    }
+
+    const { error: deleteError } = await supabase.from('appointments').delete().eq('id', appointmentId);
+
+    if (deleteError) {
+      logger.error('[APPOINTMENTS] Erro ao excluir agendamento', { deleteError, appointmentId });
+      throw new Error(deleteError.message || 'Erro ao excluir agendamento');
+    }
+
+    logger.info('[APPOINTMENTS] Agendamento excluído', { appointmentId });
+    return { gcalFailed };
   } catch (error: any) {
-    logger.error('[APPOINTMENTS] Falha ao atualizar status', {
+    logger.error('[APPOINTMENTS] Falha ao excluir agendamento', {
       error: error?.message || String(error),
       appointmentId,
-      status,
     });
     throw error;
   }
