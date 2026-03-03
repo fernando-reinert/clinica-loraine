@@ -28,7 +28,6 @@ import {
 import ResponsiveAppLayout from "../components/Layout/ResponsiveAppLayout";
 import LoadingSpinner from "../components/LoadingSpinner";
 import AppointmentPlanEditor from "../components/AppointmentPlanEditor";
-import { listActiveProcedures } from "../services/procedures/procedureService";
 import type { Procedure } from "../types/db";
 import type { AppointmentPlanItem } from "../types/appointmentPlan";
 import { calculatePlanTotals, calculateItemProfit } from "../types/appointmentPlan";
@@ -62,6 +61,7 @@ import {
   markAppointmentStatus,
   type AppointmentWithProcedures,
 } from "../services/appointments/appointmentService";
+import { useProcedureCatalog } from "../hooks/useProcedureCatalog";
 
 interface Patient {
   id: string;
@@ -257,7 +257,7 @@ const FinancialControl: React.FC = () => {
   const [patients, setPatients] = useState<Patient[]>([]);
   const [filteredPatients, setFilteredPatients] = useState<Patient[]>([]);
   const [showPatientDropdown, setShowPatientDropdown] = useState(false);
-  const [proceduresCatalog, setProceduresCatalog] = useState<Procedure[]>([]);
+  const { procedures: proceduresCatalog, loading: proceduresCatalogLoading } = useProcedureCatalog();
 
   const [payments, setPayments] = useState<ProcedureData[]>([]);
   const [financialRecords, setFinancialRecords] = useState<FinancialRecord[]>([]);
@@ -338,7 +338,6 @@ const FinancialControl: React.FC = () => {
       await Promise.all([
         fetchPatients(),
         fetchPayments(),
-        fetchProceduresCatalog(),
         fetchAppointments(),
       ]);
       setLoadingData(false);
@@ -478,16 +477,6 @@ const FinancialControl: React.FC = () => {
     } catch (error) {
       console.error("Erro ao carregar pagamentos:", error);
       toast.error("Erro ao carregar pagamentos!");
-    }
-  };
-
-  const fetchProceduresCatalog = async () => {
-    try {
-      const data = await listActiveProcedures();
-      setProceduresCatalog(data);
-    } catch (error) {
-      console.error("Erro ao carregar catálogo:", error);
-      toast.error("Erro ao carregar catálogo de procedimentos");
     }
   };
 

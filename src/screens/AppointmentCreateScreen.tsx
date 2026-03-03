@@ -7,7 +7,6 @@ import LoadingSpinner from '../components/LoadingSpinner';
 import AppointmentPlanEditor from '../components/AppointmentPlanEditor';
 import { supabase } from '../services/supabase/client';
 import { useAuth } from '../contexts/AuthContext';
-import { listActiveProcedures } from '../services/procedures/procedureService';
 import type { Procedure } from '../types/db';
 import type { AppointmentPlanItem, AppointmentPaymentInfo } from '../types/appointmentPlan';
 import { calculatePlanTotals } from '../types/appointmentPlan';
@@ -16,6 +15,7 @@ import type { FinancialProcedureItem } from '../services/financial/financialServ
 import { createGcalEvent } from '../services/calendar';
 import { combineDateWithTime } from '../utils/dateUtils';
 import toast from 'react-hot-toast';
+import { useProcedureCatalog } from '../hooks/useProcedureCatalog';
 
 // Função de conversão de data segura
 const convertToSupabaseFormat = (dateTimeString: string): string | null => {
@@ -61,8 +61,7 @@ const AppointmentCreateScreen: React.FC = () => {
   const [location, setLocation] = useState('Clínica Estética');
 
   // Estados para procedimentos
-  const [procedures, setProcedures] = useState<Procedure[]>([]);
-  const [proceduresLoading, setProceduresLoading] = useState(false);
+  const { procedures, loading: proceduresLoading } = useProcedureCatalog();
   const [procedureSearch, setProcedureSearch] = useState('');
   const [showProcedureDropdown, setShowProcedureDropdown] = useState(false);
   const [planItems, setPlanItems] = useState<AppointmentPlanItem[]>([]);
@@ -86,9 +85,6 @@ const AppointmentCreateScreen: React.FC = () => {
         setError('');
         setLoading(true);
 
-        // Carregar procedimentos ativos
-        await loadProcedures();
-
         if (patientId) {
           // Fluxo: paciente pré-selecionado via querystring
           await loadPatient(patientId);
@@ -109,19 +105,6 @@ const AppointmentCreateScreen: React.FC = () => {
       isMounted = false;
     };
   }, [patientId]);
-
-  const loadProcedures = async () => {
-    try {
-      setProceduresLoading(true);
-      const data = await listActiveProcedures();
-      setProcedures(data);
-    } catch (err: any) {
-      console.error('Erro ao carregar procedimentos:', err);
-      toast.error('Erro ao carregar procedimentos');
-    } finally {
-      setProceduresLoading(false);
-    }
-  };
 
   const loadPatient = async (id: string) => {
     try {

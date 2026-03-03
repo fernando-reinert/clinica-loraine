@@ -7,12 +7,12 @@ import { convertToSupabaseFormat, buildEndTimeIso } from "../../utils/dateUtils"
 import { supabase } from "../../services/supabase/client";
 import { createGcalEvent, updateGcalEvent } from "../../services/calendar";
 import { createAppointmentWithProcedures, updateAppointmentWithProcedures } from "../../services/appointments/appointmentService";
-import { listActiveProcedures } from "../../services/procedures/procedureService";
 import type { Procedure } from "../../types/db";
 import type { AppointmentPlanItem, AppointmentPaymentInfo } from "../../types/appointmentPlan";
 import { calculatePlanTotals } from "../../types/appointmentPlan";
 import AppointmentPlanEditor from "../AppointmentPlanEditor";
 import toast from "react-hot-toast";
+import { useProcedureCatalog } from "../../hooks/useProcedureCatalog";
 
 export interface AppointmentForForm {
   id: string;
@@ -92,8 +92,7 @@ const AppointmentDetailsForm: React.FC<AppointmentDetailsFormProps> = ({
   const [budget, setBudget] = useState("");
   const [submitting, setSubmitting] = useState(false);
 
-  const [procedures, setProcedures] = useState<Procedure[]>([]);
-  const [proceduresLoading, setProceduresLoading] = useState(false);
+  const { procedures, loading: proceduresLoading } = useProcedureCatalog();
   const [procedureSearch, setProcedureSearch] = useState("");
   const [showProcedureDropdown, setShowProcedureDropdown] = useState(false);
   const [planItems, setPlanItems] = useState<AppointmentPlanItem[]>([]);
@@ -123,22 +122,6 @@ const AppointmentDetailsForm: React.FC<AppointmentDetailsFormProps> = ({
   }, [procedures, procedureSearch]);
 
   useEffect(() => {
-    let cancelled = false;
-    (async () => {
-      try {
-        setProceduresLoading(true);
-        const data = await listActiveProcedures();
-        if (!cancelled) setProcedures(data);
-      } catch {
-        if (!cancelled) toast.error("Erro ao carregar catálogo de procedimentos.");
-      } finally {
-        if (!cancelled) setProceduresLoading(false);
-      }
-    })();
-    return () => { cancelled = true; };
-  }, []);
-
-  useEffect(() => {
     if (initialAppointment) {
       setTitle(initialAppointment.title);
       setStartTime(toDatetimeLocal(initialAppointment.start_time));
@@ -157,6 +140,7 @@ const AppointmentDetailsForm: React.FC<AppointmentDetailsFormProps> = ({
 
   useEffect(() => {
     if (mode !== "edit" || !initialAppointment?.id) return;
+    if (procedures.length === 0) return;
     let cancelled = false;
     (async () => {
       try {
@@ -168,10 +152,9 @@ const AppointmentDetailsForm: React.FC<AppointmentDetailsFormProps> = ({
           if (!cancelled && rows) setPlanItems([]);
           return;
         }
-        const catalog = await listActiveProcedures();
         const items: AppointmentPlanItem[] = rows.map((r: any) => {
           const catalogId = r.procedure_catalog_id ?? r.procedure_id;
-          const proc = catalog.find((p) => p.id === catalogId);
+          const proc = procedures.find((p) => p.id === catalogId);
           return {
             procedure_catalog_id: catalogId,
             name: r.procedure_name_snapshot ?? proc?.name ?? "",
@@ -189,7 +172,7 @@ const AppointmentDetailsForm: React.FC<AppointmentDetailsFormProps> = ({
       }
     })();
     return () => { cancelled = true; };
-  }, [mode, initialAppointment?.id]);
+  }, [mode, initialAppointment?.id, procedures]);
 
   useEffect(() => {
     if (initialPatient) {

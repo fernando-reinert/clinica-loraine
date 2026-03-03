@@ -9,6 +9,7 @@
 import { supabase } from '../supabase/client';
 import logger from '../../utils/logger';
 import type { Procedure } from '../../types/db';
+import { z } from 'zod';
 
 export interface ProcedureInput {
   name: string;
@@ -25,6 +26,8 @@ export interface ListProceduresParams {
 
 const MIN_DURATION = 5;
 const MAX_DURATION = 600;
+
+const procedureDescriptionSchema = z.string().min(1).max(2000);
 
 const validateProcedure = (data: ProcedureInput, isUpdate = false) => {
   const errors: string[] = [];
@@ -73,6 +76,15 @@ const validateProcedure = (data: ProcedureInput, isUpdate = false) => {
   }
 };
 
+// Cache simples em memória para o catálogo de procedimentos
+let procedureCatalogCache: Procedure[] | null = null;
+
+export const getCachedProcedureCatalog = (): Procedure[] | null => procedureCatalogCache;
+
+export const clearProcedureCatalogCache = (): void => {
+  procedureCatalogCache = null;
+};
+
 export const listProcedures = async (
   params: ListProceduresParams = {}
 ): Promise<Procedure[]> => {
@@ -110,11 +122,19 @@ export const listProcedures = async (
 };
 
 /**
- * Lista apenas procedimentos ativos do catálogo
- * Usado para seleção em agendamentos
+ * Lista apenas procedimentos ativos do catálogo.
+ * Quando useCache = true, utiliza um cache em memória para evitar requisições repetidas
+ * ao navegar entre telas dentro da mesma sessão.
  */
-export const listActiveProcedures = async (): Promise<Procedure[]> => {
-  return listProcedures({ onlyActive: true });
+export const listActiveProcedures = async (useCache: boolean = false): Promise<Procedure[]> => {
+  if (useCache && procedureCatalogCache) {
+    return procedureCatalogCache;
+  }
+  const data = await listProcedures({ onlyActive: true });
+  if (useCache) {
+    procedureCatalogCache = data;
+  }
+  return data;
 };
 
 export const createProcedure = async (input: ProcedureInput): Promise<Procedure> => {
@@ -159,6 +179,9 @@ export const createProcedure = async (input: ProcedureInput): Promise<Procedure>
       id: data.id,
       name: data.name,
     });
+
+    // Invalida cache para que novas telas vejam o procedimento recém-criado
+    clearProcedureCatalogCache();
 
     return data as Procedure;
   } catch (error: any) {
@@ -213,6 +236,9 @@ export const updateProcedure = async (
       name: data.name,
     });
 
+    // Invalida cache para refletir alterações de preço/nome/status
+    clearProcedureCatalogCache();
+
     return data as Procedure;
   } catch (error: any) {
     logger.error('[PROCEDURES] Falha inesperada ao atualizar procedimento', {
@@ -249,9 +275,44 @@ export const toggleActive = async (id: string, is_active: boolean): Promise<Proc
       is_active: data.is_active,
     });
 
+    // Invalida cache para refletir mudanças de ativo/inativo
+    clearProcedureCatalogCache();
+
     return data as Procedure;
   } catch (error: any) {
     logger.error('[PROCEDURES] Falha inesperada ao alterar status', {
+      id,
+      error: error?.message || String(error),
+    });
+    throw error;
+  }
+};
+
+export const updateProcedureDescription = async (
+  id: string,
+  description: string
+): Promise<void> => {
+  try {
+    const parsed = procedureDescriptionSchema.parse(description.trim());
+
+    logger.info('[PROCEDURES] Atualizando descrição padrão', { id });
+
+    const { error } = await supabase
+      .from('procedure_catalog')
+      .update({ description: parsed })
+      .eq('id', id);
+
+    if (error) {
+      logger.error('[PROCEDURES] Erro ao atualizar descrição', { id, error });
+      const message = error.message || 'Erro ao atualizar descrição do procedimento';
+      const details = (error as any)?.details;
+      throw new Error(details ? `${message} - ${details}` : message);
+    }
+
+    // Invalida cache para que novas telas vejam a descrição atualizada
+    clearProcedureCatalogCache();
+  } catch (error: any) {
+    logger.error('[PROCEDURES] Falha inesperada ao atualizar descrição', {
       id,
       error: error?.message || String(error),
     });
