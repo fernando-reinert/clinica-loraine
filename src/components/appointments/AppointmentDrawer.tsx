@@ -13,13 +13,13 @@ import {
   type RecurrenceRule,
 } from "../../services/appointments/appointmentService";
 import { updateGcalEvent } from "../../services/calendar";
-import { listActiveProcedures } from "../../services/procedures/procedureService";
 import { buildEndTimeFromDurationMinutes } from "../../utils/dateUtils";
 import { convertToSupabaseFormat } from "../../utils/dateUtils";
 import type { Procedure } from "../../types/db";
 import type { AppointmentPlanItem } from "../../types/appointmentPlan";
 import AppointmentPlanEditor from "../AppointmentPlanEditor";
 import toast from "react-hot-toast";
+import { useProcedureCatalog } from "../../hooks/useProcedureCatalog";
 import {
   DURATION_OPTIONS,
   RECURRENCE_OPTIONS,
@@ -88,8 +88,7 @@ export default function AppointmentDrawer({
   const [patientSearching, setPatientSearching] = useState(false);
   const [isPatientDropdownOpen, setIsPatientDropdownOpen] = useState(false);
   const [selectedPatient, setSelectedPatient] = useState<{ id: string; name: string; phone: string; email?: string } | null>(null);
-  const [procedures, setProcedures] = useState<Procedure[]>([]);
-  const [proceduresLoading, setProceduresLoading] = useState(false);
+  const { procedures, loading: proceduresLoading } = useProcedureCatalog();
   const [procedureSearch, setProcedureSearch] = useState("");
   const [showProcedureDropdown, setShowProcedureDropdown] = useState(false);
   const [planItems, setPlanItems] = useState<AppointmentPlanItem[]>([]);
@@ -163,6 +162,7 @@ export default function AppointmentDrawer({
 
   useEffect(() => {
     if (!open || mode !== "edit" || !initialAppointment?.id) return;
+    if (procedures.length === 0) return;
     let cancelled = false;
     (async () => {
       try {
@@ -171,10 +171,9 @@ export default function AppointmentDrawer({
           .select("procedure_catalog_id, procedure_name_snapshot, final_price, quantity, discount")
           .eq("appointment_id", initialAppointment.id);
         if (cancelled || !rows?.length) return;
-        const catalog = await listActiveProcedures();
         const items: AppointmentPlanItem[] = rows.map((r: any) => {
           const catalogId = r.procedure_catalog_id ?? r.procedure_id;
-          const proc = catalog.find((p) => p.id === catalogId);
+          const proc = procedures.find((p) => p.id === catalogId);
           return {
             procedure_catalog_id: catalogId,
             name: r.procedure_name_snapshot ?? proc?.name ?? "",
@@ -192,23 +191,7 @@ export default function AppointmentDrawer({
       }
     })();
     return () => { cancelled = true; };
-  }, [open, mode, initialAppointment?.id]);
-
-  useEffect(() => {
-    let cancelled = false;
-    (async () => {
-      try {
-        setProceduresLoading(true);
-        const data = await listActiveProcedures();
-        if (!cancelled) setProcedures(data);
-      } catch {
-        if (!cancelled) toast.error("Erro ao carregar procedimentos.");
-      } finally {
-        if (!cancelled) setProceduresLoading(false);
-      }
-    })();
-    return () => { cancelled = true; };
-  }, [open]);
+  }, [open, mode, initialAppointment?.id, procedures]);
 
   useEffect(() => {
     if (patientQuery.length < PATIENT_MIN_CHARS) {

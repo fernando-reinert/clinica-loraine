@@ -17,11 +17,12 @@ import LoadingSpinner from '../components/LoadingSpinner';
 import toast from 'react-hot-toast';
 import { useTreatmentPlans } from '../hooks/useTreatmentPlans';
 import { usePatients } from '../hooks/usePatients';
-import { listActiveProcedures } from '../services/procedures/procedureService';
+import { useProcedureCatalog } from '../hooks/useProcedureCatalog';
 import type { Procedure } from '../types/db';
 import { copyToClipboard } from '../utils/clipboard';
 import { formatWhatsAppPhone, buildWhatsAppUrl } from '../utils/whatsapp';
 import ConfirmDialog from '../components/ConfirmDialog';
+import ConfirmModal from '../components/ui/ConfirmModal';
 import type { TreatmentPlanWithItems } from '../types/treatmentPlan';
 
 const CLINIC_NAME = 'Clínica Áurea';
@@ -56,9 +57,25 @@ const TreatmentPlanFormScreen: React.FC = () => {
   const [validityDays, setValidityDays] = useState(15);
   const [maskPatientName, setMaskPatientName] = useState(false);
   const [totalPriceCents, setTotalPriceCents] = useState(0);
-  const [items, setItems] = useState<Array<{ id?: string; procedure_catalog_id?: string | null; procedure_name_snapshot: string; procedure_description_snapshot: string | null; unit_price_cents: number; quantity: number }>>([]);
-  const [procedures, setProcedures] = useState<Procedure[]>([]);
+  const [items, setItems] = useState<
+    Array<{
+      id?: string;
+      procedure_catalog_id?: string | null;
+      procedure_name_snapshot: string;
+      procedure_description_snapshot: string | null;
+      unit_price_cents: number;
+      quantity: number;
+    }>
+  >([]);
+  const { procedures, updateDescription } = useProcedureCatalog();
+  const [procedureSearch, setProcedureSearch] = useState('');
+  const [showProcedureDropdown, setShowProcedureDropdown] = useState(false);
   const [loadedPlan, setLoadedPlan] = useState<TreatmentPlanWithItems | null>(null);
+  const [savingCatalogDescriptionId, setSavingCatalogDescriptionId] = useState<string | null>(null);
+  const [pendingCatalogUpdate, setPendingCatalogUpdate] = useState<{
+    procedureId: string;
+    description: string;
+  } | null>(null);
 
   const currentPlanId = isEdit ? planId! : null;
 
@@ -71,13 +88,6 @@ const TreatmentPlanFormScreen: React.FC = () => {
         setPatientPhone(p?.phone ?? '');
       }
     });
-    listActiveProcedures()
-      .then((data) => {
-        if (!cancelled) setProcedures(data);
-      })
-      .catch(() => {
-        if (!cancelled) setProcedures([]);
-      });
     return () => {
       cancelled = true;
     };
@@ -120,6 +130,16 @@ const TreatmentPlanFormScreen: React.FC = () => {
 
   const computedTotal = items.reduce((s, i) => s + i.unit_price_cents * i.quantity, 0);
 
+  const filteredProcedures = React.useMemo(() => {
+    if (!procedureSearch.trim()) return procedures;
+    const term = procedureSearch.toLowerCase();
+    return procedures.filter(
+      (p) =>
+        p.name.toLowerCase().includes(term) ||
+        (p.category ?? '').toLowerCase().includes(term)
+    );
+  }, [procedures, procedureSearch]);
+
   const addItemFromCatalog = useCallback((proc: Procedure) => {
     setItems((prev) => [
       ...prev,
@@ -154,9 +174,15 @@ const TreatmentPlanFormScreen: React.FC = () => {
       setItems((prev) => {
         const next = [...prev];
         const item = { ...next[index] };
-        if (field === 'procedure_name_snapshot') item.procedure_name_snapshot = value as string;
-        else if (field === 'unit_price_cents') item.unit_price_cents = value as number;
-        else if (field === 'quantity') item.quantity = value as number;
+        if (field === 'procedure_name_snapshot') {
+          item.procedure_name_snapshot = value as string;
+        } else if (field === 'procedure_description_snapshot') {
+          item.procedure_description_snapshot = (value as string) || null;
+        } else if (field === 'unit_price_cents') {
+          item.unit_price_cents = value as number;
+        } else if (field === 'quantity') {
+          item.quantity = value as number;
+        }
         next[index] = item;
         return next;
       });
@@ -507,18 +533,63 @@ const TreatmentPlanFormScreen: React.FC = () => {
         <div className="glass-card p-4 sm:p-6">
           <h3 className="font-semibold text-white mb-4">Itens</h3>
           {procedures.length > 0 && (
-            <div className="flex flex-wrap gap-2 mb-4">
-              <span className="text-gray-400 text-sm">Adicionar do catálogo:</span>
-              {procedures.slice(0, 8).map((proc) => (
-                <button
-                  key={proc.id}
-                  type="button"
-                  onClick={() => addItemFromCatalog(proc)}
-                  className="min-h-[36px] px-3 rounded-lg bg-white/10 border border-white/20 text-sm hover:bg-white/20"
-                >
-                  {proc.name}
-                </button>
-              ))}
+            <div className="mb-4 space-y-2">
+              <label className="block text-gray-400 text-sm">Adicionar do catálogo</label>
+              {procedures.length > 30 ? (
+                <div className="relative max-w-md">
+                  <input
+                    type="text"
+                    value={procedureSearch}
+                    onChange={(e) => {
+                      setProcedureSearch(e.target.value);
+                      setShowProcedureDropdown(true);
+                    }}
+                    onFocus={() => setShowProcedureDropdown(true)}
+                    placeholder="Buscar procedimento por nome ou categoria..."
+                    className="w-full min-h-[40px] px-3 rounded-xl bg-white/10 border border-white/20 text-white text-sm placeholder:text-gray-400 focus:border-cyan-400/50 outline-none"
+                  />
+                  {showProcedureDropdown && filteredProcedures.length > 0 && (
+                    <div className="absolute z-20 mt-1 w-full max-h-64 overflow-y-auto rounded-xl border border-white/20 bg-slate-900/95 backdrop-blur-xl shadow-2xl">
+                      {filteredProcedures.map((proc) => (
+                        <button
+                          key={proc.id}
+                          type="button"
+                          onMouseDown={(e) => {
+                            e.preventDefault();
+                            addItemFromCatalog(proc);
+                            setProcedureSearch('');
+                            setShowProcedureDropdown(false);
+                          }}
+                          className="w-full text-left px-3 py-2 text-sm text-white hover:bg-white/10 flex items-center justify-between gap-2 border-b border-white/5 last:border-b-0"
+                        >
+                          <div className="min-w-0">
+                            <div className="font-medium truncate">{proc.name}</div>
+                            {proc.category && (
+                              <div className="text-[11px] text-gray-400 truncate">{proc.category}</div>
+                            )}
+                          </div>
+                          <div className="text-xs text-emerald-300 shrink-0">
+                            {formatCurrency(Math.round(proc.sale_price * 100))}
+                          </div>
+                        </button>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              ) : (
+                <div className="flex flex-wrap gap-2">
+                  {procedures.map((proc) => (
+                    <button
+                      key={proc.id}
+                      type="button"
+                      onClick={() => addItemFromCatalog(proc)}
+                      className="min-h-[32px] px-3 rounded-lg bg-white/10 border border-white/20 text-xs sm:text-sm hover:bg-white/20"
+                    >
+                      {proc.name}
+                    </button>
+                  ))}
+                </div>
+              )}
             </div>
           )}
           <button
@@ -534,44 +605,139 @@ const TreatmentPlanFormScreen: React.FC = () => {
             {items.map((item, index) => (
               <div
                 key={index}
-                className="flex flex-wrap items-center gap-2 p-3 rounded-xl bg-white/5 border border-white/10"
+                className="space-y-2 p-3 rounded-xl bg-white/5 border border-white/10"
               >
-                <input
-                  type="text"
-                  value={item.procedure_name_snapshot}
-                  onChange={(e) => updateItemAt(index, 'procedure_name_snapshot', e.target.value)}
-                  placeholder="Procedimento"
-                  className="flex-1 min-w-[120px] min-h-[40px] px-3 rounded-lg bg-white/10 border border-white/20 text-white text-sm"
-                />
-                <input
-                  type="number"
-                  min={0}
-                  step={0.01}
-                  value={item.unit_price_cents / 100}
+                <div className="flex flex-wrap items-center gap-2">
+                  <input
+                    type="text"
+                    value={item.procedure_name_snapshot}
+                    onChange={(e) => updateItemAt(index, 'procedure_name_snapshot', e.target.value)}
+                    placeholder="Procedimento"
+                    className="flex-1 min-w-[120px] min-h-[40px] px-3 rounded-lg bg-white/10 border border-white/20 text-white text-sm"
+                  />
+                  <input
+                    type="number"
+                    min={0}
+                    step={0.01}
+                    value={item.unit_price_cents / 100}
+                    onChange={(e) =>
+                      updateItemAt(
+                        index,
+                        'unit_price_cents',
+                        Math.round(parseFloat(e.target.value || '0') * 100)
+                      )
+                    }
+                    placeholder="R$"
+                    className="w-24 min-h-[40px] px-3 rounded-lg bg-white/10 border border-white/20 text-white text-sm"
+                  />
+                  <input
+                    type="number"
+                    min={1}
+                    value={item.quantity}
+                    onChange={(e) => updateItemAt(index, 'quantity', parseInt(e.target.value || '1', 10, ))}
+                    className="w-16 min-h-[40px] px-3 rounded-lg bg-white/10 border border-white/20 text-white text-sm"
+                  />
+                  <span className="text-gray-300 text-sm font-medium">
+                    {formatCurrency(item.unit_price_cents * item.quantity)}
+                  </span>
+                  <button
+                    type="button"
+                    onClick={() => removeItem(index)}
+                    className="p-2 rounded-lg text-rose-400 hover:bg-rose-500/20"
+                    aria-label="Remover"
+                  >
+                    <Trash2 size={18} />
+                  </button>
+                </div>
+                <div>
+                  <label className="block text-gray-400 text-xs mb-1">
+                    Descrição do procedimento (opcional)
+                  </label>
+                <textarea
+                  value={item.procedure_description_snapshot ?? ''}
                   onChange={(e) =>
-                    updateItemAt(index, 'unit_price_cents', Math.round(parseFloat(e.target.value || '0') * 100))
+                    updateItemAt(index, 'procedure_description_snapshot', e.target.value)
                   }
-                  placeholder="R$"
-                  className="w-24 min-h-[40px] px-3 rounded-lg bg-white/10 border border-white/20 text-white text-sm"
+                  rows={2}
+                  className="w-full px-3 py-2 rounded-lg bg-white/10 border border-white/20 text-white text-xs focus:border-cyan-400/50 outline-none resize-y"
+                  placeholder="Ex.: Objetivo do procedimento, sensação esperada, cuidados importantes..."
                 />
-                <input
-                  type="number"
-                  min={1}
-                  value={item.quantity}
-                  onChange={(e) => updateItemAt(index, 'quantity', parseInt(e.target.value || '1', 10))}
-                  className="w-16 min-h-[40px] px-3 rounded-lg bg-white/10 border border-white/20 text-white text-sm"
-                />
-                <span className="text-gray-400 text-sm">
-                  {formatCurrency(item.unit_price_cents * item.quantity)}
-                </span>
-                <button
-                  type="button"
-                  onClick={() => removeItem(index)}
-                  className="p-2 rounded-lg text-rose-400 hover:bg-rose-500/20"
-                  aria-label="Remover"
-                >
-                  <Trash2 size={18} />
-                </button>
+                {(() => {
+                  const normalizeDesc = (s: string | null | undefined) =>
+                    (s ?? '').trim();
+
+                  const catalogId = item.procedure_catalog_id ?? null;
+                  if (!catalogId) {
+                    // item manual nunca mostra botão
+                    return null;
+                  }
+
+                  const proc = procedures.find((p) => p.id === catalogId);
+                  if (!proc) return null;
+
+                  const snapshotNorm = normalizeDesc(
+                    item.procedure_description_snapshot
+                  );
+                  const catalogNorm = normalizeDesc(proc.description);
+
+                  const snapshotEmpty = snapshotNorm.length === 0;
+                  const catalogEmpty = catalogNorm.length === 0;
+                  const isDirtyVsCatalog = snapshotNorm !== catalogNorm;
+                  const canPersistToCatalog = isDirtyVsCatalog && !snapshotEmpty;
+
+                  if (!canPersistToCatalog) {
+                    return null;
+                  }
+
+                  const label = catalogEmpty ? 'Salvar no BD' : 'Atualizar no BD';
+
+                  return (
+                    <>
+                      {catalogEmpty && (
+                        <p className="mt-1 text-[10px] text-amber-300/80">
+                          Sem descrição padrão no catálogo — descreva aqui e salve como padrão se desejar.
+                        </p>
+                      )}
+                      <button
+                        type="button"
+                        onClick={async () => {
+                          const text = snapshotNorm;
+                          if (!text) return;
+                          if (text.length > 2000) {
+                            toast.error('Descrição deve ter no máximo 2000 caracteres.');
+                            return;
+                          }
+
+                          try {
+                            if (catalogEmpty) {
+                              setSavingCatalogDescriptionId(catalogId);
+                              await updateDescription(catalogId, text);
+                              toast.success('Descrição padrão salva no BD.');
+                            } else {
+                              setPendingCatalogUpdate({
+                                procedureId: catalogId,
+                                description: text,
+                              });
+                            }
+                          } catch (e) {
+                            toast.error(
+                              e instanceof Error
+                                ? e.message
+                                : 'Erro ao salvar descrição padrão no BD.'
+                            );
+                          } finally {
+                            setSavingCatalogDescriptionId(null);
+                          }
+                        }}
+                        disabled={savingCatalogDescriptionId === catalogId}
+                        className="mt-1 inline-flex items-center px-2 py-1 rounded-md bg-emerald-500/20 border border-emerald-400/40 text-[11px] text-emerald-200 hover:bg-emerald-500/30 disabled:opacity-60 disabled:cursor-not-allowed"
+                      >
+                        {savingCatalogDescriptionId === catalogId ? 'Salvando...' : label}
+                      </button>
+                    </>
+                  );
+                })()}
+                </div>
               </div>
             ))}
           </div>
@@ -670,6 +836,38 @@ const TreatmentPlanFormScreen: React.FC = () => {
         confirmVariant="danger"
         onConfirm={handleRevokeLink}
         onCancel={() => setRevokeDialogOpen(false)}
+      />
+
+      <ConfirmModal
+        open={!!pendingCatalogUpdate}
+        title="Atualizar descrição padrão?"
+        description="Isso vai alterar a descrição padrão deste procedimento para futuros planos."
+        confirmText="Atualizar no BD"
+        cancelText="Cancelar"
+        variant="default"
+        loading={!!pendingCatalogUpdate && savingCatalogDescriptionId === pendingCatalogUpdate.procedureId}
+        onCancel={() => {
+          if (savingCatalogDescriptionId) return;
+          setPendingCatalogUpdate(null);
+        }}
+        onConfirm={async () => {
+          if (!pendingCatalogUpdate) return;
+          const { procedureId, description } = pendingCatalogUpdate;
+          try {
+            setSavingCatalogDescriptionId(procedureId);
+            await updateDescription(procedureId, description);
+            toast.success('Descrição padrão salva no BD.');
+            setPendingCatalogUpdate(null);
+          } catch (e) {
+            toast.error(
+              e instanceof Error
+                ? e.message
+                : 'Erro ao salvar descrição padrão no BD.'
+            );
+          } finally {
+            setSavingCatalogDescriptionId(null);
+          }
+        }}
       />
     </ResponsiveAppLayout>
   );

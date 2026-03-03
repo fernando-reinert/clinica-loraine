@@ -26,6 +26,7 @@ type StatusFilter = 'all' | 'active' | 'inactive';
 interface ProcedureFormState {
   name: string;
   category: string;
+  description: string;
   duration_minutes: string;
   cost_price: string;
   sale_price: string;
@@ -58,6 +59,7 @@ const ProceduresScreen: React.FC = () => {
   const [form, setForm] = useState<ProcedureFormState>({
     name: '',
     category: '',
+    description: '',
     duration_minutes: '30',
     cost_price: '0',
     sale_price: '0',
@@ -85,6 +87,7 @@ const ProceduresScreen: React.FC = () => {
     setForm({
       name: '',
       category: '',
+      description: '',
       duration_minutes: '30',
       cost_price: '0',
       sale_price: '0',
@@ -98,6 +101,7 @@ const ProceduresScreen: React.FC = () => {
     setForm({
       name: procedure.name || '',
       category: procedure.category || '',
+      description: procedure.description || '',
       duration_minutes: String(procedure.duration_minutes ?? 30),
       cost_price: String(procedure.cost_price ?? 0),
       sale_price: String(procedure.sale_price ?? 0),
@@ -142,6 +146,8 @@ const ProceduresScreen: React.FC = () => {
       const payload = {
         name: form.name.trim(),
         category: form.category.trim() || null,
+        // descrição de marketing usada como padrão nos planos
+        description: form.description.trim() || null,
         duration_minutes: duration,
         cost_price: cost,
         sale_price: sale,
@@ -165,6 +171,7 @@ const ProceduresScreen: React.FC = () => {
       setForm({
         name: '',
         category: '',
+        description: '',
         duration_minutes: '30',
         cost_price: '0',
         sale_price: '0',
@@ -545,6 +552,23 @@ const ProceduresScreen: React.FC = () => {
                   className="w-full px-3 py-2 rounded-lg bg-white/5 border border-white/10 text-white text-sm focus:ring-2 focus:ring-orange-500 focus:border-orange-500 outline-none"
                   placeholder="Ex: Toxina botulínica, Preenchimento, Bioestimulador..."
                 />
+              </div>
+
+              <div>
+                <label className="block text-xs font-medium text-gray-300 mb-1">
+                  Descrição (texto exibido no Plano de Tratamento) *
+                </label>
+                <textarea
+                  value={form.description}
+                  onChange={(e) => handleChange('description', e.target.value)}
+                  rows={3}
+                  className="w-full px-3 py-2 rounded-lg bg-white/5 border border-white/10 text-white text-sm focus:ring-2 focus:ring-orange-500 focus:border-orange-500 outline-none resize-y"
+                  placeholder="Ex.: Explicação clara e amigável do procedimento, benefícios e objetivos."
+                  required
+                />
+                <p className="text-[10px] text-gray-500 mt-0.5">
+                  Este texto será usado como descrição padrão ao adicionar o procedimento em um Plano de Tratamento.
+                </p>
               </div>
 
               <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">

@@ -116,7 +116,9 @@ const PublicTreatmentPlanScreen: React.FC = () => {
             <div className="bg-gradient-to-r from-indigo-600 to-purple-600 px-6 py-5">
               <div className="text-white/90 text-sm font-medium mb-1">{CLINIC_NAME}</div>
               <h1 className="text-xl font-bold text-white">Plano de Tratamento</h1>
-              <h2 className="text-lg font-semibold text-white/95 mt-1">{plan.title}</h2>
+              {plan.title.trim() !== 'Plano de Tratamento' && (
+                <h2 className="text-lg font-semibold text-white/95 mt-1">{plan.title}</h2>
+              )}
             </div>
 
             <div className="p-6 space-y-6">
@@ -125,47 +127,35 @@ const PublicTreatmentPlanScreen: React.FC = () => {
                 Paciente: <strong className="text-slate-800">{plan.patient_display_name}</strong>
               </div>
 
-              {/* Items */}
-              <div>
-                <table className="w-full text-sm">
-                  <thead>
-                    <tr className="border-b-2 border-slate-200">
-                      <th className="text-left py-2 font-semibold text-slate-700">
-                        Procedimento
-                      </th>
-                      <th className="text-center py-2 font-semibold text-slate-700 w-12">
-                        Qtd
-                      </th>
-                      <th className="text-right py-2 font-semibold text-slate-700">
-                        Valor un.
-                      </th>
-                      <th className="text-right py-2 font-semibold text-slate-700">
-                        Total
-                      </th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {items.map((item) => (
-                      <tr key={item.id} className="border-b border-slate-100">
-                        <td className="py-3 text-slate-700">
-                          <div>{item.procedure_name_snapshot}</div>
-                          {item.procedure_description_snapshot && (
-                            <div className="text-xs text-slate-500 mt-0.5">
-                              {item.procedure_description_snapshot}
-                            </div>
-                          )}
-                        </td>
-                        <td className="text-center py-3 text-slate-600">{item.quantity}</td>
-                        <td className="text-right py-3 text-slate-600">
-                          {formatCurrency(item.unit_price_cents)}
-                        </td>
-                        <td className="text-right py-3 font-medium">
-                          {formatCurrency(item.line_total_cents)}
-                        </td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
+              {/* Items – layout em cards, focado em leitura no mobile */}
+              <div className="space-y-3">
+                {items.map((item) => (
+                  <div
+                    key={item.id}
+                    className="rounded-xl border border-slate-200 bg-slate-50/80 px-4 py-3"
+                  >
+                    <div className="flex items-start justify-between gap-3">
+                      <div className="flex-1 min-w-0">
+                        <div className="font-semibold text-slate-800">
+                          {item.procedure_name_snapshot}
+                        </div>
+                        {item.procedure_description_snapshot && (
+                          <div className="mt-1 text-xs text-slate-600 whitespace-pre-line">
+                            {item.procedure_description_snapshot}
+                          </div>
+                        )}
+                      </div>
+                      <div className="text-right text-sm font-semibold text-indigo-600 shrink-0">
+                        {formatCurrency(item.line_total_cents)}
+                      </div>
+                    </div>
+                    <div className="mt-2 text-[11px] text-slate-500 flex justify-between">
+                      <span>
+                        {item.quantity}x {formatCurrency(item.unit_price_cents)}
+                      </span>
+                    </div>
+                  </div>
+                ))}
               </div>
 
               {/* Total */}
