@@ -1,14 +1,12 @@
-import React, { useState } from 'react';
+import React from 'react';
 import { Navigate } from 'react-router-dom';
 import LoginForm from './LoginForm';
-import SignUpForm from './SignUpForm';
 import { useAuth } from '../contexts/AuthContext';
 import LoadingSpinner from '../components/LoadingSpinner';
 import { Sparkles, Heart } from 'lucide-react';
 
 const LoginScreen: React.FC = () => {
   const { user, loading } = useAuth();
-  const [isLogin, setIsLogin] = useState(true);
 
   if (loading) {
     return (
@@ -46,21 +44,9 @@ const LoginScreen: React.FC = () => {
           </div>
         </div>
 
-        {/* Formulário em glass-card */}
+        {/* Formulário de login (signup público removido) */}
         <div className="glass-card p-8">
-          {isLogin ? <LoginForm /> : <SignUpForm />}
-        </div>
-
-        {/* Botão de alternância */}
-        <div className="glass-card p-6">
-          <button
-            onClick={() => setIsLogin(!isLogin)}
-            className="w-full neon-button flex items-center justify-center"
-          >
-            <span className="font-semibold">
-              {isLogin ? 'Criar nova conta' : 'Já tenho conta'}
-            </span>
-          </button>
+          <LoginForm />
         </div>
       </div>
     </div>
