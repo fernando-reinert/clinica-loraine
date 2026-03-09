@@ -120,6 +120,7 @@ export interface PatientFinancialRecord {
 export interface PatientFinancialTimeline {
   patient?: { id: string; name: string };
   records: PatientFinancialTimelineRecord[];
+  manualPayments?: ManualPayment[];
 }
 
 export interface MonthlyGoal {
@@ -128,6 +129,31 @@ export interface MonthlyGoal {
   target_net: number;
   target_profit: number;
   created_at?: string;
+}
+
+/** Pagamento manual/avulso (não vinculado a procedimento). */
+export interface ManualPayment {
+  id: string;
+  user_id?: string | null;
+  patient_id: string;
+  patient_name_snapshot: string;
+  payment_method: string;
+  payment_date: string;
+  total_amount: number;
+  description: string;
+  notes?: string | null;
+  status: string;
+  created_at: string;
+}
+
+export interface CreateManualPaymentInput {
+  patientId: string;
+  patientName: string;
+  paymentMethod: string;
+  paymentDate: string;
+  amount: number;
+  description: string;
+  notes?: string;
 }
 
 // ============================================
@@ -1020,12 +1046,12 @@ export const getPatientFinancialSummary = async (
 };
 
 /**
- * Timeline financeira do paciente: registros (procedures) com parcelas, ordenados por created_at desc.
+ * Timeline financeira do paciente: registros (procedures) com parcelas + pagamentos manuais.
  */
 export const getPatientFinancialTimeline = async (
   patientId: string
 ): Promise<PatientFinancialTimeline> => {
-  const empty: PatientFinancialTimeline = { records: [] };
+  const empty: PatientFinancialTimeline = { records: [], manualPayments: [] };
 
   try {
     const { data: procedures, error: procError } = await supabase
@@ -1034,44 +1060,43 @@ export const getPatientFinancialTimeline = async (
       .eq('patient_id', patientId)
       .order('created_at', { ascending: false });
 
-    if (procError || !procedures?.length) return empty;
+    if (procError) return empty;
 
-    const procedureIds = procedures.map((p: any) => p.id);
-
-    const { data: itemsRows, error: itemsError } = await supabase
-      .from('procedure_items')
-      .select('*')
-      .in('procedure_id', procedureIds)
-      .order('created_at');
-
+    const procedureIds = (procedures || []).map((p: any) => p.id);
     const itemsByProcedure = new Map<string, any[]>();
-    if (!itemsError && itemsRows?.length) {
-      (itemsRows as any[]).forEach((row: any) => {
-        const list = itemsByProcedure.get(row.procedure_id) || [];
-        list.push(row);
-        itemsByProcedure.set(row.procedure_id, list);
-      });
-    }
-
-    const { data: installmentsRows, error: instError } = await supabase
-      .from('installments')
-      .select('*')
-      .in('procedure_id', procedureIds)
-      .order('due_date', { ascending: true });
-
-    if (instError) {
-      logger.warn('[FINANCIAL] getPatientFinancialTimeline: erro ao buscar parcelas', { error: instError });
-      return empty;
-    }
-
     const installmentsByProcedure = new Map<string, Installment[]>();
-    (installmentsRows || []).forEach((inst: any) => {
-      const list = installmentsByProcedure.get(inst.procedure_id) || [];
-      list.push(inst as Installment);
-      installmentsByProcedure.set(inst.procedure_id, list);
-    });
 
-    const records: PatientFinancialTimelineRecord[] = procedures.map((p: any) => {
+    if (procedureIds.length > 0) {
+      const { data: itemsRows, error: itemsError } = await supabase
+        .from('procedure_items')
+        .select('*')
+        .in('procedure_id', procedureIds)
+        .order('created_at');
+
+      if (!itemsError && itemsRows?.length) {
+        (itemsRows as any[]).forEach((row: any) => {
+          const list = itemsByProcedure.get(row.procedure_id) || [];
+          list.push(row);
+          itemsByProcedure.set(row.procedure_id, list);
+        });
+      }
+
+      const { data: installmentsRows, error: instError } = await supabase
+        .from('installments')
+        .select('*')
+        .in('procedure_id', procedureIds)
+        .order('due_date', { ascending: true });
+
+      if (!instError && installmentsRows?.length) {
+        (installmentsRows as any[]).forEach((inst: any) => {
+          const list = installmentsByProcedure.get(inst.procedure_id) || [];
+          list.push(inst as Installment);
+          installmentsByProcedure.set(inst.procedure_id, list);
+        });
+      }
+    }
+
+    const records: PatientFinancialTimelineRecord[] = (procedures || []).map((p: any) => {
       const items = itemsByProcedure.get(p.id) || [];
       const record: FinancialRecord = {
         ...p,
@@ -1081,12 +1106,28 @@ export const getPatientFinancialTimeline = async (
       return { record, installments };
     });
 
-    const firstRecord = procedures[0];
-    const patient = firstRecord
+    const firstRecord = (procedures || [])[0];
+    let patient: { id: string; name: string } | undefined = firstRecord
       ? { id: patientId, name: (firstRecord as any).client_name || 'Paciente' }
       : undefined;
 
-    return { patient, records };
+    let manualPaymentsList: ManualPayment[] = [];
+    try {
+      const { data: manualRows } = await supabase
+        .from('manual_payments')
+        .select('*')
+        .eq('patient_id', patientId)
+        .eq('status', 'pago')
+        .order('payment_date', { ascending: false });
+      manualPaymentsList = (manualRows || []) as ManualPayment[];
+      if (manualPaymentsList.length > 0 && !patient) {
+        patient = { id: patientId, name: manualPaymentsList[0].patient_name_snapshot || 'Paciente' };
+      }
+    } catch {
+      // Tabela pode não existir; ignora
+    }
+
+    return { patient, records, manualPayments: manualPaymentsList };
   } catch (err: any) {
     logger.error('[FINANCIAL] getPatientFinancialTimeline falhou', { patientId, error: err?.message });
     return empty;
@@ -1299,6 +1340,146 @@ export const upsertMonthlyGoal = async (
     };
   } catch (err: any) {
     logger.error('[FINANCIAL] upsertMonthlyGoal falhou', { monthYear, error: err?.message });
+    throw err;
+  }
+};
+
+/**
+ * Cria um pagamento manual/avulso.
+ * Mensagens de erro específicas para cada cenário de falha.
+ */
+export const createManualPayment = async (
+  input: CreateManualPaymentInput
+): Promise<ManualPayment> => {
+  const { patientId, patientName, paymentMethod, paymentDate, amount, description, notes } = input;
+
+  // Validações com mensagens específicas
+  if (!patientId || !patientName?.trim()) {
+    throw new Error('Selecione um paciente antes de registrar o pagamento.');
+  }
+  if (!amount || amount <= 0) {
+    throw new Error('Informe um valor maior que zero.');
+  }
+  if (!paymentMethod?.trim()) {
+    throw new Error('Escolha a forma de pagamento.');
+  }
+  if (!paymentDate?.trim()) {
+    throw new Error('A data do pagamento é obrigatória.');
+  }
+  if (!description?.trim()) {
+    throw new Error('Informe a que este pagamento se refere.');
+  }
+
+  const trimmedDescription = description.trim();
+  const trimmedNotes = notes?.trim() || null;
+
+  try {
+    // Verificar se o paciente existe
+    const { data: patient, error: patientError } = await supabase
+      .from('patients')
+      .select('id, name')
+      .eq('id', patientId)
+      .single();
+
+    if (patientError) {
+      logger.error('[FINANCIAL] createManualPayment: erro ao verificar paciente', {
+        patientId,
+        error: patientError,
+      });
+      throw new Error('Não foi possível verificar o paciente. Tente novamente.');
+    }
+    if (!patient) {
+      throw new Error('O paciente selecionado não foi encontrado.');
+    }
+
+    const { data: { user } } = await supabase.auth.getUser();
+
+    const payload: Record<string, unknown> = {
+      patient_id: patientId,
+      patient_name_snapshot: patientName.trim(),
+      payment_method: paymentMethod,
+      payment_date: paymentDate.split('T')[0],
+      total_amount: round2(amount),
+      description: trimmedDescription,
+      notes: trimmedNotes || null,
+      status: 'pago',
+    };
+    if (user?.id) {
+      (payload as Record<string, unknown>).user_id = user.id;
+    }
+
+    const { data, error } = await supabase
+      .from('manual_payments')
+      .insert([payload])
+      .select('*')
+      .single();
+
+    if (error) {
+      if (isTableMissingError(error, 'manual_payments')) {
+        throw new Error(
+          'Não foi possível salvar o pagamento porque a tabela manual_payments não existe no banco. Execute a migration 20260209190000_manual_payments.sql.'
+        );
+      }
+      const msg = String(error?.message || '').toLowerCase();
+      if (msg.includes('permission') || msg.includes('policy') || msg.includes('rls')) {
+        throw new Error(
+          'Não foi possível salvar o pagamento porque o usuário não tem permissão para inserir registros em manual_payments.'
+        );
+      }
+      if (msg.includes('foreign key') || msg.includes('violates')) {
+        throw new Error(
+          'Não foi possível salvar o pagamento. Verifique se o paciente ainda existe no cadastro.'
+        );
+      }
+      logger.error('[FINANCIAL] createManualPayment: erro ao inserir', { error });
+      throw new Error(`Não foi possível salvar o pagamento: ${error.message}`);
+    }
+
+    if (!data) {
+      throw new Error('O pagamento foi processado mas nenhum registro foi retornado.');
+    }
+
+    logger.info('[FINANCIAL] Pagamento manual criado com sucesso', { id: data.id, patientId });
+    return data as ManualPayment;
+  } catch (err: any) {
+    if (err?.message?.startsWith('Selecione um paciente') ||
+        err?.message?.startsWith('Informe um valor') ||
+        err?.message?.startsWith('Escolha a forma') ||
+        err?.message?.startsWith('A data do pagamento') ||
+        err?.message?.startsWith('Informe a que este') ||
+        err?.message?.startsWith('O paciente selecionado') ||
+        err?.message?.startsWith('Não foi possível')) {
+      throw err;
+    }
+    logger.error('[FINANCIAL] createManualPayment falhou', { input, error: err?.message });
+    throw err;
+  }
+};
+
+/**
+ * Lista pagamentos manuais (ordem decrescente por data de pagamento).
+ */
+export const listManualPayments = async (): Promise<ManualPayment[]> => {
+  try {
+    const { data, error } = await supabase
+      .from('manual_payments')
+      .select('*')
+      .eq('status', 'pago')
+      .order('payment_date', { ascending: false })
+      .order('created_at', { ascending: false });
+
+    if (error) {
+      if (isTableMissingError(error, 'manual_payments')) {
+        logger.warn('[FINANCIAL] Tabela manual_payments não encontrada');
+        return [];
+      }
+      logger.error('[FINANCIAL] listManualPayments erro', { error });
+      throw new Error(`Não foi possível carregar pagamentos manuais: ${error.message}`);
+    }
+
+    return (data ?? []) as ManualPayment[];
+  } catch (err: any) {
+    logger.error('[FINANCIAL] listManualPayments falhou', { error: err?.message });
     throw err;
   }
 };

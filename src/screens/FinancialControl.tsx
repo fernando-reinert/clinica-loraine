@@ -35,6 +35,8 @@ import {
   createFinancialRecord,
   listFinancialRecordsWithItems,
   listInstallmentsByStatus,
+  listManualPayments,
+  createManualPayment,
   markInstallmentAsPaid,
   updatePaymentMethod,
   getFeePercent,
@@ -51,6 +53,7 @@ import {
   type FeeRuleRow,
   type PatientFinancialTimeline,
   type MonthlyGoal,
+  type ManualPayment,
 } from "../services/financial/financialService";
 import {
   generateMonthlyFinancialReportPDF,
@@ -62,6 +65,10 @@ import {
   type AppointmentWithProcedures,
 } from "../services/appointments/appointmentService";
 import { useProcedureCatalog } from "../hooks/useProcedureCatalog";
+import {
+  getFinancialControlCache,
+  setFinancialControlCache,
+} from "../services/financial/financialControlCache";
 
 interface Patient {
   id: string;
@@ -330,18 +337,109 @@ const FinancialControl: React.FC = () => {
     items: [],
   });
 
+  const [manualPayments, setManualPayments] = useState<ManualPayment[]>([]);
+  const [manualPaymentModalOpen, setManualPaymentModalOpen] = useState(false);
+  const [manualPaymentForm, setManualPaymentForm] = useState({
+    patientId: "",
+    patientName: "",
+    paymentMethod: "pix",
+    paymentDate: new Date().toISOString().split("T")[0],
+    amount: 0,
+    description: "",
+    notes: "",
+  });
+
+  // Carregamento inicial com cache: evita "reload completo" ao voltar à tela
   useEffect(() => {
-    (async () => {
-      setLoadingData(true);
-      const rules = await listFeeRules("infinitypay");
-      setFeeRulesCache(rules);
-      await Promise.all([
-        fetchPatients(),
-        fetchPayments(),
-        fetchAppointments(),
-      ]);
+    const cached = getFinancialControlCache();
+    const hasCache = !!cached;
+    if (hasCache && cached) {
+      setPatients((cached.patients || []) as Patient[]);
+      setFinancialRecords((cached.financialRecords || []) as FinancialRecord[]);
+      setPayments((cached.payments || []) as ProcedureData[]);
+      setInstallments((cached.installments || []) as Installment[]);
+      setManualPayments((cached.manualPayments || []) as ManualPayment[]);
+      setAppointments((cached.appointments || []) as AppointmentWithProcedures[]);
+      setFeeRulesCache((cached.feeRules || []) as FeeRuleRow[]);
       setLoadingData(false);
+    } else {
+      setLoadingData(true);
+    }
+    let cancelled = false;
+    (async () => {
+      try {
+        const rules = await listFeeRules("infinitypay");
+        if (cancelled) return;
+        setFeeRulesCache(rules);
+        const [patientsData, paymentsData, appointmentsData] = await Promise.all([
+          (async () => {
+            const { data, error } = await supabase.from("patients").select("id, name, phone, email").order("name");
+            if (error) throw error;
+            return (data || []) as Patient[];
+          })(),
+          (async () => {
+            const records = await listFinancialRecordsWithItems();
+            const procedures = records.map((r) => ({
+              id: r.id,
+              patient_id: r.patient_id,
+              client_name: r.client_name,
+              procedure_type: r.procedure_type || (r.items && r.items.length > 0 ? r.items.map((i) => i.procedure_name_snapshot).join(" + ") : "Procedimento"),
+              total_amount: r.total_amount,
+              total_installments: r.total_installments,
+              payment_method: r.payment_method,
+              first_payment_date: r.first_payment_date,
+              status: r.status,
+              created_at: r.created_at,
+            })) as ProcedureData[];
+            let insts: Installment[] = [];
+            if (procedures.length > 0) {
+              const [pend, paid] = await Promise.all([listInstallmentsByStatus("pendente"), listInstallmentsByStatus("pago")]);
+              insts = [...pend, ...paid];
+            }
+            let manual: ManualPayment[] = [];
+            try {
+              manual = await listManualPayments();
+            } catch {
+              manual = [];
+            }
+            return { records, procedures, installments: insts, manualPayments: manual };
+          })(),
+          (async () => {
+            const data = await listAppointmentsWithProcedures(30, 30);
+            return data.filter((a) => a.status === "scheduled") as AppointmentWithProcedures[];
+          })(),
+        ]);
+        if (cancelled) return;
+        const payData = paymentsData as { records: FinancialRecord[]; procedures: ProcedureData[]; installments: Installment[]; manualPayments: ManualPayment[] };
+        setPatients(patientsData);
+        setFinancialRecords(payData.records);
+        setPayments(payData.procedures);
+        setInstallments(payData.installments);
+        setManualPayments(payData.manualPayments);
+        setAppointments(appointmentsData);
+        setFinancialControlCache({
+          patients: patientsData,
+          financialRecords: payData.records,
+          payments: payData.procedures,
+          installments: payData.installments,
+          manualPayments: payData.manualPayments,
+          appointments: appointmentsData,
+          feeRules: rules,
+        });
+      } catch (err: any) {
+        if (!cancelled) {
+          toast.error(err?.message || "Erro ao carregar dados do financeiro.");
+        }
+        if (!hasCache) {
+          fetchPatients().catch(() => {});
+          fetchPayments().catch(() => {});
+          fetchAppointments().catch(() => {});
+        }
+      } finally {
+        if (!cancelled) setLoadingData(false);
+      }
     })();
+    return () => { cancelled = true; };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
@@ -423,7 +521,7 @@ const FinancialControl: React.FC = () => {
   useEffect(() => {
     calculateMonthlyRevenue();
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [installments]);
+  }, [installments, manualPayments]);
 
   useEffect(() => {
     groupInstallmentsByPatient();
@@ -434,10 +532,12 @@ const FinancialControl: React.FC = () => {
     try {
       const { data, error } = await supabase.from("patients").select("id, name, phone, email").order("name");
       if (error) throw error;
-      setPatients((data || []) as Patient[]);
+      const list = (data || []) as Patient[];
+      setPatients(list);
+      setFinancialControlCache({ patients: list });
     } catch (error) {
       console.error("Erro ao carregar pacientes:", error);
-      toast.error("Erro ao carregar pacientes");
+      toast.error("Não foi possível carregar a lista de pacientes.");
     }
   };
 
@@ -465,28 +565,50 @@ const FinancialControl: React.FC = () => {
       setPayments(procedures);
 
       // Buscar parcelas
+      let insts: Installment[] = [];
       if (procedures.length > 0) {
         const allInstallments = await Promise.all([
           listInstallmentsByStatus('pendente'),
           listInstallmentsByStatus('pago'),
         ]);
-        setInstallments([...allInstallments[0], ...allInstallments[1]]);
+        insts = [...allInstallments[0], ...allInstallments[1]];
+        setInstallments(insts);
       } else {
         setInstallments([]);
       }
-    } catch (error) {
+
+      // Buscar pagamentos manuais
+      let manualList: ManualPayment[] = [];
+      try {
+        manualList = await listManualPayments();
+        setManualPayments(manualList);
+      } catch (manualErr: any) {
+        if (!manualErr?.message?.includes('não existe no banco')) {
+          toast.error(manualErr?.message || "Não foi possível carregar pagamentos manuais.");
+        }
+        setManualPayments([]);
+      }
+      setFinancialControlCache({
+        financialRecords: records,
+        payments: procedures,
+        installments: insts,
+        manualPayments: manualList,
+      });
+    } catch (error: any) {
       console.error("Erro ao carregar pagamentos:", error);
-      toast.error("Erro ao carregar pagamentos!");
+      toast.error(error?.message || "Erro ao carregar pagamentos!");
     }
   };
 
   const fetchAppointments = async () => {
     try {
       const data = await listAppointmentsWithProcedures(30, 30);
-      setAppointments(data.filter(a => a.status === 'scheduled'));
+      const list = data.filter((a) => a.status === "scheduled");
+      setAppointments(list);
+      setFinancialControlCache({ appointments: list });
     } catch (error) {
       console.error("Erro ao carregar agendamentos:", error);
-      toast.error("Erro ao carregar agendamentos");
+      toast.error("Não foi possível carregar agendamentos.");
     }
   };
 
@@ -514,6 +636,17 @@ const FinancialControl: React.FC = () => {
             : computeFeeNet(g, getFeePercentFromCache(method, installmentsCount)).netAmount;
         revenueByMonth[monthYear].netTotal += net;
       }
+    });
+
+    manualPayments.forEach((mp) => {
+      const date = new Date((mp.payment_date || "").toString().split("T")[0]);
+      if (isNaN(date.getTime())) return;
+      const monthYear = `${date.getFullYear()}-${(date.getMonth() + 1).toString().padStart(2, "0")}`;
+      if (!revenueByMonth[monthYear]) revenueByMonth[monthYear] = { grossTotal: 0, netTotal: 0 };
+      const g = Number(mp.total_amount ?? 0);
+      revenueByMonth[monthYear].grossTotal += g;
+      const pct = getFeePercentFromCache(mp.payment_method, 1);
+      revenueByMonth[monthYear].netTotal += computeFeeNet(g, pct).netAmount;
     });
 
     const monthlyData = Object.entries(revenueByMonth)
@@ -989,6 +1122,42 @@ const FinancialControl: React.FC = () => {
     return [];
   };
 
+  const handleManualPaymentSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setIsLoading(true);
+    try {
+      await createManualPayment({
+        patientId: manualPaymentForm.patientId,
+        patientName: manualPaymentForm.patientName,
+        paymentMethod: manualPaymentForm.paymentMethod,
+        paymentDate: manualPaymentForm.paymentDate,
+        amount: manualPaymentForm.amount,
+        description: manualPaymentForm.description,
+        notes: manualPaymentForm.notes || undefined,
+      });
+      toast.success("Pagamento manual registrado com sucesso!");
+      setManualPaymentModalOpen(false);
+      setManualPaymentForm({
+        patientId: "",
+        patientName: "",
+        paymentMethod: "pix",
+        paymentDate: new Date().toISOString().split("T")[0],
+        amount: 0,
+        description: "",
+        notes: "",
+      });
+      try {
+        await fetchPayments();
+      } catch (refreshErr: any) {
+        toast.error("Não foi possível atualizar a lista após salvar o pagamento.");
+      }
+    } catch (err: any) {
+      toast.error(err?.message || "Não foi possível registrar o pagamento.");
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setIsLoading(true);
@@ -1119,6 +1288,11 @@ const FinancialControl: React.FC = () => {
   const pendingInstallments = useMemo(() => installments.filter((i) => i.status === "pendente"), [installments]);
   const completedInstallments = useMemo(() => installments.filter((i) => i.status === "pago"), [installments]);
 
+  const filteredManualPayments = useMemo(() => {
+    if (!urlPatientId) return manualPayments;
+    return manualPayments.filter((m) => m.patient_id === urlPatientId);
+  }, [manualPayments, urlPatientId]);
+
   const filteredGroupedInstallments = useMemo(() => {
     if (!urlPatientId) return groupedInstallments;
     return groupedInstallments.filter((g) => g.patientId === urlPatientId);
@@ -1129,6 +1303,19 @@ const FinancialControl: React.FC = () => {
     const procIds = new Set(payments.filter((p) => p.patient_id === urlPatientId).map((p) => p.id));
     return completedInstallments.filter((i) => procIds.has(i.procedure_id));
   }, [completedInstallments, payments, urlPatientId]);
+
+  const totalCompletedCount = useMemo(
+    () =>
+      (urlPatientId ? filteredCompletedInstallments.length : completedInstallments.length) +
+      (urlPatientId ? filteredManualPayments.length : manualPayments.length),
+    [
+      urlPatientId,
+      filteredCompletedInstallments,
+      completedInstallments,
+      filteredManualPayments,
+      manualPayments,
+    ]
+  );
 
   // Métricas do dashboard: Bruto / Taxas / Líquido (realizado e previsto)
   const { paidGross, paidFees, paidNet } = useMemo(() => {
@@ -1152,12 +1339,21 @@ const FinancialControl: React.FC = () => {
         fees += feeAmount;
       }
     });
+    const manualToUse = urlPatientId ? filteredManualPayments : manualPayments;
+    manualToUse.forEach((m) => {
+      const g = Number(m.total_amount ?? 0);
+      gross += g;
+      const pct = getFeePercentFromCache(m.payment_method, 1);
+      const { feeAmount, netAmount } = computeFeeNet(g, pct);
+      fees += feeAmount;
+      net += netAmount;
+    });
     return {
       paidGross: round2(gross),
       paidFees: round2(fees),
       paidNet: round2(net),
     };
-  }, [completedInstallments, payments, feeRulesCache]);
+  }, [completedInstallments, payments, feeRulesCache, manualPayments, filteredManualPayments, urlPatientId]);
 
   const { pendingGross, pendingFeesExpected, pendingNetExpected } = useMemo(() => {
     let gross = 0;
@@ -1226,8 +1422,19 @@ const FinancialControl: React.FC = () => {
         fees += computeFeeNet(i.installment_value, pct).feeAmount;
       }
     });
+    const manualToUse = urlPatientId ? filteredManualPayments : manualPayments;
+    manualToUse.forEach((mp) => {
+      const paidDate = (mp.payment_date || "").toString().split("T")[0];
+      if (!paidDate) return;
+      const d = new Date(paidDate);
+      if (d.getMonth() !== m - 1 || d.getFullYear() !== y) return;
+      const g = Number(mp.total_amount ?? 0);
+      gross += g;
+      const pct = getFeePercentFromCache(mp.payment_method, 1);
+      fees += computeFeeNet(g, pct).feeAmount;
+    });
     return { fees: round2(fees), gross: round2(gross), pct: gross > 0 ? round2((fees / gross) * 100) : 0 };
-  }, [completedInstallments, payments, feeRulesCache, monthYear]);
+  }, [completedInstallments, payments, feeRulesCache, monthYear, manualPayments, filteredManualPayments, urlPatientId]);
 
   const topProceduresProfitThisMonth = useMemo(() => {
     const [y, m] = monthYear.split("-").map(Number);
@@ -1312,6 +1519,19 @@ const FinancialControl: React.FC = () => {
       byMethod[key].paid.fee += fee;
       byMethod[key].paid.net += net;
     });
+    // Pagamentos manuais no monthYear
+    const manualToUse = urlPatientId ? filteredManualPayments : manualPayments;
+    manualToUse.forEach((m) => {
+      const paidDate = (m.payment_date || "").toString().split("T")[0];
+      if (!paidDate || !isInMonth(paidDate, monthYear)) return;
+      const key = safeKey(m.payment_method);
+      const g = Number(m.total_amount ?? 0);
+      const pct = getFeePercentFromCache(m.payment_method, 1);
+      const { feeAmount, netAmount } = computeFeeNet(g, pct);
+      byMethod[key].paid.gross += g;
+      byMethod[key].paid.fee += feeAmount;
+      byMethod[key].paid.net += netAmount;
+    });
 
     // EXPECTED: status='pendente' e due_date no monthYear
     pendingInstallments.forEach((i) => {
@@ -1347,7 +1567,7 @@ const FinancialControl: React.FC = () => {
       totalPaidNet: round2(totalPaidNet),
       totalExpectedNet: round2(totalExpectedNet),
     };
-  }, [completedInstallments, pendingInstallments, payments, feeRulesCache, monthYear]);
+  }, [completedInstallments, pendingInstallments, payments, feeRulesCache, monthYear, manualPayments, filteredManualPayments, urlPatientId]);
 
   const futureReceivablesCurve = useMemo(() => {
     const today = todayISO();
@@ -1621,29 +1841,26 @@ const FinancialControl: React.FC = () => {
 
   return (
     <ResponsiveAppLayout title="Controle Financeiro">
-      <div className="space-y-6">
-        {/* Header futurista */}
-        <div className="glass-card p-6 relative overflow-hidden">
-          <div className="absolute inset-0 bg-gradient-to-br from-blue-500/10 via-purple-500/10 to-cyan-500/10" />
-          <div className="relative z-10 flex flex-col lg:flex-row items-start lg:items-center justify-between gap-4">
-            <div className="flex items-start gap-3">
+      <div className="space-y-5">
+        {/* Header */}
+        <div className="glass-card p-5 border border-white/10">
+          <div className="flex flex-col lg:flex-row items-start lg:items-center justify-between gap-4">
+            <div className="flex items-center gap-3 min-w-0">
               <button
                 onClick={() => navigate(-1)}
-                className="p-3 bg-white/5 hover:bg-white/10 rounded-2xl backdrop-blur-sm transition-all duration-300 border border-white/10"
+                className="p-2.5 bg-white/5 hover:bg-white/10 rounded-xl border border-white/10 transition-all shrink-0"
               >
                 <ArrowLeft size={18} className="text-white" />
               </button>
-
-              <div className="min-w-0">
-                <h2 className="text-2xl font-bold glow-text">Controle Financeiro</h2>
-                <p className="text-gray-300">Gerencie pagamentos e receitas</p>
+              <div>
+                <h2 className="text-xl font-bold text-white">Controle Financeiro</h2>
+                <p className="text-sm text-gray-400">Pagamentos e receitas</p>
               </div>
             </div>
-
-            <div className="flex flex-wrap gap-3">
+            <div className="flex flex-wrap gap-2">
               <button
                 onClick={scrollToNewAttendance}
-                className={`px-4 py-2 rounded-xl border transition-all ${
+                className={`px-3 py-1.5 rounded-lg text-sm border transition-all ${
                   activeTab === "new"
                     ? "bg-blue-500/20 text-white border-blue-400/30"
                     : "bg-white/5 text-gray-300 border-white/10 hover:bg-white/10"
@@ -1652,8 +1869,16 @@ const FinancialControl: React.FC = () => {
                 Novo Atendimento
               </button>
               <button
+                type="button"
+                onClick={() => setManualPaymentModalOpen(true)}
+                className="px-3 py-1.5 rounded-lg text-sm border border-emerald-400/30 bg-emerald-500/10 text-emerald-200 hover:bg-emerald-500/20 transition-all"
+              >
+                <Plus size={14} className="inline mr-1 -mt-0.5" />
+                Pagamento Manual
+              </button>
+              <button
                 onClick={() => setActiveTab("pending")}
-                className={`px-4 py-2 rounded-xl border transition-all ${
+                className={`px-3 py-1.5 rounded-lg text-sm border transition-all ${
                   activeTab === "pending"
                     ? "bg-blue-500/20 text-white border-blue-400/30"
                     : "bg-white/5 text-gray-300 border-white/10 hover:bg-white/10"
@@ -1663,28 +1888,28 @@ const FinancialControl: React.FC = () => {
               </button>
               <button
                 onClick={() => setActiveTab("completed")}
-                className={`px-4 py-2 rounded-xl border transition-all ${
+                className={`px-3 py-1.5 rounded-lg text-sm border transition-all ${
                   activeTab === "completed"
                     ? "bg-blue-500/20 text-white border-blue-400/30"
                     : "bg-white/5 text-gray-300 border-white/10 hover:bg-white/10"
                 }`}
               >
-                Realizados ({urlPatientId ? filteredCompletedInstallments.length : completedInstallments.length})
+                Realizados ({totalCompletedCount})
               </button>
               <button
                 onClick={() => setActiveTab("agenda")}
-                className={`px-4 py-2 rounded-xl border transition-all ${
+                className={`px-3 py-1.5 rounded-lg text-sm border transition-all ${
                   activeTab === "agenda"
                     ? "bg-blue-500/20 text-white border-blue-400/30"
                     : "bg-white/5 text-gray-300 border-white/10 hover:bg-white/10"
                 }`}
               >
-                Agenda (Potencial) ({appointments.length})
+                Agenda ({appointments.length})
               </button>
               {urlPatientId && (
                 <button
                   onClick={() => setActiveTab("patient")}
-                  className={`px-4 py-2 rounded-xl border transition-all ${
+                  className={`px-3 py-1.5 rounded-lg text-sm border transition-all ${
                     activeTab === "patient"
                       ? "bg-blue-500/20 text-white border-blue-400/30"
                       : "bg-white/5 text-gray-300 border-white/10 hover:bg-white/10"
@@ -1767,75 +1992,49 @@ const FinancialControl: React.FC = () => {
 
         {/* Dashboard Cards - ocultar quando tab patient */}
         {activeTab !== "patient" && (
-        <div className="grid-dashboard">
-          <div className="glass-card p-6 border border-white/10 hover-lift">
-            <div className="flex items-center justify-between mb-2">
-              <DollarSign className="text-green-400" size={24} />
-              <span className="text-xs text-gray-400">Pago</span>
+        <div className="glass-card p-4 border border-white/10">
+          <div className="grid grid-cols-2 sm:grid-cols-4 lg:grid-cols-6 gap-4 text-center">
+            <div>
+              <p className="text-lg font-bold text-green-300">{formatCurrency(paidNet)}</p>
+              <p className="text-xs text-gray-400">Pago (líq.)</p>
             </div>
-            <p className="text-lg font-bold text-white">Receita Realizada (Pago)</p>
-            <p className="text-sm text-gray-300 mt-1">Bruto: {formatCurrency(paidGross)}</p>
-            <p className="text-sm text-gray-300">Taxas: {formatCurrency(paidFees)}</p>
-            <p className="text-sm font-medium text-green-300 mt-1">Líquido: {formatCurrency(paidNet)}</p>
-          </div>
-
-          <div className="glass-card p-6 border border-white/10 hover-lift">
-            <div className="flex items-center justify-between mb-2">
-              <Clock className="text-yellow-400" size={24} />
-              <span className="text-xs text-gray-400">Pendente</span>
+            <div>
+              <p className="text-lg font-bold text-yellow-300">{formatCurrency(pendingNetExpected)}</p>
+              <p className="text-xs text-gray-400">Pendente</p>
             </div>
-            <p className="text-lg font-bold text-white">Receita Prevista (Pendente)</p>
-            <p className="text-sm text-gray-300 mt-1">Bruto: {formatCurrency(pendingGross)}</p>
-            <p className="text-sm text-gray-300">Taxas Estim.: {formatCurrency(pendingFeesExpected)}</p>
-            <p className="text-sm font-medium text-yellow-300 mt-1">Líquido Esperado: {formatCurrency(pendingNetExpected)}</p>
-          </div>
-
-          <div className="glass-card p-6 border border-white/10 hover-lift">
-            <div className="flex items-center justify-between mb-2">
-              <TrendingUp className="text-cyan-400" size={24} />
-              <span className="text-xs text-gray-400">Mês</span>
+            <div>
+              <p className="text-lg font-bold text-white">{formatCurrency(totalRevenue)}</p>
+              <p className="text-xs text-gray-400">Total</p>
             </div>
-            <p className="text-2xl font-bold text-white">{formatCurrency(totalProfit)}</p>
-            <p className="text-sm text-gray-300 mt-1">Lucro de Vendas (Mês)</p>
-          </div>
-
-          <div className="glass-card p-6 border border-white/10 hover-lift">
-            <div className="flex items-center justify-between mb-2">
-              <Percent className="text-purple-400" size={24} />
-              <span className="text-xs text-gray-400">Mês</span>
+            <div>
+              <p className="text-lg font-bold text-cyan-300">{formatCurrency(totalProfit)}</p>
+              <p className="text-xs text-gray-400">Lucro mês</p>
             </div>
-            <p className="text-2xl font-bold text-white">{averageMargin.toFixed(1)}%</p>
-            <p className="text-sm text-gray-300 mt-1">Margem Média (Mês)</p>
-          </div>
-
-          <div className="glass-card p-6 border border-white/10 hover-lift">
-            <div className="flex items-center justify-between mb-2">
-              <Percent className="text-amber-400" size={24} />
-              <span className="text-xs text-gray-400">Mês</span>
+            <div>
+              <p className="text-lg font-bold text-purple-300">{averageMargin.toFixed(1)}%</p>
+              <p className="text-xs text-gray-400">Margem</p>
             </div>
-            <p className="text-2xl font-bold text-white">{formatCurrency(totalFeesThisMonth.fees)}</p>
-            <p className="text-sm text-gray-300 mt-1">Taxas do Mês</p>
-            {totalFeesThisMonth.gross > 0 && (
-              <p className="text-xs text-gray-400 mt-0.5">{totalFeesThisMonth.pct.toFixed(1)}% do bruto</p>
-            )}
-          </div>
-
-          <div className="glass-card p-6 border border-white/10 hover-lift">
-            <div className="flex items-center justify-between mb-2">
-              <Package className="text-indigo-400" size={24} />
-              <span className="text-xs text-gray-400">Mês</span>
+            <div>
+              <p className="text-lg font-bold text-amber-300">{formatCurrency(totalFeesThisMonth.fees)}</p>
+              <p className="text-xs text-gray-400">Taxas mês</p>
             </div>
-            <p className="text-2xl font-bold text-white">{formatCurrency(averageTicketThisMonth.avgNet)}</p>
-            <p className="text-sm text-gray-300 mt-1">Ticket Médio (Líquido)</p>
-            <p className="text-xs text-gray-400 mt-0.5">{averageTicketThisMonth.count} venda(s)</p>
           </div>
         </div>
         )}
 
-        {/* Receita por Método (Mês): Pago + Previsto */}
+        {/* Analytics detalhados (colapsável) */}
         {activeTab !== "patient" && (
-          <div className="glass-card p-6 border border-white/10">
-            <h3 className="text-lg font-bold glow-text mb-4">Receita por Método ({formatMonthYearPtBR(monthYear)})</h3>
+        <details className="glass-card border border-white/10 group">
+          <summary className="cursor-pointer p-4 flex items-center justify-between text-gray-300 hover:text-white transition-colors list-none select-none">
+            <span className="font-medium flex items-center gap-2">
+              <BarChart3 size={18} />
+              Indicadores Detalhados
+            </span>
+            <ChevronDown size={18} className="transition-transform group-open:rotate-180" />
+          </summary>
+          <div className="border-t border-white/10 p-4 space-y-6">
+            <div>
+            <h3 className="text-base font-semibold text-white mb-3">Receita por Método ({formatMonthYearPtBR(monthYear)})</h3>
             <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-4">
               {[
                 { key: "pix", label: "PIX" },
@@ -1884,35 +2083,28 @@ const FinancialControl: React.FC = () => {
                 );
               })}
             </div>
-          </div>
-        )}
+            </div>
 
-        {/* Curva de Recebimento Futuro */}
-        {activeTab !== "patient" && (
-          <div className="glass-card p-6 border border-white/10">
-            <h3 className="text-lg font-bold glow-text mb-4">Curva de Recebimento Futuro (Próximos 6 Meses)</h3>
+            <div>
+            <h3 className="text-base font-semibold text-white mb-3">Curva de Recebimento Futuro</h3>
             {futureReceivablesCurve.length === 0 ? (
               <p className="text-gray-400 text-sm">Nenhuma parcela pendente</p>
             ) : (
-              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-                {futureReceivablesCurve.map((b, idx) => (
-                  <div key={b.monthYear || "overdue"} className="p-4 rounded-xl bg-white/5 border border-white/10">
-                    <p className="text-sm font-medium text-white mb-2">{b.label}</p>
-                    <p className="text-xs text-gray-400">Bruto: {formatCurrency(b.gross)}</p>
-                    <p className="text-xs text-gray-400">Taxas: {formatCurrency(b.fees)}</p>
-                    <p className="text-xs font-medium text-green-300 mt-1">Líquido: {formatCurrency(b.net)}</p>
+              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3">
+                {futureReceivablesCurve.map((b) => (
+                  <div key={b.monthYear || "overdue"} className="p-3 rounded-xl bg-white/5 border border-white/10">
+                    <p className="text-sm font-medium text-white">{b.label}</p>
+                    <p className="text-xs text-gray-400">Líquido: {formatCurrency(b.net)}</p>
                   </div>
                 ))}
               </div>
             )}
           </div>
-        )}
 
-        {/* Métricas Quânticas - Metas Mensais */}
-        {activeTab !== "patient" && (
-          <div className="glass-card p-6 border border-white/10">
+          {/* Metas Mensais */}
+          <div>
             <div className="flex flex-wrap items-center justify-between gap-4 mb-4">
-              <h3 className="text-lg font-bold glow-text">Métricas Quânticas · Meta Mensal</h3>
+              <h3 className="text-base font-semibold text-white">Meta Mensal</h3>
               <button
                 type="button"
                 onClick={() => {
@@ -1931,9 +2123,9 @@ const FinancialControl: React.FC = () => {
             {goalsLoading ? (
               <p className="text-gray-400 text-sm">Carregando metas...</p>
             ) : goalsTableMissing ? (
-              <p className="text-amber-400/90 text-sm">Execute a migration financial_goals.sql para habilitar metas.</p>
+              <p className="text-amber-400/90 text-sm">A tabela de metas não existe. Execute a migration financial_goals no Supabase.</p>
             ) : goalsError ? (
-              <p className="text-red-400/90 text-sm">Não foi possível carregar metas (auth/RLS/API).</p>
+              <p className="text-red-400/90 text-sm">Não foi possível carregar metas: {goalsError}</p>
             ) : (
               <div className="space-y-4">
                 {(() => {
@@ -1982,12 +2174,11 @@ const FinancialControl: React.FC = () => {
               </div>
             )}
           </div>
-        )}
 
-        {/* Top Procedimentos (Lucro no Mês) */}
-        {activeTab !== "patient" && topProceduresProfitThisMonth.length > 0 && (
-          <div className="glass-card p-6 border border-white/10">
-            <h3 className="text-lg font-bold glow-text mb-4">Top Procedimentos (Lucro no Mês)</h3>
+          {/* Top Procedimentos */}
+          {topProceduresProfitThisMonth.length > 0 && (
+          <div>
+            <h3 className="text-base font-semibold text-white mb-3">Top Procedimentos (Lucro no Mês)</h3>
             <div className="space-y-2">
               {topProceduresProfitThisMonth.map(({ name, profit }, idx) => (
                 <div key={name + idx} className="flex justify-between items-center p-3 rounded-xl bg-white/5 border border-white/10">
@@ -1997,6 +2188,9 @@ const FinancialControl: React.FC = () => {
               ))}
             </div>
           </div>
+          )}
+          </div>
+        </details>
         )}
 
         {/* Modal Editar Meta */}
@@ -2434,13 +2628,40 @@ const FinancialControl: React.FC = () => {
               <div className="glass-card p-6 border border-white/10">
                 <h3 className="text-xl font-bold glow-text mb-4">Pagamentos Realizados</h3>
 
-                {(urlPatientId ? filteredCompletedInstallments : completedInstallments).length === 0 ? (
+                {(urlPatientId ? filteredCompletedInstallments : completedInstallments).length === 0 &&
+                (urlPatientId ? filteredManualPayments : manualPayments).length === 0 ? (
                   <div className="text-center py-10 text-gray-300">
                     <DollarSign size={48} className="mx-auto mb-4 text-gray-400" />
                     <p>{urlPatientId ? "Nenhum pagamento realizado para este paciente" : "Nenhum pagamento realizado"}</p>
                   </div>
                 ) : (
                   <div className="space-y-3">
+                    {(urlPatientId ? filteredManualPayments : manualPayments).map((mp) => (
+                      <div key={`manual-${mp.id}`} className="glass-card p-4 border border-emerald-400/20 bg-emerald-500/5">
+                        <div className="flex justify-between items-start mb-3">
+                          <div>
+                            <h4 className="font-semibold text-white">{mp.patient_name_snapshot}</h4>
+                            <p className="text-sm text-gray-300">{mp.description}</p>
+                            {mp.notes && <p className="text-xs text-gray-400 mt-1">{mp.notes}</p>}
+                          </div>
+                          <span className="text-lg font-bold text-white">{formatCurrency(mp.total_amount)}</span>
+                        </div>
+                        <div className="grid grid-cols-2 md:grid-cols-3 gap-4 text-sm">
+                          <div>
+                            <span className="text-gray-300">Tipo:</span>
+                            <p className="font-medium text-emerald-300">Pagamento avulso</p>
+                          </div>
+                          <div>
+                            <span className="text-gray-300">Data do Pagamento:</span>
+                            <p className="font-medium text-white">{formatDate(mp.payment_date)}</p>
+                          </div>
+                          <div>
+                            <span className="text-gray-300">Método:</span>
+                            <p className="font-medium text-white">{getPaymentMethodText(mp.payment_method)}</p>
+                          </div>
+                        </div>
+                      </div>
+                    ))}
                     {(urlPatientId ? filteredCompletedInstallments : completedInstallments).map((inst) => {
                       const procedure = payments.find((p) => p.id === inst.procedure_id);
                       const paymentMethod = inst.payment_method || procedure?.payment_method || "Não informado";
@@ -2650,6 +2871,156 @@ const FinancialControl: React.FC = () => {
                   Confirmar Pagamento
                 </button>
               </div>
+            </div>
+          </div>
+        )}
+
+        {/* Modal Pagamento Manual */}
+        {manualPaymentModalOpen && (
+          <div className="fixed inset-0 bg-black/70 flex items-center justify-center z-50 p-4 overflow-y-auto">
+            <div className="glass-card p-6 max-w-lg w-full border border-white/10 my-8">
+              <div className="flex justify-between items-center mb-4">
+                <h3 className="text-lg font-semibold text-white">Registrar Pagamento Manual</h3>
+                <button
+                  type="button"
+                  onClick={() => setManualPaymentModalOpen(false)}
+                  className="p-2 rounded-xl bg-white/5 hover:bg-white/10 border border-white/10 transition-all"
+                >
+                  <X size={18} className="text-white" />
+                </button>
+              </div>
+              <form onSubmit={handleManualPaymentSubmit} className="space-y-4">
+                <div>
+                  <label className="block text-sm font-medium text-gray-200 mb-2">Paciente *</label>
+                  <div className="relative">
+                    <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" size={20} />
+                    <input
+                      type="text"
+                      value={manualPaymentForm.patientName}
+                      onChange={(e) => {
+                        setManualPaymentForm((f) => ({ ...f, patientName: e.target.value }));
+                        const filtered = patients.filter((p) =>
+                          p.name.toLowerCase().includes(e.target.value.toLowerCase())
+                        );
+                        setFilteredPatients(filtered);
+                        setShowPatientDropdown(e.target.value.length > 0);
+                      }}
+                      onFocus={() => manualPaymentForm.patientName && setShowPatientDropdown(true)}
+                      placeholder="Buscar paciente..."
+                      className="pl-10 px-4 py-3 rounded-xl w-full bg-white/5 border border-white/10 text-white placeholder:text-gray-400"
+                      required
+                    />
+                    {showPatientDropdown && filteredPatients.length > 0 && (
+                      <div className="absolute z-10 w-full mt-2 rounded-xl overflow-hidden border border-white/10 bg-gray-900/90 backdrop-blur-sm max-h-60 overflow-y-auto">
+                        {filteredPatients.map((patient) => (
+                          <button
+                            type="button"
+                            key={patient.id}
+                            onClick={() => {
+                              setManualPaymentForm((f) => ({
+                                ...f,
+                                patientId: patient.id,
+                                patientName: patient.name,
+                              }));
+                              setShowPatientDropdown(false);
+                            }}
+                            className="w-full text-left p-3 hover:bg-white/10 transition-all border-b border-white/10 last:border-b-0"
+                          >
+                            <div className="font-medium text-white">{patient.name}</div>
+                          </button>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+                </div>
+                <div>
+                  <label className="block text-sm font-medium text-gray-200 mb-2">A que se refere este pagamento? *</label>
+                  <input
+                    type="text"
+                    value={manualPaymentForm.description}
+                    onChange={(e) => setManualPaymentForm((f) => ({ ...f, description: e.target.value }))}
+                    placeholder="Ex: Restante de tratamento, produto X, consulta..."
+                    className="w-full px-4 py-3 rounded-xl bg-white/5 border border-white/10 text-white placeholder:text-gray-400"
+                    required
+                  />
+                </div>
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                  <div>
+                    <label className="block text-sm font-medium text-gray-200 mb-2">Valor (R$) *</label>
+                    <input
+                      type="number"
+                      step="0.01"
+                      min="0.01"
+                      value={manualPaymentForm.amount || ""}
+                      onChange={(e) =>
+                        setManualPaymentForm((f) => ({ ...f, amount: parseFloat(e.target.value) || 0 }))
+                      }
+                      placeholder="0,00"
+                      className="w-full px-4 py-3 rounded-xl bg-white/5 border border-white/10 text-white"
+                      required
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-sm font-medium text-gray-200 mb-2">Data do Pagamento *</label>
+                    <input
+                      type="date"
+                      value={manualPaymentForm.paymentDate}
+                      onChange={(e) => setManualPaymentForm((f) => ({ ...f, paymentDate: e.target.value }))}
+                      className="w-full px-4 py-3 rounded-xl bg-white/5 border border-white/10 text-white"
+                      required
+                    />
+                  </div>
+                </div>
+                <div>
+                  <label className="block text-sm font-medium text-gray-200 mb-2">Forma de Pagamento *</label>
+                  <select
+                    value={manualPaymentForm.paymentMethod}
+                    onChange={(e) =>
+                      setManualPaymentForm((f) => ({ ...f, paymentMethod: e.target.value }))
+                    }
+                    className="w-full px-4 py-3 rounded-xl bg-white/5 border border-white/10 text-white"
+                    required
+                  >
+                    <option value="pix" className="text-black">PIX</option>
+                    <option value="cash" className="text-black">Dinheiro</option>
+                    <option value="credit_card" className="text-black">Cartão de Crédito</option>
+                    <option value="debit_card" className="text-black">Cartão de Débito</option>
+                    <option value="infinit_tag" className="text-black">Infinit Tag</option>
+                    <option value="bank_transfer" className="text-black">Transferência Bancária</option>
+                  </select>
+                </div>
+                <div>
+                  <label className="block text-sm font-medium text-gray-200 mb-2">Observações (opcional)</label>
+                  <textarea
+                    value={manualPaymentForm.notes}
+                    onChange={(e) => setManualPaymentForm((f) => ({ ...f, notes: e.target.value }))}
+                    placeholder="Qualquer informação adicional..."
+                    rows={2}
+                    className="w-full px-4 py-3 rounded-xl bg-white/5 border border-white/10 text-white placeholder:text-gray-400"
+                  />
+                </div>
+                <div className="flex gap-3 pt-2">
+                  <button
+                    type="button"
+                    onClick={() => setManualPaymentModalOpen(false)}
+                    className="flex-1 px-4 py-2 rounded-xl border border-white/10 bg-white/5 hover:bg-white/10 text-white transition-all"
+                  >
+                    Cancelar
+                  </button>
+                  <button
+                    type="submit"
+                    disabled={
+                      isLoading ||
+                      !manualPaymentForm.patientId ||
+                      !manualPaymentForm.description?.trim() ||
+                      manualPaymentForm.amount <= 0
+                    }
+                    className="flex-1 px-4 py-2 rounded-xl bg-emerald-500/20 text-emerald-100 border border-emerald-400/30 hover:bg-emerald-500/30 disabled:opacity-50 disabled:cursor-not-allowed transition-all"
+                  >
+                    {isLoading ? "Registrando..." : "Registrar Pagamento"}
+                  </button>
+                </div>
+              </form>
             </div>
           </div>
         )}
