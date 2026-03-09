@@ -75,7 +75,11 @@ export default function FinancialControlPatient() {
   const { getPatient } = usePatients();
 
   const [patient, setPatient] = useState<{ id: string; name: string; created_at: string } | null>(null);
-  const [timeline, setTimeline] = useState<{ patient?: { id: string; name: string }; records: { record: FinancialRecord; installments: Installment[] }[] }>({ records: [] });
+  const [timeline, setTimeline] = useState<{
+    patient?: { id: string; name: string };
+    records: { record: FinancialRecord; installments: Installment[] }[];
+    manualPayments?: { id: string; description: string; payment_date: string; payment_method: string; total_amount: number; notes?: string | null }[];
+  }>({ records: [] });
   const [summaryGrossNet, setSummaryGrossNet] = useState<PatientFinancialSummaryGrossNet | null>(null);
   const [paidMonth, setPaidMonth] = useState<GrossNetBucket | null>(null);
   const [feeRulesCache, setFeeRulesCache] = useState<FeeRuleRow[]>([]);
@@ -342,18 +346,31 @@ export default function FinancialControlPatient() {
           </div>
         </div>
 
-        {/* Timeline: registros com parcelas */}
+        {/* Timeline: registros com parcelas + pagamentos manuais */}
         <div className="space-y-4">
           <h3 className="text-lg font-bold text-white flex items-center gap-2">
             <DollarSign size={20} />
             Registros financeiros
           </h3>
-          {timeline.records.length === 0 ? (
+          {timeline.records.length === 0 && (!timeline.manualPayments || timeline.manualPayments.length === 0) ? (
             <div className="glass-card p-6 border border-white/10 text-center text-gray-400">
               Nenhum registro financeiro para este paciente.
             </div>
           ) : (
             <div className="space-y-3">
+              {timeline.manualPayments?.map((mp) => (
+                <div key={`manual-${mp.id}`} className="border border-emerald-400/20 rounded-xl overflow-hidden bg-emerald-500/5 p-4">
+                  <p className="text-sm text-gray-400">{formatDate(mp.payment_date)}</p>
+                  <p className="font-semibold text-white">{mp.description}</p>
+                  <p className="text-sm text-gray-300">
+                    {getPaymentMethodText(mp.payment_method)} · {formatCurrency(mp.total_amount)}
+                  </p>
+                  {mp.notes && <p className="text-xs text-gray-400 mt-1">{mp.notes}</p>}
+                  <span className="inline-block mt-2 px-2 py-0.5 rounded text-xs bg-emerald-500/20 text-emerald-200">
+                    Pagamento avulso
+                  </span>
+                </div>
+              ))}
               {timeline.records.map(({ record, installments: insts }) => {
                 const recId = record.id;
                 const isExpanded = expandedRecords.has(recId);
