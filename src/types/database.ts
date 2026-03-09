@@ -39,6 +39,91 @@ export interface Database {
           updated_at?: string
         }
       }
+      user_profiles: {
+        Row: {
+          user_id: string
+          tenant_id: string
+          email: string
+          role: 'owner' | 'viewer' | 'staff' | 'admin'
+          is_active: boolean
+          created_at: string
+        }
+        Insert: {
+          user_id: string
+          tenant_id: string
+          email: string
+          role: 'owner' | 'viewer' | 'staff' | 'admin'
+          is_active?: boolean
+          created_at?: string
+        }
+        Update: {
+          user_id?: string
+          tenant_id?: string
+          email?: string
+          role?: 'owner' | 'viewer' | 'staff' | 'admin'
+          is_active?: boolean
+          created_at?: string
+        }
+      }
+      staff_invites: {
+        Row: {
+          id: string
+          tenant_id: string
+          created_by_user_id: string
+          invite_email: string
+          invite_email_normalized: string
+          code_hash: string
+          role: 'viewer' | 'staff' | 'admin'
+          expires_at: string
+          used_at: string | null
+          created_at: string
+        }
+        Insert: {
+          id?: string
+          tenant_id: string
+          created_by_user_id: string
+          invite_email: string
+          invite_email_normalized: string
+          code_hash: string
+          role?: 'viewer' | 'staff' | 'admin'
+          expires_at: string
+          used_at?: string | null
+          created_at?: string
+        }
+        Update: {
+          tenant_id?: string
+          created_by_user_id?: string
+          invite_email?: string
+          invite_email_normalized?: string
+          code_hash?: string
+          role?: 'viewer' | 'staff' | 'admin'
+          expires_at?: string
+          used_at?: string | null
+          created_at?: string
+        }
+      }
+      staff_details: {
+        Row: {
+          user_id: string
+          full_name: string
+          birth_date: string | null
+          cpf: string | null
+          created_at: string
+        }
+        Insert: {
+          user_id: string
+          full_name: string
+          birth_date?: string | null
+          cpf?: string | null
+          created_at?: string
+        }
+        Update: {
+          full_name?: string
+          birth_date?: string | null
+          cpf?: string | null
+          created_at?: string
+        }
+      }
       patients: {
         Row: {
           id: string
