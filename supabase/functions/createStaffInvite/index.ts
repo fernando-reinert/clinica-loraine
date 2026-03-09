@@ -70,6 +70,11 @@ Deno.serve(async (req) => {
     const body = await req.json().catch(() => ({}));
     const emailRaw = typeof body?.email === "string" ? body.email.trim() : "";
     const inviteEmailNormalized = emailRaw.toLowerCase();
+    console.log("[createStaffInvite] payload received", {
+      email: inviteEmailNormalized,
+      role: body?.role,
+      expiresMinutes: body?.expiresMinutes,
+    });
     if (!inviteEmailNormalized || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(inviteEmailNormalized)) {
       return new Response(JSON.stringify({ ok: false, error: "Email inválido", code: "invalid_email" }), {
         status: 400,
@@ -124,10 +129,31 @@ Deno.serve(async (req) => {
 
     if (error) {
       console.error("[createStaffInvite] insert error:", error);
-      return new Response(JSON.stringify({ ok: false, error: "Falha ao criar convite", code: "invite_insert_failed" }), {
-        status: 500,
-        headers,
-      });
+      const pgCode = (error as any)?.code as string | undefined;
+      const details = (error as any)?.details;
+      if (pgCode === "23505") {
+        return new Response(
+          JSON.stringify({
+            ok: false,
+            error: "Conflito ao criar convite (duplicado).",
+            code: "invite_duplicate",
+            details,
+          }),
+          { status: 409, headers },
+        );
+      }
+      return new Response(
+        JSON.stringify({
+          ok: false,
+          error: "Falha ao criar convite",
+          code: "invite_insert_failed",
+          details,
+        }),
+        {
+          status: 500,
+          headers,
+        },
+      );
     }
 
     const signupUrl = `${APP_PUBLIC_URL.replace(/\/$/, "")}/staff-signup/${code}`;
@@ -138,9 +164,17 @@ Deno.serve(async (req) => {
     });
   } catch (e) {
     console.error("[createStaffInvite] exception:", e);
-    return new Response(JSON.stringify({ ok: false, error: "Erro interno", code: "internal_error" }), {
-      status: 500,
-      headers: jsonHeadersWithCors(req),
-    });
+    return new Response(
+      JSON.stringify({
+        ok: false,
+        error: "Erro interno",
+        code: "internal_error",
+        details: e instanceof Error ? e.message : String(e),
+      }),
+      {
+        status: 500,
+        headers: jsonHeadersWithCors(req),
+      },
+    );
   }
 });

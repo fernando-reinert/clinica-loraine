@@ -76,21 +76,15 @@ function App() {
                 <Route path="/staff-signup/:code" element={<StaffSignupScreen />} />
                 <Route path="/patient-signup/novopaciente/:code" element={<PatientSignupScreen />} />
                 <Route path="/patient-signup/:shareToken" element={<PatientSignupScreen />} />
-<<<<<<< HEAD
                 <Route path="/t/:token" element={<PublicTreatmentPlanScreen />} />
-                
-                {/* ========== ROTAS PROTEGIDAS ========== */}
-=======
 
                 {/* ========== ROTAS PROTEGIDAS (paths estáticos primeiro) ========== */}
->>>>>>> c2396cd (feat(auth): invite-only staff onboarding via Supabase edge functions)
                 <Route path="/" element={<Navigate to="/dashboard" replace />} />
                 <Route path="/access-pending" element={<AccessPendingScreen />} />
                 <Route path="/dashboard" element={<ProtectedRoute><DashboardScreen /></ProtectedRoute>} />
                 <Route path="/profile" element={<ProtectedRoute><ProfileScreen /></ProtectedRoute>} />
                 <Route path="/admin/users" element={<ProtectedRoute><AdminUsersScreen /></ProtectedRoute>} />
 
-<<<<<<< HEAD
                 {/* Pacientes */}
                 <Route path="/patients" element={
                   <ProtectedRoute>
@@ -163,24 +157,7 @@ function App() {
                     <FinancialControlPatient />
                   </ProtectedRoute>
                 } />
-
-                {/* Agendamentos */}
-                <Route path="/appointments" element={
-                  <ProtectedRoute>
-                    <AppointmentsScreen />
-                  </ProtectedRoute>
-                } />
-=======
-                <Route path="/patients" element={<ProtectedRoute><PatientsScreen /></ProtectedRoute>} />
-                <Route path="/patients/new" element={<ProtectedRoute><NewPatient /></ProtectedRoute>} />
-                <Route path="/patients/:id" element={<ProtectedRoute><PatientDetailScreen /></ProtectedRoute>} />
-                <Route path="/patients/:id/edit" element={<ProtectedRoute><NewPatient /></ProtectedRoute>} />
-                <Route path="/patients/:patientId/anamnese" element={<ProtectedRoute><AnamneseScreen /></ProtectedRoute>} />
-                <Route path="/patients/:id/medical-record" element={<ProtectedRoute><MedicalRecordScreen /></ProtectedRoute>} />
-                <Route path="/patients/:id/gallery" element={<ProtectedRoute><PatientGalleryScreen /></ProtectedRoute>} />
-                <Route path="/patients/:id/financial" element={<ProtectedRoute><FinancialControlPatient /></ProtectedRoute>} />
->>>>>>> c2396cd (feat(auth): invite-only staff onboarding via Supabase edge functions)
-
+                
                 <Route path="/appointments" element={<ProtectedRoute><AppointmentsScreen /></ProtectedRoute>} />
                 <Route path="/appointments/new" element={<Navigate to="/appointments" replace />} />
                 <Route path="/appointments/:appointmentId/treatment" element={<ProtectedRoute><AppointmentTreatmentScreen /></ProtectedRoute>} />
