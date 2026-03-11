@@ -7,7 +7,7 @@ export interface DashboardStats {
   todayAppointments: number
   thisWeekAppointments: number
   completedProcedures: number
-  thisMonthAppointments: number // Definido corretamente
+  thisMonthAppointments: number
   pendingAppointments: number
 }
 
@@ -19,8 +19,8 @@ export const useDashboardStats = () => {
     todayAppointments: 0,
     thisWeekAppointments: 0,
     completedProcedures: 0,
-    thisMonthAppointments: 0, // Definido corretamente
-    pendingAppointments: 0
+    thisMonthAppointments: 0,
+    pendingAppointments: 0,
   })
   const [loading, setLoading] = useState(true)
 
@@ -31,64 +31,69 @@ export const useDashboardStats = () => {
     }
 
     try {
-      // Total de pacientes
-      const { count: totalPatients } = await supabase
-        .from('patients')
-        .select('*', { count: 'exact', head: true })
-
-      // Agendamentos de hoje
-      const today = new Date()
-      const startOfDay = new Date(today.setHours(0, 0, 0, 0)).toISOString()
-      const endOfDay = new Date(today.setHours(23, 59, 59, 999)).toISOString()
-
-      const { count: todayAppointments } = await supabase
-        .from('appointments')
-        .select('*', { count: 'exact', head: true })
-        .gte('start_time', startOfDay)
-        .lte('start_time', endOfDay)
-
-      // Agendamentos desta semana
       const now = new Date()
-      const startOfWeek = new Date(now.setDate(now.getDate() - now.getDay()))
-      startOfWeek.setHours(0, 0, 0, 0)
-      const endOfWeek = new Date(now.setDate(now.getDate() - now.getDay() + 6))
-      endOfWeek.setHours(23, 59, 59, 999)
+      const y = now.getFullYear()
+      const m = now.getMonth()
+      const d = now.getDate()
+      const dow = now.getDay() // 0=dom
 
-      const { count: thisWeekAppointments } = await supabase
-        .from('appointments')
-        .select('*', { count: 'exact', head: true })
-        .gte('start_time', startOfWeek.toISOString())
-        .lte('start_time', endOfWeek.toISOString())
+      // Intervalos — sem mutação do objeto Date
+      const startOfDay = new Date(y, m, d, 0, 0, 0, 0).toISOString()
+      const endOfDay = new Date(y, m, d, 23, 59, 59, 999).toISOString()
 
-      // Agendamentos deste mês
-      const startOfMonth = new Date(now.getFullYear(), now.getMonth(), 1).toISOString()
-      const endOfMonth = new Date(now.getFullYear(), now.getMonth() + 1, 0, 23, 59, 59, 999).toISOString()
+      const startOfWeek = new Date(y, m, d - dow, 0, 0, 0, 0).toISOString()
+      const endOfWeek = new Date(y, m, d - dow + 6, 23, 59, 59, 999).toISOString()
 
-      const { count: thisMonthAppointments } = await supabase
-        .from('appointments')
-        .select('*', { count: 'exact', head: true })
-        .gte('start_time', startOfMonth)
-        .lte('start_time', endOfMonth)
+      const startOfMonth = new Date(y, m, 1, 0, 0, 0, 0).toISOString()
+      const endOfMonth = new Date(y, m + 1, 0, 23, 59, 59, 999).toISOString()
 
-      // Procedimentos completados (fichas clínicas)
-      const { count: completedProcedures } = await supabase
-        .from('clinical_records')
-        .select('*', { count: 'exact', head: true })
+      const nowIso = now.toISOString()
 
-      // Agendamentos pendentes
-      const { count: pendingAppointments } = await supabase
-        .from('appointments')
-        .select('*', { count: 'exact', head: true })
-        .in('status', ['scheduled', 'confirmed'])
-        .gte('start_time', new Date().toISOString())
+      // Todas as queries em paralelo
+      const [
+        { count: totalPatients },
+        { count: todayAppointments },
+        { count: thisWeekAppointments },
+        { count: thisMonthAppointments },
+        { count: completedProcedures },
+        { count: pendingAppointments },
+      ] = await Promise.all([
+        supabase.from('patients').select('*', { count: 'exact', head: true }),
+
+        supabase
+          .from('appointments')
+          .select('*', { count: 'exact', head: true })
+          .gte('start_time', startOfDay)
+          .lte('start_time', endOfDay),
+
+        supabase
+          .from('appointments')
+          .select('*', { count: 'exact', head: true })
+          .gte('start_time', startOfWeek)
+          .lte('start_time', endOfWeek),
+
+        supabase
+          .from('appointments')
+          .select('*', { count: 'exact', head: true })
+          .gte('start_time', startOfMonth)
+          .lte('start_time', endOfMonth),
+
+        supabase.from('clinical_records').select('*', { count: 'exact', head: true }),
+
+        supabase
+          .from('appointments')
+          .select('*', { count: 'exact', head: true })
+          .in('status', ['scheduled', 'confirmed'])
+          .gte('start_time', nowIso),
+      ])
 
       setStats({
-        totalPatients: totalPatients || 0,
-        todayAppointments: todayAppointments || 0,
-        thisWeekAppointments: thisWeekAppointments || 0,
-        completedProcedures: completedProcedures || 0,
-        thisMonthAppointments: thisMonthAppointments || 0, // Definido corretamente
-        pendingAppointments: pendingAppointments || 0
+        totalPatients: totalPatients ?? 0,
+        todayAppointments: todayAppointments ?? 0,
+        thisWeekAppointments: thisWeekAppointments ?? 0,
+        completedProcedures: completedProcedures ?? 0,
+        thisMonthAppointments: thisMonthAppointments ?? 0,
+        pendingAppointments: pendingAppointments ?? 0,
       })
     } catch (error) {
       console.error('Error loading dashboard stats:', error)
@@ -101,9 +106,5 @@ export const useDashboardStats = () => {
     loadStats()
   }, [user])
 
-  return {
-    stats,
-    loading,
-    loadStats
-  }
+  return { stats, loading, loadStats }
 }

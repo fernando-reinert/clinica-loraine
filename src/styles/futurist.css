@@ -104,7 +104,7 @@ body {
   box-shadow:
     0 8px 32px rgba(0, 0, 0, 0.3),
     0 0 0 1px rgba(99, 102, 241, 0.1),
-    inset 0 1px 0 rgba(255, 255, 255, 0.1);
+    inset 0 1px 0 rgba(99, 102, 241, 0.12);
 }
 @media (min-width: 640px) {
   .page-header {
@@ -159,21 +159,21 @@ body {
   backdrop-filter: blur(var(--blur-intensity));
   border: 1px solid rgba(99, 102, 241, 0.2);
   border-radius: 24px;
-  box-shadow: 
+  box-shadow:
     0 8px 32px rgba(0, 0, 0, 0.3),
     0 0 0 1px rgba(99, 102, 241, 0.1),
-    inset 0 1px 0 rgba(255, 255, 255, 0.1);
+    inset 0 1px 0 rgba(99, 102, 241, 0.1);
   transition: all 0.4s cubic-bezier(0.4, 0, 0.2, 1);
   box-sizing: border-box;
 }
 
 .glass-card:hover {
   border-color: rgba(99, 102, 241, 0.4);
-  box-shadow: 
-    0 20px 40px rgba(0, 0, 0, 0.4),
-    0 0 30px var(--cosmic-glow),
-    inset 0 1px 0 rgba(255, 255, 255, 0.2);
-  transform: translateY(-4px);
+  box-shadow:
+    0 12px 28px rgba(0, 0, 0, 0.35),
+    0 0 20px var(--cosmic-glow),
+    inset 0 1px 0 rgba(99, 102, 241, 0.18);
+  transform: translateY(-2px);
 }
 
 .neon-button {
@@ -186,9 +186,9 @@ body {
   position: relative;
   overflow: hidden;
   transition: all 0.3s ease;
-  box-shadow: 
+  box-shadow:
     0 4px 20px rgba(99, 102, 241, 0.3),
-    0 0 0 1px rgba(255, 255, 255, 0.1);
+    0 0 0 1px rgba(99, 102, 241, 0.4);
 }
 
 .neon-button::before {
@@ -211,6 +211,39 @@ body {
     0 8px 30px rgba(99, 102, 241, 0.5),
     0 0 20px rgba(99, 102, 241, 0.4);
   transform: translateY(-2px);
+}
+
+/* Botão secundário / outline */
+.btn-outline {
+  background: transparent;
+  border: 1px solid rgba(99, 102, 241, 0.35);
+  border-radius: 14px;
+  color: rgb(165, 180, 252);
+  font-weight: 600;
+  padding: 10px 20px;
+  cursor: pointer;
+  transition: background 0.2s ease, border-color 0.2s ease, color 0.2s ease;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.btn-outline:hover {
+  background: rgba(99, 102, 241, 0.12);
+  border-color: rgba(99, 102, 241, 0.55);
+  color: #ffffff;
+}
+
+/* Skeleton pulse para loading */
+@keyframes skeletonPulse {
+  0%, 100% { opacity: 0.45; }
+  50%       { opacity: 0.2;  }
+}
+
+.skeleton {
+  background: rgba(255, 255, 255, 0.08);
+  border-radius: 10px;
+  animation: skeletonPulse 1.6s ease-in-out infinite;
 }
 
 /* 🌈 Inputs Holográficos */
@@ -273,6 +306,36 @@ body {
   backdrop-filter: blur(20px);
   border-right: 1px solid rgba(99, 102, 241, 0.2);
   box-shadow: 4px 0 20px rgba(0, 0, 0, 0.3);
+  /* Sem scrollbar no container externo — scroll é gerenciado internamente */
+  scrollbar-width: none;
+  -ms-overflow-style: none;
+}
+
+.sidebar-futurist::-webkit-scrollbar {
+  display: none;
+}
+
+/* Scrollbar do nav interno da sidebar — estilo escuro para combinar com o tema */
+.sidebar-futurist .overflow-y-auto {
+  scrollbar-width: thin;
+  scrollbar-color: rgba(99, 102, 241, 0.3) transparent;
+}
+
+.sidebar-futurist .overflow-y-auto::-webkit-scrollbar {
+  width: 4px;
+}
+
+.sidebar-futurist .overflow-y-auto::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+.sidebar-futurist .overflow-y-auto::-webkit-scrollbar-thumb {
+  background: rgba(99, 102, 241, 0.3);
+  border-radius: 2px;
+}
+
+.sidebar-futurist .overflow-y-auto::-webkit-scrollbar-thumb:hover {
+  background: rgba(99, 102, 241, 0.5);
 }
 
 /* 🎮 Animações de Entrada */

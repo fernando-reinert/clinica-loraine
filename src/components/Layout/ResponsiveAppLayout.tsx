@@ -44,9 +44,9 @@ const ResponsiveAppLayout: React.FC<ResponsiveAppLayoutProps> = ({
           ${isSidebarOpen ? 'w-80' : 'w-24'}
           transition-all duration-500 ease-out
           sidebar-futurist
-          fixed inset-0 z-40
+          fixed top-0 left-0 bottom-0 z-40
           h-dvh
-          overflow-y-auto
+          overflow-hidden
           shrink-0
           hidden lg:block
         `}

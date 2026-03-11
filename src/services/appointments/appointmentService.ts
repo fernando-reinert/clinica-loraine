@@ -925,3 +925,50 @@ export const deleteAppointment = async (appointmentId: string): Promise<{ gcalFa
   }
 };
 
+// ============================================
+// AGENDA DO DIA
+// ============================================
+
+export interface TodayAppointmentRow {
+  id: string;
+  patient_id: string;
+  patient_name: string | null;
+  title: string;
+  start_time: string;
+  end_time: string;
+  status: string;
+}
+
+/**
+ * Retorna os agendamentos de hoje para o profissional autenticado,
+ * ordenados por horário de início.
+ * Filtra explicitamente por professional_id além do RLS.
+ */
+export const fetchTodayAppointments = async (
+  professionalId: string
+): Promise<TodayAppointmentRow[]> => {
+  const now = new Date();
+  const y = now.getFullYear();
+  const mo = now.getMonth();
+  const d = now.getDate();
+
+  const startOfDay = new Date(y, mo, d, 0, 0, 0, 0).toISOString();
+  const endOfDay = new Date(y, mo, d, 23, 59, 59, 999).toISOString();
+
+  const { data, error } = await supabase
+    .from('appointments')
+    .select('id, patient_id, patient_name, title, start_time, end_time, status')
+    .eq('professional_id', professionalId)
+    .gte('start_time', startOfDay)
+    .lte('start_time', endOfDay)
+    .neq('status', 'cancelled')
+    .order('start_time', { ascending: true });
+
+  if (error) {
+    logger.error('[APPOINTMENTS] Erro ao buscar agenda do dia', { error });
+    throw new Error(error.message || 'Erro ao buscar agenda do dia');
+  }
+
+  return (data ?? []) as TodayAppointmentRow[];
+};
+
