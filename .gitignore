@@ -12,6 +12,7 @@ yarn-error.log*
 .env.production.local
 .env.secrets
 .env.evolution
+evolution-api/
 
 # Build
 dist/

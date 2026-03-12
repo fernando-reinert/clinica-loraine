@@ -4,6 +4,7 @@ import { createGcalEvent, cancelGcalEvent, updateGcalEvent } from '../calendar';
 import logger from '../../utils/logger';
 import { addMinutesToDate } from '../../utils/dateUtils';
 import type { Appointment, AppointmentStatus, AppointmentHistoryRow } from '../../types/db';
+import { sendConfirmationOnCreate } from '../whatsapp/whatsappAutomationService';
 
 export interface AppointmentProcedureItemInput {
   procedureId: string;
@@ -125,6 +126,7 @@ export const createAppointmentWithProcedures = async (
 
     if (!hasProcedures) {
       logger.info('[APPOINTMENTS] Agendamento criado sem procedimentos', { id: appointment.id });
+      sendConfirmationOnCreate(appointment.id, patientName, patientPhone, startTimeIso);
       return { id: appointment.id };
     }
 
@@ -175,6 +177,7 @@ export const createAppointmentWithProcedures = async (
       id: appointment.id,
       itemsCount: procedures.length,
     });
+    sendConfirmationOnCreate(appointment.id, patientName, patientPhone, startTimeIso);
     return { id: appointment.id };
   } catch (error: any) {
     logger.error('[APPOINTMENTS] Falha inesperada ao criar agendamento com procedimentos', {
