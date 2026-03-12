@@ -33,7 +33,6 @@ import SignupEntryScreen from "./screens/SignupEntryScreen";
 import AdminUsersScreen from "./screens/AdminUsersScreen";
 import StaffSignupScreen from "./screens/StaffSignupScreen";
 import AccessPendingScreen from "./screens/AccessPendingScreen";
-import TesteScreen from "./screens/TesteScreen";
 import NotFoundScreen from "./screens/NotFoundScreen";
 
 import "./styles/futurist.css";
@@ -264,8 +263,6 @@ function App() {
                 {/* Redirecionamentos */}
                 <Route path="/anamnese" element={<Navigate to="/patients" replace />} />
                 <Route path="/clinical-record" element={<Navigate to="/patients" replace />} />
-
-                <Route path="/teste" element={<ProtectedRoute><TesteScreen /></ProtectedRoute>} />
 
                 {/* 404 — SEMPRE por último */}
                 <Route path="*" element={<NotFoundScreen />} />

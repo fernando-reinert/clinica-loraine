@@ -126,7 +126,7 @@ export const createAppointmentWithProcedures = async (
 
     if (!hasProcedures) {
       logger.info('[APPOINTMENTS] Agendamento criado sem procedimentos', { id: appointment.id });
-      sendConfirmationOnCreate(appointment.id, patientName, patientPhone, startTimeIso);
+      sendConfirmationOnCreate(appointment.id, patientName, patientPhone, startTimeIso, title);
       return { id: appointment.id };
     }
 
@@ -177,7 +177,7 @@ export const createAppointmentWithProcedures = async (
       id: appointment.id,
       itemsCount: procedures.length,
     });
-    sendConfirmationOnCreate(appointment.id, patientName, patientPhone, startTimeIso);
+    sendConfirmationOnCreate(appointment.id, patientName, patientPhone, startTimeIso, title);
     return { id: appointment.id };
   } catch (error: any) {
     logger.error('[APPOINTMENTS] Falha inesperada ao criar agendamento com procedimentos', {

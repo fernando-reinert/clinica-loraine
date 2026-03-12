@@ -2,7 +2,7 @@ import "jsr:@supabase/functions-js/edge-runtime.d.ts";
 
 const EVOLUTION_API_URL = Deno.env.get('EVOLUTION_API_URL') ?? '';
 const EVOLUTION_API_KEY = Deno.env.get('EVOLUTION_API_KEY') ?? '';
-const EVOLUTION_INSTANCE = Deno.env.get('EVOLUTION_INSTANCE') ?? 'loraine-clinica';
+const EVOLUTION_INSTANCE = Deno.env.get('EVOLUTION_INSTANCE') ?? 'clinica_loraine';
 
 function formatPhone(phone: string): string {
   // Remove tudo que não é número
