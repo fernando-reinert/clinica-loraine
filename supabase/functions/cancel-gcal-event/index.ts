@@ -122,11 +122,11 @@ Deno.serve(async (req) => {
       headers: { "Authorization": `Bearer ${accessToken}` },
     });
 
-    if (res.status === 404) {
-      console.warn("[gcal] cancel: evento não encontrado", eventId);
+    if (res.status === 404 || res.status === 410) {
+      console.warn("[gcal] cancel: evento não encontrado (já deletado)", eventId);
       return new Response(
-        JSON.stringify({ ok: false, error: "Evento não encontrado no Google Calendar" }),
-        { status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" } }
+        JSON.stringify({ ok: true }),
+        { headers: { ...corsHeaders, "Content-Type": "application/json" } }
       );
     }
 

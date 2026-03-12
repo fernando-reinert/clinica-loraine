@@ -1,5 +1,6 @@
 // src/services/whatsapp/whatsappAutomationService.ts
-// Automação WhatsApp: confirmação ao agendar e lembrete 1h antes.
+// Automação WhatsApp: confirmação ao agendar.
+// Chama Evolution API diretamente do browser (funciona com localhost:8080 no ambiente local).
 // Não bloqueia o fluxo principal em caso de falha.
 
 import { supabase } from '../supabase/client'
@@ -10,6 +11,7 @@ const INSTANCE_NAME = import.meta.env.VITE_EVOLUTION_INSTANCE ?? 'clinica_lorain
 
 function formatDate(isoString: string): string {
   return new Date(isoString).toLocaleDateString('pt-BR', {
+    weekday: 'long',
     day: '2-digit',
     month: '2-digit',
     year: 'numeric',
@@ -35,6 +37,7 @@ export async function sendConfirmationOnCreate(
   patientName: string,
   patientPhone: string,
   startTimeIso: string,
+  title?: string,
 ): Promise<void> {
   if (!patientPhone) {
     logger.warn('[whatsappAutomation] Confirmação ignorada: sem telefone', { appointmentId })
@@ -44,14 +47,21 @@ export async function sendConfirmationOnCreate(
   const firstName = patientName.split(' ')[0]
   const date = formatDate(startTimeIso)
   const time = formatTime(startTimeIso)
+  const service = title?.trim() || 'consulta'
 
   const message = [
-    `Olá ${firstName}, sua consulta na Clínica Loraine foi agendada.`,
+    `Olá ${firstName}! 👋`,
     ``,
-    `Data: ${date}`,
-    `Horário: ${time}`,
+    `Seu agendamento na *Clínica Loraine* foi confirmado.`,
     ``,
-    `Se precisar reagendar entre em contato.`,
+    `🩺 Serviço: *${service}*`,
+    `📅 Data: ${date}`,
+    `⏰ Horário: ${time}`,
+    ``,
+    `Chegue com 10 minutos de antecedência.`,
+    `Se precisar reagendar, entre em contato conosco.`,
+    ``,
+    `Até logo! ✨`,
   ].join('\n')
 
   try {

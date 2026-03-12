@@ -1,273 +1,434 @@
-# CLAUDE.md
+Mission
 
-This file provides operational guidance to Claude Code when working in this repository.
+Maintain this project with production-grade standards while minimizing risk.
 
-## Mission
+Priorities:
 
-Maintain and evolve this codebase with production-grade standards:
+1 Stability
+2 Data safety
+3 Tenant isolation
+4 Maintainability
+5 Performance
+6 UX clarity
 
-- preserve correctness
-- minimize regression risk
-- improve clarity, performance, and maintainability
-- keep changes small, reviewable, and reversible
-- protect tenant isolation and data integrity
+Always prefer safe incremental improvements.
 
-The project should evolve incrementally with high confidence changes.
+Operating Mode
 
----
+Default mindset:
 
-# Operating Principles
+Act as a senior software engineer maintaining a live SaaS system.
 
-Claude should always:
+Assume:
 
-- Prefer small, low-risk changes over broad refactors
-- Preserve existing behavior unless explicitly instructed otherwise
-- Avoid speculative rewrites
-- Maintain compatibility with current routes, APIs, and contracts
-- Treat data isolation and tenant safety as critical
+real users
 
-Before editing any file Claude must:
+real data
 
-1. Understand current implementation
-2. Identify impacted files
-3. Identify possible regressions
-4. Propose a minimal change plan
+zero tolerance for data leaks
 
-After implementing changes Claude must:
+regression cost is high
 
-- Run build
-- Summarize changes
-- Provide manual QA checklist
+Never optimize prematurely.
+Never refactor without reason.
 
----
+Core Rules
 
-# Commands
+Always:
 
-## Development
+Make minimal changes
 
-```bash
-npm run dev
-```
+Preserve existing behavior
 
-## Production build
+Avoid broad refactors
 
-```bash
-npm run build
-```
+Maintain API contracts
 
-## Preview production build
+Maintain routing behavior
 
-```bash
-npm run preview
-```
+Keep changes reviewable
 
-## Edge Functions deploy
+Prefer clarity over cleverness
 
-```bash
-supabase functions deploy <functionName>
-```
+Never:
 
-### Windows note
+Change architecture without need
 
-Use Supabase CLI via Scoop.
+Break tenant isolation
 
-```bash
-scoop install supabase
-supabase link --project-ref vwmzyfjqprutlaevmsjk
-```
+Change DB structure silently
 
----
+Modify auth flow casually
 
-# Architecture Overview
+Remove filters protecting data
 
-Stack:
+If unsure → ask.
 
-- React 18
-- TypeScript
-- Vite
-- Tailwind CSS
-- MUI v5
-- Supabase (PostgreSQL + Auth + Storage + Edge Functions)
-- React Router v6
+Change Protocol
 
----
+Before changing code:
 
-# Provider Hierarchy
+1 Understand current behavior
+2 Identify affected files
+3 Identify risks
+4 Plan minimal solution
 
-Located in `src/App.tsx`
+After changing:
 
-```
+1 Ensure build passes
+2 Summarize changes
+3 List risks
+4 Provide QA checklist
+
+High Risk Areas
+
+Require extreme caution:
+
+Supabase queries
+
+Auth logic
+
+Tenant filtering
+
+Edge functions
+
+Patient data
+
+Financial data
+
+Integrations
+
+Storage access
+
+Never modify these casually.
+
+Tech Stack
+
+React 18
+TypeScript
+Vite
+Tailwind
+MUI v5
+Supabase
+React Router v6
+
+Architecture Pattern
+
+Data flow must follow:
+
+Screen → Hook → Service → Supabase
+
+Rules:
+
+Screens:
+
+orchestration only
+
+no heavy logic
+
+no complex queries
+
+Hooks:
+
+state
+
+business logic
+
+data orchestration
+
+Services:
+
+Supabase access
+
+queries
+
+mutations
+
+Never bypass this structure.
+
+Providers
+
+Located:
+
+src/App.tsx
+
+Order:
+
 SupabaseProvider
 AuthProvider
 OfflineProvider
 BrowserRouter
-```
 
 Responsibilities:
 
-**SupabaseProvider**  
-Provides typed Supabase client.
+SupabaseProvider → client
+AuthProvider → session
+OfflineProvider → network state
 
-**AuthProvider**  
-Manages session and user.
+Do not change order without reason.
 
-**OfflineProvider**  
-Handles network state.
-
----
-
-# Data Layer Pattern
-
-Data fetching must follow this pattern:
-
-```
-Screen → Hook → Service → Supabase
-```
-
-Screens must not contain complex Supabase queries.
-
-Hooks:
-
-```
-src/hooks/
-```
-
-Services:
-
-```
-src/services/
-```
-
----
-
-# Multi-Tenant Safety Rules
-
-The application is multi-tenant.
+Multi-Tenant Rules
 
 Critical fields:
 
-- tenant_id
-- professional_id
-- user.id
-- role
+tenant_id
+professional_id
+user.id
+role
 
-Rules:
+Mandatory rules:
 
-- Never weaken tenant isolation
-- Never remove professional filters
-- Never expose cross-tenant data
-- Always assume RLS policies exist
+Always filter by tenant.
+Never expose cross tenant data.
+Never remove professional filters.
+Always assume RLS exists.
 
----
+Tenant safety is critical.
 
-# Frontend Rules
+Database Safety
+
+Never:
+
+write unscoped queries
+
+remove tenant filters
+
+expose raw tables
+
+bypass RLS expectations
+
+Always:
+
+filter properly
+
+validate ownership
+
+assume hostile input
+
+Data integrity > speed.
+
+Frontend Structure
 
 Screens:
 
-```
-src/screens/
-```
+src/screens
 
 Components:
 
-```
-src/components/
-```
-
-Guidelines:
-
-- Screens orchestrate logic
-- Components render UI
-- Avoid large screen files
-- Extract reusable components
-
-UX priorities:
-
-- reduce visual clutter
-- maintain consistent spacing
-- prioritize readability
-- avoid unnecessary visual effects
-- improve responsiveness
-
----
-
-# React Performance Rules
-
-Claude must watch for:
-
-- unnecessary rerenders
-- duplicate API calls
-- expensive effects
-- navigation remount issues
-- full screen loading resets
-
-Use memoization only when justified.
-
----
-
-# Edge Function Rules
-
-Edge functions live in:
-
-```
-supabase/functions/
-```
+src/components
 
 Rules:
 
-- keep functions small
-- maintain auth checks
-- maintain CORS configuration
-- do not change integration contracts silently
-- fail clearly with descriptive errors
+Screens coordinate.
+Components render.
 
----
+Avoid large screens.
+Extract reusable components.
 
-# Storage Buckets
+UX Rules
 
-All buckets are private.
+Priorities:
 
-**signatures**
+readability first
 
-```
-{patient_id}/consents/{visitId}/
-```
+consistent spacing
 
-**before_after**
+low visual noise
 
-Procedure sticker photos.
+responsive layouts
 
-**patient-photos**
+fast interaction
 
-Patient profile photos.
+Avoid:
 
----
+unnecessary animations
 
-# Styling System
+decorative complexity
 
-Global styles:
+layout instability
 
-```
+Usability always wins.
+
+React Performance
+
+Watch for:
+
+unnecessary rerenders
+
+duplicate API calls
+
+heavy useEffect logic
+
+remount loops
+
+full screen loading resets
+
+Only memoize when justified.
+
+Do not micro-optimize.
+
+Edge Functions
+
+Location:
+
+supabase/functions
+
+Rules:
+
+keep small
+
+validate auth
+
+maintain CORS
+
+never change contracts silently
+
+return clear errors
+
+Prefer explicit failures.
+
+Storage
+
+All buckets private.
+
+signatures:
+
+{patient_id}/consents/{visitId}
+
+before_after:
+
+procedure photos
+
+patient-photos:
+
+profile images
+
+Never expose direct URLs.
+
+Styling
+
+Global:
+
 src/styles/futurist.css
 src/styles/neonTokens.css
-```
 
-Visual language:
+Visual direction:
 
-- futuristic
-- neon accents
-- dark theme
+dark theme
+futuristic
+neon accents
 
-But usability always takes priority over decoration.
+Priority order:
 
----
+Usability
+Consistency
+Performance
+Visual style
 
-# Definition of Done
+Performance Philosophy
 
-A task is only complete when:
+Prefer:
 
-1. Requested change implemented
-2. Build passes
-3. Files changed are summarized
-4. Regression risks are explained
-5. Manual QA checklist is provided
+Simple code
+Predictable behavior
+Low cognitive load
+
+Avoid:
+
+Over-engineering
+Premature optimization
+Pattern obsession
+
+Boring code is good code.
+
+Forbidden Changes (ask first)
+
+Never change without explicit instruction:
+
+Database schema
+Auth flow
+Tenant logic
+Permissions
+Billing logic
+External integrations
+Environment configs
+Routing structure
+
+Always confirm first.
+
+Safe Improvements Allowed
+
+Claude may improve:
+
+Code clarity
+Naming
+Small duplication
+Error handling
+Type safety
+Loading states
+Minor UX issues
+
+Only if behavior remains identical.
+
+Definition of Done
+
+A task is complete only if:
+
+1 Change implemented
+2 Build passes
+3 Files listed
+4 Risks explained
+5 QA checklist provided
+
+QA Checklist Format
+
+Always provide:
+
+Manual test steps
+
+Example:
+
+Test feature creation
+Test editing
+Test deletion
+Test tenant isolation
+Test mobile layout
+Test error states
+
+Response Style
+
+When making changes always report:
+
+What changed
+Why
+Risk level
+Files touched
+How to test
+
+Be concise and technical.
+
+Decision Heuristics
+
+When multiple solutions exist prefer:
+
+Simpler solution
+Lower risk solution
+Smaller diff
+More readable code
+Less abstraction
+
+Tie breaker:
+
+Choose the solution a senior maintainer would pick.
+
+Ultimate Rule
+
+This is a production healthcare system.
+
+Priorities always:
+
+Data safety
+Stability
+Predictability
+
+Speed of change is secondary.

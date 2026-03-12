@@ -3,10 +3,21 @@ import { createClient } from 'jsr:@supabase/supabase-js@2';
 
 const SUPABASE_URL = Deno.env.get('SUPABASE_URL') ?? '';
 const SUPABASE_SERVICE_KEY = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY') ?? '';
-const WHATSAPP_SEND_URL = `${SUPABASE_URL}/functions/v1/whatsapp-send`;
+
+// Evolution API — configure EVOLUTION_API_URL, EVOLUTION_API_KEY, EVOLUTION_INSTANCE
+// as Supabase secrets (supabase secrets set KEY=VALUE).
+const EVOLUTION_API_URL = (Deno.env.get('EVOLUTION_API_URL') ?? '').replace(/\/$/, '');
+const EVOLUTION_API_KEY = Deno.env.get('EVOLUTION_API_KEY') ?? '';
+const EVOLUTION_INSTANCE = Deno.env.get('EVOLUTION_INSTANCE') ?? 'clinica_loraine';
+
+function formatPhone(phone: string): string {
+  const cleaned = phone.replace(/\D/g, '');
+  return cleaned.startsWith('55') ? cleaned : '55' + cleaned;
+}
 
 function formatDateBR(date: Date): string {
   return date.toLocaleDateString('pt-BR', {
+    weekday: 'long',
     day: '2-digit',
     month: '2-digit',
     year: 'numeric',
@@ -22,13 +33,37 @@ function formatTimeBR(date: Date): string {
   });
 }
 
+async function sendWhatsApp(phone: string, message: string): Promise<{ ok: boolean; error?: string }> {
+  if (!EVOLUTION_API_URL || !EVOLUTION_API_KEY) {
+    return { ok: false, error: 'EVOLUTION_API_URL ou EVOLUTION_API_KEY não configurados como secrets do Supabase' };
+  }
+
+  const number = formatPhone(phone);
+  const res = await fetch(`${EVOLUTION_API_URL}/message/sendText/${EVOLUTION_INSTANCE}`, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      'apikey': EVOLUTION_API_KEY,
+    },
+    body: JSON.stringify({ number, text: message }),
+  });
+
+  if (!res.ok) {
+    let detail = '';
+    try { detail = await res.text(); } catch { /* ignore */ }
+    return { ok: false, error: `Evolution API ${res.status}: ${detail.slice(0, 200)}` };
+  }
+
+  return { ok: true };
+}
+
 Deno.serve(async (_req: Request) => {
   try {
     const supabase = createClient(SUPABASE_URL, SUPABASE_SERVICE_KEY);
 
     const now = new Date();
-    // Janela: agendamentos que começam entre 55 min e 65 min a partir de agora.
-    // Com cron a cada 5 min, a janela de 10 min garante cobertura sem duplicatas.
+    // Window: appointments starting between 55–65 min from now.
+    // With a 5-min cron the 10-min window ensures coverage without duplicates.
     const in55 = new Date(now.getTime() + 55 * 60 * 1000);
     const in65 = new Date(now.getTime() + 65 * 60 * 1000);
 
@@ -55,7 +90,7 @@ Deno.serve(async (_req: Request) => {
         continue;
       }
 
-      // Deduplicação: verifica se lembrete já foi enviado para este agendamento
+      // Deduplication: skip if reminder already sent for this appointment
       const { data: existing } = await supabase
         .from('whatsapp_reminders_log')
         .select('id')
@@ -70,25 +105,26 @@ Deno.serve(async (_req: Request) => {
 
       const startDate = new Date(appt.start_time);
       const firstName = (appt.patient_name as string ?? '').split(' ')[0];
+      const service = (appt.title as string ?? '').trim() || 'sua consulta';
+
       const message = [
-        `Olá ${firstName}, lembrete da sua consulta hoje.`,
+        `Olá ${firstName}! 👋`,
         ``,
-        `Data: ${formatDateBR(startDate)}`,
-        `Horário: ${formatTimeBR(startDate)}`,
+        `Lembramos do seu agendamento na *Clínica Loraine* daqui a 1 hora.`,
         ``,
-        `Clínica Loraine.`,
+        `🩺 Serviço: *${service}*`,
+        `📅 Data: ${formatDateBR(startDate)}`,
+        `⏰ Horário: ${formatTimeBR(startDate)}`,
+        ``,
+        `Chegue com 10 minutos de antecedência.`,
+        `Precisando reagendar, entre em contato conosco.`,
+        ``,
+        `Até logo! ✨`,
       ].join('\n');
 
-      const sendRes = await fetch(WHATSAPP_SEND_URL, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ phone, message }),
-      });
+      const sendResult = await sendWhatsApp(phone, message);
 
-      const sendResult = await sendRes.json();
-
-      if (sendRes.ok) {
-        // Registra no log de deduplicação
+      if (sendResult.ok) {
         await supabase.from('whatsapp_reminders_log').insert({
           appointment_id: appt.id,
           type: 'reminder_1h',
@@ -96,7 +132,6 @@ Deno.serve(async (_req: Request) => {
           sent_at: new Date().toISOString(),
         });
 
-        // Marca flag no agendamento para visibilidade
         await supabase
           .from('appointments')
           .update({ whatsapp_reminder_sent: true })
@@ -105,8 +140,8 @@ Deno.serve(async (_req: Request) => {
         results.push({ appointment_id: appt.id, status: 'sent', phone });
         console.log(`[whatsapp-reminder-cron] Lembrete enviado para ${phone} (${appt.id})`);
       } else {
-        results.push({ appointment_id: appt.id, status: 'error', error: sendResult });
-        console.error(`[whatsapp-reminder-cron] Erro ao enviar para ${phone}:`, sendResult);
+        results.push({ appointment_id: appt.id, status: 'error', error: sendResult.error });
+        console.error(`[whatsapp-reminder-cron] Erro ao enviar para ${phone}:`, sendResult.error);
       }
     }
 
