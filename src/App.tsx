@@ -1,11 +1,6 @@
 // src/App.tsx - DESIGN FUTURISTA COMPLETO
 import React, { useEffect } from "react";
-import {
-  BrowserRouter as Router,
-  Routes,
-  Route,
-  Navigate,
-} from "react-router-dom";
+import { BrowserRouter as Router, Routes, Route, Navigate } from "react-router-dom";
 import { Toaster, toast } from "react-hot-toast";
 import { AuthProvider } from "./contexts/AuthContext";
 import { runSupabaseEnvCheck } from "./utils/supabaseEnvCheck";
@@ -16,9 +11,6 @@ import LoginScreen from "./screens/LoginScreen";
 import DashboardScreen from "./screens/DashboardScreen";
 import PatientsScreen from "./screens/PatientsScreen";
 import PatientDetailScreen from "./screens/PatientDetailScreen";
-import ClinicalRecordScreen from "./screens/ClinicalRecordScreen";
-import AppointmentsScreen from "./screens/AppointmentsScreen";
-import AppointmentCreateScreen from "./screens/AppointmentCreateScreen";
 import ProfileScreen from "./screens/ProfileScreen";
 import NewPatient from "./screens/NewPatient";
 import FinancialControl from "./screens/FinancialControl";
@@ -27,6 +19,7 @@ import MedicalRecordScreen from "./screens/MedicalRecordScreen";
 import GalleryScreen from "./screens/GalleryScreen";
 import PatientGalleryScreen from "./screens/PatientGalleryScreen";
 import AnamneseScreen from "./screens/AnamneseScreen";
+import AppointmentsScreen from "./screens/AppointmentsScreen";
 import AppointmentTreatmentScreen from "./screens/AppointmentTreatmentScreen";
 import ProceduresScreen from "./screens/ProceduresScreen";
 import MonjaroScreen from "./screens/MonjaroScreen";
@@ -40,6 +33,7 @@ import SignupEntryScreen from "./screens/SignupEntryScreen";
 import AdminUsersScreen from "./screens/AdminUsersScreen";
 import StaffSignupScreen from "./screens/StaffSignupScreen";
 import AccessPendingScreen from "./screens/AccessPendingScreen";
+import TesteScreen from "./screens/TesteScreen";
 import NotFoundScreen from "./screens/NotFoundScreen";
 
 import "./styles/futurist.css";
@@ -65,7 +59,7 @@ function App() {
           >
             {/* 🌌 Background Cosmic Fixo */}
             <div className="cosmic-bg"></div>
-            
+
             <div className="min-h-dvh w-full overflow-x-hidden text-white relative min-w-0">
               <Routes>
                 {/* ========== ROTAS PÚBLICAS ========== */}
@@ -80,96 +74,198 @@ function App() {
 
                 {/* ========== ROTAS PROTEGIDAS (paths estáticos primeiro) ========== */}
                 <Route path="/" element={<Navigate to="/dashboard" replace />} />
+
                 <Route path="/access-pending" element={<AccessPendingScreen />} />
-                <Route path="/dashboard" element={<ProtectedRoute><DashboardScreen /></ProtectedRoute>} />
-                <Route path="/profile" element={<ProtectedRoute><ProfileScreen /></ProtectedRoute>} />
-                <Route path="/admin/users" element={<ProtectedRoute><AdminUsersScreen /></ProtectedRoute>} />
+                <Route
+                  path="/dashboard"
+                  element={
+                    <ProtectedRoute>
+                      <DashboardScreen />
+                    </ProtectedRoute>
+                  }
+                />
+                <Route
+                  path="/profile"
+                  element={
+                    <ProtectedRoute>
+                      <ProfileScreen />
+                    </ProtectedRoute>
+                  }
+                />
+                <Route
+                  path="/admin/users"
+                  element={
+                    <ProtectedRoute>
+                      <AdminUsersScreen />
+                    </ProtectedRoute>
+                  }
+                />
 
                 {/* Pacientes */}
-                <Route path="/patients" element={
-                  <ProtectedRoute>
-                    <PatientsScreen />
-                  </ProtectedRoute>
-                } />
-
-                <Route path="/patients/new" element={
-                  <ProtectedRoute>
-                    <NewPatient />
-                  </ProtectedRoute>
-                } />
-
-                <Route path="/patients/:id" element={
-                  <ProtectedRoute>
-                    <PatientDetailScreen />
-                  </ProtectedRoute>
-                } />
-
-                <Route path="/patients/:id/edit" element={
-                  <ProtectedRoute>
-                    <NewPatient />
-                  </ProtectedRoute>
-                } />
+                <Route
+                  path="/patients"
+                  element={
+                    <ProtectedRoute>
+                      <PatientsScreen />
+                    </ProtectedRoute>
+                  }
+                />
+                <Route
+                  path="/patients/new"
+                  element={
+                    <ProtectedRoute>
+                      <NewPatient />
+                    </ProtectedRoute>
+                  }
+                />
+                <Route
+                  path="/patients/:id"
+                  element={
+                    <ProtectedRoute>
+                      <PatientDetailScreen />
+                    </ProtectedRoute>
+                  }
+                />
+                <Route
+                  path="/patients/:id/edit"
+                  element={
+                    <ProtectedRoute>
+                      <NewPatient />
+                    </ProtectedRoute>
+                  }
+                />
 
                 {/* Anamnese */}
-                <Route path="/patients/:patientId/anamnese" element={
-                  <ProtectedRoute>
-                    <AnamneseScreen />
-                  </ProtectedRoute>
-                } />
+                <Route
+                  path="/patients/:patientId/anamnese"
+                  element={
+                    <ProtectedRoute>
+                      <AnamneseScreen />
+                    </ProtectedRoute>
+                  }
+                />
 
                 {/* Prontuário Médico */}
-                <Route path="/patients/:id/medical-record" element={
-                  <ProtectedRoute>
-                    <MedicalRecordScreen />
-                  </ProtectedRoute>
-                } />
+                <Route
+                  path="/patients/:id/medical-record"
+                  element={
+                    <ProtectedRoute>
+                      <MedicalRecordScreen />
+                    </ProtectedRoute>
+                  }
+                />
 
                 {/* Galeria do Paciente — 1 registro = 1 foto */}
-                <Route path="/patients/:id/gallery" element={
-                  <ProtectedRoute>
-                    <PatientGalleryScreen />
-                  </ProtectedRoute>
-                } />
+                <Route
+                  path="/patients/:id/gallery"
+                  element={
+                    <ProtectedRoute>
+                      <PatientGalleryScreen />
+                    </ProtectedRoute>
+                  }
+                />
 
-                <Route path="/patients/:id/treatment-plans" element={
-                  <ProtectedRoute>
-                    <TreatmentPlansScreen />
-                  </ProtectedRoute>
-                } />
-                <Route path="/patients/:id/treatment-plans/new" element={
-                  <ProtectedRoute>
-                    <TreatmentPlanFormScreen />
-                  </ProtectedRoute>
-                } />
-                <Route path="/patients/:id/treatment-plans/:planId" element={
-                  <ProtectedRoute>
-                    <TreatmentPlanFormScreen />
-                  </ProtectedRoute>
-                } />
-                <Route path="/patients/:id/treatment-plans/:planId/confirm" element={
-                  <ProtectedRoute>
-                    <TreatmentPlanConfirmScreen />
-                  </ProtectedRoute>
-                } />
+                {/* Planos de tratamento */}
+                <Route
+                  path="/patients/:id/treatment-plans"
+                  element={
+                    <ProtectedRoute>
+                      <TreatmentPlansScreen />
+                    </ProtectedRoute>
+                  }
+                />
+                <Route
+                  path="/patients/:id/treatment-plans/new"
+                  element={
+                    <ProtectedRoute>
+                      <TreatmentPlanFormScreen />
+                    </ProtectedRoute>
+                  }
+                />
+                <Route
+                  path="/patients/:id/treatment-plans/:planId"
+                  element={
+                    <ProtectedRoute>
+                      <TreatmentPlanFormScreen />
+                    </ProtectedRoute>
+                  }
+                />
+                <Route
+                  path="/patients/:id/treatment-plans/:planId/confirm"
+                  element={
+                    <ProtectedRoute>
+                      <TreatmentPlanConfirmScreen />
+                    </ProtectedRoute>
+                  }
+                />
 
-                <Route path="/patients/:id/financial" element={
-                  <ProtectedRoute>
-                    <FinancialControlPatient />
-                  </ProtectedRoute>
-                } />
-                
-                <Route path="/appointments" element={<ProtectedRoute><AppointmentsScreen /></ProtectedRoute>} />
+                <Route
+                  path="/patients/:id/financial"
+                  element={
+                    <ProtectedRoute>
+                      <FinancialControlPatient />
+                    </ProtectedRoute>
+                  }
+                />
+
+                {/* Agendamentos */}
+                <Route
+                  path="/appointments"
+                  element={
+                    <ProtectedRoute>
+                      <AppointmentsScreen />
+                    </ProtectedRoute>
+                  }
+                />
                 <Route path="/appointments/new" element={<Navigate to="/appointments" replace />} />
-                <Route path="/appointments/:appointmentId/treatment" element={<ProtectedRoute><AppointmentTreatmentScreen /></ProtectedRoute>} />
+                <Route
+                  path="/appointments/:appointmentId/treatment"
+                  element={
+                    <ProtectedRoute>
+                      <AppointmentTreatmentScreen />
+                    </ProtectedRoute>
+                  }
+                />
 
-                <Route path="/gallery" element={<ProtectedRoute><GalleryScreen /></ProtectedRoute>} />
-                <Route path="/procedures" element={<ProtectedRoute><ProceduresScreen /></ProtectedRoute>} />
-                <Route path="/financial-control" element={<ProtectedRoute><FinancialControl /></ProtectedRoute>} />
-                <Route path="/monjaro" element={<ProtectedRoute><MonjaroScreen /></ProtectedRoute>} />
+                {/* Outras */}
+                <Route
+                  path="/gallery"
+                  element={
+                    <ProtectedRoute>
+                      <GalleryScreen />
+                    </ProtectedRoute>
+                  }
+                />
+                <Route
+                  path="/procedures"
+                  element={
+                    <ProtectedRoute>
+                      <ProceduresScreen />
+                    </ProtectedRoute>
+                  }
+                />
+                <Route
+                  path="/financial-control"
+                  element={
+                    <ProtectedRoute>
+                      <FinancialControl />
+                    </ProtectedRoute>
+                  }
+                />
+                <Route
+                  path="/monjaro"
+                  element={
+                    <ProtectedRoute>
+                      <MonjaroScreen />
+                    </ProtectedRoute>
+                  }
+                />
 
                 {/* Redirecionamentos */}
                 <Route path="/anamnese" element={<Navigate to="/patients" replace />} />
                 <Route path="/clinical-record" element={<Navigate to="/patients" replace />} />
+
+                <Route path="/teste" element={<ProtectedRoute><TesteScreen /></ProtectedRoute>} />
 
                 {/* 404 — SEMPRE por último */}
                 <Route path="*" element={<NotFoundScreen />} />
@@ -181,23 +277,23 @@ function App() {
               toastOptions={{
                 duration: 4000,
                 style: {
-                  background: 'rgba(42, 43, 69, 0.95)',
-                  backdropFilter: 'blur(20px)',
-                  color: '#ffffff',
-                  borderRadius: '16px',
-                  border: '1px solid rgba(99, 102, 241, 0.3)',
-                  boxShadow: '0 8px 32px rgba(0, 0, 0, 0.3)',
+                  background: "rgba(42, 43, 69, 0.95)",
+                  backdropFilter: "blur(20px)",
+                  color: "#ffffff",
+                  borderRadius: "16px",
+                  border: "1px solid rgba(99, 102, 241, 0.3)",
+                  boxShadow: "0 8px 32px rgba(0, 0, 0, 0.3)",
                 },
                 success: {
                   iconTheme: {
-                    primary: '#00ff88',
-                    secondary: '#1a1b2f',
+                    primary: "#00ff88",
+                    secondary: "#1a1b2f",
                   },
                 },
                 error: {
                   iconTheme: {
-                    primary: '#ef4444',
-                    secondary: '#1a1b2f',
+                    primary: "#ef4444",
+                    secondary: "#1a1b2f",
                   },
                 },
               }}
