@@ -79,7 +79,7 @@ export default function AppointmentCard({
       <div className="flex-shrink-0">
         <AppointmentQuickActions
           appointmentId={id}
-          status={status as AppointmentStatus}
+          status={status}
           busy={busy}
           onConfirm={() => onConfirm(id)}
           onComplete={() => onComplete(id)}

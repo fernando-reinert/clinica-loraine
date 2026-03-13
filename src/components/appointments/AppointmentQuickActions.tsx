@@ -11,7 +11,6 @@ interface Action {
 }
 
 interface Props {
-  appointmentId: string;
   status: AppointmentStatus;
   busy?: boolean;
   onConfirm: () => void;
