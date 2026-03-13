@@ -1,7 +1,7 @@
 {
   "name": "loraine-vilela-clinic",
   "private": true,
-  "version": "1.0.34",
+  "version": "1.0.35",
   "type": "module",
   "scripts": {
     "dev": "vite",
@@ -14,11 +14,13 @@
     "evolution:reset": "docker compose -f docker-compose.evolution.yml down -v"
   },
   "dependencies": {
+    "@fontsource/inter": "^5.2.8",
     "@mui/material": "^5.0.0",
     "@mui/x-date-pickers": "^5.0.0",
     "@supabase/supabase-js": "^2.39.0",
     "@types/react": "^18.2.43",
     "@types/react-dom": "^18.2.17",
+    "@types/uuid": "^10.0.0",
     "date-fns": "^2.30.0",
     "framer-motion": "^10.16.16",
     "jspdf": "^4.2.0",
@@ -30,7 +32,9 @@
     "react-hot-toast": "^2.4.1",
     "react-image-crop": "^11.0.5",
     "react-router-dom": "^6.20.1",
-    "react-signature-canvas": "^1.0.6"
+    "react-signature-canvas": "^1.0.6",
+    "uuid": "^13.0.0",
+    "zod": "^4.3.6"
   },
   "devDependencies": {
     "@types/node": "^20.10.4",
