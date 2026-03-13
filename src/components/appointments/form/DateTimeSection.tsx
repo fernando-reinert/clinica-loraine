@@ -30,8 +30,9 @@ export default function DateTimeSection({
 
       <div className="grid grid-cols-2 gap-3">
         <div>
-          <label className="block text-xs text-slate-500 mb-1">Data e hora</label>
+          <label htmlFor="appt-datetime" className="block text-xs text-slate-500 mb-1">Data e hora</label>
           <input
+            id="appt-datetime"
             type="datetime-local"
             value={dateTime}
             onChange={(e) => onDateTimeChange(e.target.value)}
@@ -40,8 +41,9 @@ export default function DateTimeSection({
           />
         </div>
         <div>
-          <label className="block text-xs text-slate-500 mb-1">Duração</label>
+          <label htmlFor="appt-duration" className="block text-xs text-slate-500 mb-1">Duração</label>
           <select
+            id="appt-duration"
             value={durationMinutes}
             onChange={(e) => onDurationChange(Number(e.target.value))}
             disabled={disabled}
@@ -57,8 +59,9 @@ export default function DateTimeSection({
       {!isEditMode && (
         <div className="grid grid-cols-2 gap-3">
           <div>
-            <label className="block text-xs text-slate-500 mb-1">Repetir</label>
+            <label htmlFor="appt-recurrence" className="block text-xs text-slate-500 mb-1">Repetir</label>
             <select
+              id="appt-recurrence"
               value={recurrenceValue}
               onChange={(e) => onRecurrenceChange(e.target.value)}
               disabled={disabled}
@@ -71,8 +74,9 @@ export default function DateTimeSection({
           </div>
           {recurrenceValue && (
             <div>
-              <label className="block text-xs text-slate-500 mb-1">Quantas vezes</label>
+              <label htmlFor="appt-occurrences" className="block text-xs text-slate-500 mb-1">Quantas vezes</label>
               <select
+                id="appt-occurrences"
                 value={occurrenceCount}
                 onChange={(e) => onOccurrenceCountChange(Number(e.target.value))}
                 disabled={disabled}

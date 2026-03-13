@@ -61,7 +61,7 @@ export default function PaymentSection({ paymentInfo, onPaymentChange, planItems
             value={paymentInfo.installments}
             onChange={(e) => {
               const v = Number(e.target.value);
-              if (v >= 1) onPaymentChange({ ...paymentInfo, installments: v });
+              if (v >= 1 && v <= 24) onPaymentChange({ ...paymentInfo, installments: v });
             }}
             disabled={disabled}
             className="w-full bg-slate-800 border border-slate-700 rounded-lg px-3 py-2.5 text-sm text-slate-100 focus:outline-none focus:border-cyan-500 focus:ring-1 focus:ring-cyan-500/30 disabled:opacity-50 transition-colors"
