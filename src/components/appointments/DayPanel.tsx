@@ -101,6 +101,7 @@ export default function DayPanel({
           />
         ) : (
           <div className="space-y-2">
+            {/* Note: onReschedule intentionally omitted — reschedule is handled via the edit drawer */}
             {appointments.map((appt) => (
               <AppointmentCard
                 key={appt.id}

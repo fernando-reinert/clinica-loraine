@@ -1,13 +1,11 @@
 // src/components/appointments/CalendarPanel.tsx
-import React, { useMemo } from 'react';
+import React, { useMemo, useEffect } from 'react';
 import { ChevronLeft, ChevronRight } from 'lucide-react';
 import { isToday } from '../../utils/dateUtils';
-import type { DayAppointment } from '../../hooks/useAppointmentsPage';
 
 interface Props {
   selectedDay: Date;
   onSelectDay: (day: Date) => void;
-  dayAppointments: DayAppointment[]; // used to show dot indicators
   allAppointments: { start_time: string }[]; // for dot indicators across month
 }
 
@@ -20,6 +18,11 @@ const MONTH_NAMES = [
 export default function CalendarPanel({ selectedDay, onSelectDay, allAppointments }: Props) {
   const [viewYear, setViewYear] = React.useState(selectedDay.getFullYear());
   const [viewMonth, setViewMonth] = React.useState(selectedDay.getMonth());
+
+  useEffect(() => {
+    setViewYear(selectedDay.getFullYear());
+    setViewMonth(selectedDay.getMonth());
+  }, [selectedDay]);
 
   // Days with appointments this month (for dot indicators)
   const daysWithAppts = useMemo(() => {
@@ -48,14 +51,17 @@ export default function CalendarPanel({ selectedDay, onSelectDay, allAppointment
   const todayDate = new Date();
 
   // Stats for the selected day
-  const totalToday = allAppointments.filter((a) => {
-    const d = new Date(a.start_time);
-    return (
-      d.getFullYear() === selectedDay.getFullYear() &&
-      d.getMonth() === selectedDay.getMonth() &&
-      d.getDate() === selectedDay.getDate()
-    );
-  }).length;
+  const totalToday = useMemo(
+    () => allAppointments.filter((a) => {
+      const d = new Date(a.start_time);
+      return (
+        d.getFullYear() === selectedDay.getFullYear() &&
+        d.getMonth() === selectedDay.getMonth() &&
+        d.getDate() === selectedDay.getDate()
+      );
+    }).length,
+    [allAppointments, selectedDay]
+  );
 
   return (
     <div className="flex flex-col h-full p-4 space-y-4">
