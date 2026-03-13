@@ -310,3 +310,18 @@ export function buildEndTimeIso(
 export function buildEndTimeFromDurationMinutes(startIso: string, durationMinutes: number): string | null {
   return addMinutesToDate(startIso, durationMinutes);
 }
+
+/**
+ * Converts an ISO string to the value format required by <input type="datetime-local">
+ * Format: "YYYY-MM-DDTHH:MM"
+ */
+export function toDatetimeLocal(iso: string): string {
+  const d = new Date(iso);
+  if (Number.isNaN(d.getTime())) return '';
+  const y = d.getFullYear();
+  const mo = String(d.getMonth() + 1).padStart(2, '0');
+  const day = String(d.getDate()).padStart(2, '0');
+  const h = String(d.getHours()).padStart(2, '0');
+  const min = String(d.getMinutes()).padStart(2, '0');
+  return `${y}-${mo}-${day}T${h}:${min}`;
+}
