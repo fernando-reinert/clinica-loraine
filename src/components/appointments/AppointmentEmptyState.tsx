@@ -40,6 +40,7 @@ export default function AppointmentEmptyState({ context, onAction, actionLabel =
       {subtitle && <p className="text-slate-500 text-xs mb-4">{subtitle}</p>}
       {showAction && onAction && (
         <button
+          type="button"
           onClick={onAction}
           className="text-xs text-cyan-400 hover:text-cyan-300 transition-colors underline-offset-2 hover:underline"
         >

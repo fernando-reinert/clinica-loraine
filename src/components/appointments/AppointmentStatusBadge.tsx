@@ -16,7 +16,7 @@ export default function AppointmentStatusBadge({ status, variant = 'pill', class
   if (variant === 'dot') {
     return (
       <span
-        className={`inline-block w-2 h-2 rounded-full ${cfg.borderClass.replace('border-l-', 'bg-')} ${className}`}
+        className={`inline-block w-2 h-2 rounded-full ${cfg.dotClass} ${className}`}
         title={cfg.label}
       />
     );
@@ -25,7 +25,7 @@ export default function AppointmentStatusBadge({ status, variant = 'pill', class
   if (variant === 'full') {
     return (
       <span className={`inline-flex items-center gap-1.5 ${className}`}>
-        <span className={`inline-block w-1.5 h-1.5 rounded-full ${cfg.borderClass.replace('border-l-', 'bg-')}`} />
+        <span className={`inline-block w-1.5 h-1.5 rounded-full ${cfg.dotClass}`} />
         <span className="text-slate-300 text-xs">{cfg.label}</span>
       </span>
     );
