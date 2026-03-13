@@ -1,7 +1,6 @@
 // src/hooks/usePatientSearch.ts
 import { useState, useEffect, useRef, useCallback } from 'react';
 import { supabase } from '../services/supabase/client';
-import { useAuth } from '../contexts/AuthContext';
 
 export interface PatientSearchResult {
   id: string;
@@ -27,7 +26,6 @@ export interface UsePatientSearchReturn {
 }
 
 export function usePatientSearch(initialPatient?: PatientSearchResult | null): UsePatientSearchReturn {
-  const { user } = useAuth();
   const [query, setQueryState] = useState(initialPatient?.name ?? '');
   const [results, setResults] = useState<PatientSearchResult[]>([]);
   const [searching, setSearching] = useState(false);
@@ -54,14 +52,9 @@ export function usePatientSearch(initialPatient?: PatientSearchResult | null): U
       setSearching(true);
       setError(null);
       try {
-        if (!user) {
-          setResults([]);
-          return;
-        }
         const { data, error: sbErr } = await supabase
           .from('patients')
           .select('id, name, phone, email')
-          .eq('professional_id', user.id)
           .or(`name.ilike.%${query.trim()}%,phone.ilike.%${query.trim()}%`)
           .limit(15);
         if (sbErr) throw sbErr;
@@ -76,7 +69,7 @@ export function usePatientSearch(initialPatient?: PatientSearchResult | null): U
     return () => {
       if (debounceRef.current) clearTimeout(debounceRef.current);
     };
-  }, [query, user]);
+  }, [query]);
 
   const selectPatient = useCallback((patient: PatientSearchResult) => {
     setSelected(patient);
