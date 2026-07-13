@@ -14,6 +14,9 @@ import {
   AlertCircle,
   RefreshCw,
   ArrowLeft,
+  PlusCircle,
+  ArrowDownCircle,
+  Wallet,
 } from "lucide-react";
 
 import ResponsiveAppLayout from "../components/Layout/ResponsiveAppLayout";
@@ -23,6 +26,7 @@ import {
   getPatientFinancialTimeline,
   getPatientFinancialSummaryGrossNet,
   getPatientPaidByMonthGrossNet,
+  getPatientFinancialStatement,
   listFeeRules,
   resolveFeePercentLocal,
   computeFeeNet,
@@ -33,6 +37,7 @@ import {
   type PatientFinancialSummaryGrossNet,
   type GrossNetBucket,
   type Installment,
+  type PatientStatementEntry,
 } from "../services/financial/financialService";
 import { getSupabaseEnvStatus } from "../services/supabase/client";
 import { withRetry, logStructuredError } from "../utils/retryFetch";
@@ -81,6 +86,7 @@ export default function FinancialControlPatient() {
     manualPayments?: { id: string; description: string; payment_date: string; payment_method: string; total_amount: number; notes?: string | null }[];
   }>({ records: [] });
   const [summaryGrossNet, setSummaryGrossNet] = useState<PatientFinancialSummaryGrossNet | null>(null);
+  const [statement, setStatement] = useState<PatientStatementEntry[]>([]);
   const [paidMonth, setPaidMonth] = useState<GrossNetBucket | null>(null);
   const [feeRulesCache, setFeeRulesCache] = useState<FeeRuleRow[]>([]);
   const [monthYear, setMonthYear] = useState<string>(() => {
@@ -108,13 +114,14 @@ export default function FinancialControlPatient() {
       setError(null);
       if (showFullLoading) setLoading(true);
       try {
-        const [p, rules, tl, summary] = await withRetry(
+        const [p, rules, tl, summary, stmt] = await withRetry(
           () =>
             Promise.all([
               getPatient(patientId),
               listFeeRules("infinitypay"),
               getPatientFinancialTimeline(patientId),
               getPatientFinancialSummaryGrossNet(patientId),
+              getPatientFinancialStatement(patientId),
             ]),
           { screen: "FinancialControlPatient", maxRetries: 2 }
         );
@@ -123,6 +130,7 @@ export default function FinancialControlPatient() {
         setFeeRulesCache(rules ?? []);
         setTimeline(tl ?? { records: [] });
         setSummaryGrossNet(summary ?? null);
+        setStatement(stmt ?? []);
         hasLoadedOnceRef.current = true;
         setHasLoadedOnce(true);
       } catch (err: unknown) {
@@ -344,6 +352,70 @@ export default function FinancialControlPatient() {
               <ChevronRight size={18} />
             </button>
           </div>
+        </div>
+
+        {/* Extrato do paciente: histórico completo, estilo extrato bancário — o que ele fez, o que pagou, quando pagou */}
+        <div className="space-y-4">
+          <h3 className="text-lg font-bold text-white flex items-center gap-2">
+            <Wallet size={20} />
+            Extrato do Paciente
+          </h3>
+          {statement.length === 0 ? (
+            <div className="glass-card p-6 border border-white/10 text-center text-gray-400">
+              Nenhuma movimentação financeira registrada para este paciente ainda.
+            </div>
+          ) : (
+            <div className="glass-card border border-white/10 divide-y divide-white/10 overflow-hidden">
+              {statement.map((entry) => {
+                const isCreated = entry.kind === "procedure_created";
+                const isManual = entry.kind === "manual_payment";
+                const Icon = isCreated ? PlusCircle : isManual ? Wallet : ArrowDownCircle;
+                const iconColor = isCreated ? "text-indigo-300" : isManual ? "text-emerald-300" : "text-green-300";
+                const amountColor = isCreated ? "text-gray-300" : "text-green-300";
+                const amountPrefix = isCreated ? "" : "+ ";
+                return (
+                  <div key={entry.id} className="p-4 flex items-start gap-3">
+                    <div className={`mt-0.5 flex-shrink-0 ${iconColor}`}>
+                      <Icon size={18} />
+                    </div>
+                    <div className="flex-1 min-w-0">
+                      <div className="flex flex-wrap items-baseline justify-between gap-2">
+                        <p className="font-medium text-white text-sm truncate">{entry.title}</p>
+                        <span className={`font-semibold text-sm ${amountColor}`}>
+                          {amountPrefix}
+                          {formatCurrency(entry.amount)}
+                        </span>
+                      </div>
+                      <p className="text-xs text-gray-400 mt-0.5">
+                        {formatDate(entry.date)}
+                        {isCreated && " · Tratamento criado"}
+                        {entry.kind === "payment" && (
+                          <>
+                            {" · "}
+                            {getPaymentMethodText(entry.paymentMethod || "")}
+                            {entry.partial && (
+                              <span className="ml-1.5 px-1.5 py-0.5 rounded bg-cyan-500/20 text-cyan-200 text-[11px]">
+                                pagamento parcial
+                              </span>
+                            )}
+                          </>
+                        )}
+                        {isManual && (
+                          <>
+                            {" · "}
+                            {getPaymentMethodText(entry.paymentMethod || "")} · Pagamento avulso
+                          </>
+                        )}
+                      </p>
+                      {entry.description && entry.kind !== "procedure_created" && (
+                        <p className="text-xs text-gray-500 mt-0.5">{entry.description}</p>
+                      )}
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          )}
         </div>
 
         {/* Timeline: registros com parcelas + pagamentos manuais */}

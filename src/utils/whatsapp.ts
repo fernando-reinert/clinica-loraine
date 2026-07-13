@@ -25,3 +25,19 @@ export function buildWhatsAppUrl(phoneDigits: string, message: string): string {
   if (!message.trim()) return base;
   return `${base}?text=${encodeURIComponent(message.trim())}`;
 }
+
+/**
+ * Formats a raw phone number for the Evolution API: digits only, Brazil country code (55) prefixed if missing.
+ */
+export function formatPhoneForEvolution(phone: string): string {
+  let digits = phone.replace(/\D/g, '');
+  if (!digits.startsWith('55')) {
+    digits = '55' + digits;
+  }
+  return digits;
+}
+
+/** Returns the first word of a full name. */
+export function getFirstName(fullName: string): string {
+  return fullName.trim().split(' ')[0];
+}

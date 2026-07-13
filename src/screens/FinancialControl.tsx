@@ -26,6 +26,7 @@ import {
 } from "lucide-react";
 
 import ResponsiveAppLayout from "../components/Layout/ResponsiveAppLayout";
+import PaymentMethodSelect from "../components/financial/PaymentMethodSelect";
 import LoadingSpinner from "../components/LoadingSpinner";
 import AppointmentPlanEditor from "../components/AppointmentPlanEditor";
 import type { Procedure } from "../types/db";
@@ -38,6 +39,9 @@ import {
   listManualPayments,
   createManualPayment,
   markInstallmentAsPaid,
+  registerPatientPayment,
+  listInstallmentPayments,
+  type InstallmentPaymentRow,
   updatePaymentMethod,
   getFeePercent,
   listFeeRules,
@@ -115,6 +119,8 @@ interface Installment {
   net_amount?: number | null;
   payment_provider?: string | null;
   paid_at?: string | null;
+  /** Quanto já foi pago desta parcela (pagamento parcial via registerProcedurePayment). */
+  amount_paid?: number;
 }
 
 interface CalculatedInstallment {
@@ -275,7 +281,7 @@ const FinancialControl: React.FC = () => {
   const [loadingData, setLoadingData] = useState(true);
   const [generatingReport, setGeneratingReport] = useState(false);
 
-  const [activeTab, setActiveTab] = useState<"new" | "pending" | "completed" | "agenda" | "patient">("new");
+  const [activeTab, setActiveTab] = useState<"new" | "pending" | "completed" | "agenda" | "patient">("pending");
 
   const [monthYear, setMonthYear] = useState<string>(() => getCurrentMonthYear());
 
@@ -306,6 +312,12 @@ const FinancialControl: React.FC = () => {
     selectedMethod: "pix",
   });
   const [feePercentPreview, setFeePercentPreview] = useState<number>(0);
+
+  // Abatimento de valor livre por paciente (distribui entre todos os procedimentos dele, mais antigo primeiro)
+  const [patientPaymentForm, setPatientPaymentForm] = useState<
+    Record<string, { amount: string; method: string; date: string }>
+  >({});
+  const [submittingPatientPayment, setSubmittingPatientPayment] = useState<Set<string>>(new Set());
 
   const [searchParams] = useSearchParams();
   const urlPatientId = searchParams.get("patientId") || null;
@@ -338,6 +350,7 @@ const FinancialControl: React.FC = () => {
   });
 
   const [manualPayments, setManualPayments] = useState<ManualPayment[]>([]);
+  const [installmentPayments, setInstallmentPayments] = useState<InstallmentPaymentRow[]>([]);
   const [manualPaymentModalOpen, setManualPaymentModalOpen] = useState(false);
   const [manualPaymentForm, setManualPaymentForm] = useState({
     patientId: "",
@@ -359,6 +372,7 @@ const FinancialControl: React.FC = () => {
       setPayments((cached.payments || []) as ProcedureData[]);
       setInstallments((cached.installments || []) as Installment[]);
       setManualPayments((cached.manualPayments || []) as ManualPayment[]);
+      setInstallmentPayments((cached.installmentPayments || []) as InstallmentPaymentRow[]);
       setAppointments((cached.appointments || []) as AppointmentWithProcedures[]);
       setFeeRulesCache((cached.feeRules || []) as FeeRuleRow[]);
       setLoadingData(false);
@@ -402,7 +416,8 @@ const FinancialControl: React.FC = () => {
             } catch {
               manual = [];
             }
-            return { records, procedures, installments: insts, manualPayments: manual };
+            const instPayments = await listInstallmentPayments();
+            return { records, procedures, installments: insts, manualPayments: manual, installmentPayments: instPayments };
           })(),
           (async () => {
             const data = await listAppointmentsWithProcedures(30, 30);
@@ -410,12 +425,13 @@ const FinancialControl: React.FC = () => {
           })(),
         ]);
         if (cancelled) return;
-        const payData = paymentsData as { records: FinancialRecord[]; procedures: ProcedureData[]; installments: Installment[]; manualPayments: ManualPayment[] };
+        const payData = paymentsData as { records: FinancialRecord[]; procedures: ProcedureData[]; installments: Installment[]; manualPayments: ManualPayment[]; installmentPayments: InstallmentPaymentRow[] };
         setPatients(patientsData);
         setFinancialRecords(payData.records);
         setPayments(payData.procedures);
         setInstallments(payData.installments);
         setManualPayments(payData.manualPayments);
+        setInstallmentPayments(payData.installmentPayments);
         setAppointments(appointmentsData);
         setFinancialControlCache({
           patients: patientsData,
@@ -423,6 +439,7 @@ const FinancialControl: React.FC = () => {
           payments: payData.procedures,
           installments: payData.installments,
           manualPayments: payData.manualPayments,
+          installmentPayments: payData.installmentPayments,
           appointments: appointmentsData,
           feeRules: rules,
         });
@@ -521,7 +538,7 @@ const FinancialControl: React.FC = () => {
   useEffect(() => {
     calculateMonthlyRevenue();
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [installments, manualPayments]);
+  }, [installments, manualPayments, installmentPayments]);
 
   useEffect(() => {
     groupInstallmentsByPatient();
@@ -588,11 +605,17 @@ const FinancialControl: React.FC = () => {
         }
         setManualPayments([]);
       }
+
+      // Buscar extrato de abatimentos (parciais e totais via registerPatientPayment)
+      const instPayments = await listInstallmentPayments();
+      setInstallmentPayments(instPayments);
+
       setFinancialControlCache({
         financialRecords: records,
         payments: procedures,
         installments: insts,
         manualPayments: manualList,
+        installmentPayments: instPayments,
       });
     } catch (error: any) {
       console.error("Erro ao carregar pagamentos:", error);
@@ -649,6 +672,23 @@ const FinancialControl: React.FC = () => {
       revenueByMonth[monthYear].netTotal += computeFeeNet(g, pct).netAmount;
     });
 
+    // Pagamentos parciais: a parcela continua "pendente" (ainda falta pagar o resto),
+    // então o valor já recebido não aparece na varredura de installments acima.
+    // Cada linha do ledger já tem o mês certo (payment_date) e fee/net calculados.
+    const pendingInstallmentIds = new Set(
+      installments.filter((i) => i.status === "pendente").map((i) => i.id)
+    );
+    installmentPayments
+      .filter((p) => pendingInstallmentIds.has(p.installment_id))
+      .forEach((p) => {
+        const date = new Date((p.payment_date || "").toString().split("T")[0]);
+        if (isNaN(date.getTime())) return;
+        const monthYear = `${date.getFullYear()}-${(date.getMonth() + 1).toString().padStart(2, "0")}`;
+        if (!revenueByMonth[monthYear]) revenueByMonth[monthYear] = { grossTotal: 0, netTotal: 0 };
+        revenueByMonth[monthYear].grossTotal += Number(p.amount ?? 0);
+        revenueByMonth[monthYear].netTotal += Number(p.net_amount ?? 0);
+      });
+
     const monthlyData = Object.entries(revenueByMonth)
       .map(([monthYear, totals]) => {
         const [year, month] = monthYear.split("-");
@@ -687,7 +727,7 @@ const FinancialControl: React.FC = () => {
 
       grouped[procedure.patient_id].installments.push(installment);
       grouped[procedure.patient_id].procedures[procedure.id] = procedure;
-      grouped[procedure.patient_id].totalPending += installment.installment_value;
+      grouped[procedure.patient_id].totalPending += getInstallmentRemaining(installment);
     });
 
     setGroupedInstallments(
@@ -699,6 +739,37 @@ const FinancialControl: React.FC = () => {
     setGroupedInstallments((prev) =>
       prev.map((item) => (item.patientId === patientId ? { ...item, isExpanded: !item.isExpanded } : item))
     );
+  };
+
+  const handleRegisterPatientPayment = async (patientId: string) => {
+    const form = patientPaymentForm[patientId];
+    const amount = Number((form?.amount ?? "").replace(",", "."));
+    const method = form?.method || "pix";
+    const date = form?.date || todayISO();
+
+    if (!amount || amount <= 0) {
+      toast.error("Informe um valor maior que zero.");
+      return;
+    }
+
+    setSubmittingPatientPayment((prev) => new Set(prev).add(patientId));
+    try {
+      const allocations = await registerPatientPayment(patientId, amount, method, date);
+      const procedureCount = new Set(allocations.map((a) => a.procedure_id)).size;
+      toast.success(
+        `Pagamento de ${formatCurrency(amount)} registrado e distribuído em ${procedureCount} procedimento(s).`
+      );
+      setPatientPaymentForm((prev) => ({ ...prev, [patientId]: { amount: "", method, date: todayISO() } }));
+      await fetchPayments();
+    } catch (err: any) {
+      toast.error(err?.message || "Erro ao registrar pagamento.");
+    } finally {
+      setSubmittingPatientPayment((prev) => {
+        const next = new Set(prev);
+        next.delete(patientId);
+        return next;
+      });
+    }
   };
 
   const openPaymentModal = (installment: Installment) => {
@@ -1273,6 +1344,10 @@ const FinancialControl: React.FC = () => {
 
   const todayStr = useMemo(() => todayISO(), []);
 
+  /** Saldo restante de uma parcela, considerando pagamentos parciais já aplicados. */
+  const getInstallmentRemaining = (inst: Installment): number =>
+    round2(Number(inst.installment_value ?? 0) - Number(inst.amount_paid ?? 0));
+
   const getFeePercentFromCache = (method: string, installmentsCount: number | undefined): number => {
     const methodForFees = normalizeMethodForFees(method);
     if (["pix", "cash", "bank_transfer"].includes(methodForFees)) return 0;
@@ -1304,18 +1379,55 @@ const FinancialControl: React.FC = () => {
     return completedInstallments.filter((i) => procIds.has(i.procedure_id));
   }, [completedInstallments, payments, urlPatientId]);
 
-  const totalCompletedCount = useMemo(
-    () =>
-      (urlPatientId ? filteredCompletedInstallments.length : completedInstallments.length) +
-      (urlPatientId ? filteredManualPayments.length : manualPayments.length),
-    [
-      urlPatientId,
-      filteredCompletedInstallments,
-      completedInstallments,
-      filteredManualPayments,
-      manualPayments,
-    ]
-  );
+  // Extrato unificado de "Pagamentos Realizados": uma linha por pagamento de fato
+  // (parcial ou não) + avulsos + parcelas legadas quitadas de uma vez (sem linha
+  // no ledger), tudo ordenado por data — mais recente primeiro.
+  type CompletedEntry =
+    | { kind: "manual"; date: string; manual: ManualPayment }
+    | { kind: "ledger"; date: string; ledger: InstallmentPaymentRow; partial: boolean }
+    | { kind: "legacy"; date: string; installment: Installment };
+
+  const completedEntries = useMemo<CompletedEntry[]>(() => {
+    const manualList = urlPatientId ? filteredManualPayments : manualPayments;
+    const manualEntries: CompletedEntry[] = manualList.map((mp) => ({
+      kind: "manual",
+      date: mp.payment_date,
+      manual: mp,
+    }));
+
+    const ledgerScoped = installmentPayments.filter((p) => !urlPatientId || p.patient_id === urlPatientId);
+    const totalByInstallment = new Map<string, number>();
+    installmentPayments.forEach((p) => {
+      totalByInstallment.set(p.installment_id, (totalByInstallment.get(p.installment_id) ?? 0) + Number(p.amount ?? 0));
+    });
+    const valueByInstallment = new Map(installments.map((i) => [i.id, Number(i.installment_value ?? 0)]));
+    const ledgerEntries: CompletedEntry[] = ledgerScoped.map((p) => ({
+      kind: "ledger",
+      date: p.payment_date,
+      ledger: p,
+      partial: (totalByInstallment.get(p.installment_id) ?? 0) < (valueByInstallment.get(p.installment_id) ?? 0) - 0.01,
+    }));
+
+    const ledgerInstallmentIds = new Set(installmentPayments.map((p) => p.installment_id));
+    const legacyList = urlPatientId ? filteredCompletedInstallments : completedInstallments;
+    const legacyEntries: CompletedEntry[] = legacyList
+      .filter((i) => !ledgerInstallmentIds.has(i.id))
+      .map((i) => ({ kind: "legacy", date: i.paid_date || i.created_at, installment: i }));
+
+    return [...manualEntries, ...ledgerEntries, ...legacyEntries].sort(
+      (a, b) => new Date(b.date).getTime() - new Date(a.date).getTime()
+    );
+  }, [
+    urlPatientId,
+    filteredManualPayments,
+    manualPayments,
+    installmentPayments,
+    installments,
+    filteredCompletedInstallments,
+    completedInstallments,
+  ]);
+
+  const totalCompletedCount = completedEntries.length;
 
   // Métricas do dashboard: Bruto / Taxas / Líquido (realizado e previsto)
   const { paidGross, paidFees, paidNet } = useMemo(() => {
@@ -1348,19 +1460,28 @@ const FinancialControl: React.FC = () => {
       fees += feeAmount;
       net += netAmount;
     });
+    // Pagamentos parciais (parcela ainda "pendente", mas já recebeu parte do valor)
+    const pendingInstallmentIds = new Set(pendingInstallments.map((i) => i.id));
+    installmentPayments
+      .filter((p) => pendingInstallmentIds.has(p.installment_id) && (!urlPatientId || p.patient_id === urlPatientId))
+      .forEach((p) => {
+        gross += Number(p.amount ?? 0);
+        fees += Number(p.fee_amount ?? 0);
+        net += Number(p.net_amount ?? 0);
+      });
     return {
       paidGross: round2(gross),
       paidFees: round2(fees),
       paidNet: round2(net),
     };
-  }, [completedInstallments, payments, feeRulesCache, manualPayments, filteredManualPayments, urlPatientId]);
+  }, [completedInstallments, payments, feeRulesCache, manualPayments, filteredManualPayments, urlPatientId, installmentPayments, pendingInstallments]);
 
   const { pendingGross, pendingFeesExpected, pendingNetExpected } = useMemo(() => {
     let gross = 0;
     let fees = 0;
     let net = 0;
     pendingInstallments.forEach((i) => {
-      const g = i.installment_value;
+      const g = getInstallmentRemaining(i);
       gross += g;
       const procedure = payments.find((p) => p.id === i.procedure_id);
       const method = procedure?.payment_method || "pix";
@@ -2448,6 +2569,104 @@ const FinancialControl: React.FC = () => {
                       {/* parcelas */}
                       {patientGroup.isExpanded && (
                         <div className="border-t border-white/10">
+                          {/* Abatimento único: valor recebido do paciente, distribuído automaticamente
+                              entre os procedimentos (mais antigo primeiro) */}
+                          <div className="p-4 border-b border-white/10 bg-white/[0.03] space-y-3">
+                            <div className="flex flex-col sm:flex-row sm:items-center gap-3">
+                              <div className="flex-1 min-w-0">
+                                <p className="text-sm font-medium text-white">Registrar valor recebido</p>
+                                <p className="text-xs text-gray-400">
+                                  Digite o valor pago pelo paciente — o sistema abate automaticamente das parcelas mais antigas, mesmo entre procedimentos diferentes.
+                                </p>
+                              </div>
+                              {(() => {
+                                const form = patientPaymentForm[patientGroup.patientId] ?? { amount: "", method: "pix", date: todayISO() };
+                                const isSubmitting = submittingPatientPayment.has(patientGroup.patientId);
+                                return (
+                                  <div className="flex items-center gap-2 flex-shrink-0">
+                                    <input
+                                      type="number"
+                                      step="0.01"
+                                      min="0"
+                                      placeholder="Valor recebido"
+                                      value={form.amount}
+                                      onChange={(e) =>
+                                        setPatientPaymentForm((prev) => ({
+                                          ...prev,
+                                          [patientGroup.patientId]: { ...form, amount: e.target.value },
+                                        }))
+                                      }
+                                      disabled={isSubmitting}
+                                      className="w-36 bg-white/10 border border-white/20 rounded-lg px-2.5 py-2 text-sm text-white placeholder-gray-400 focus:outline-none focus:border-cyan-400 disabled:opacity-50"
+                                    />
+                                    <input
+                                      type="date"
+                                      value={form.date || todayISO()}
+                                      onChange={(e) =>
+                                        setPatientPaymentForm((prev) => ({
+                                          ...prev,
+                                          [patientGroup.patientId]: { ...form, date: e.target.value },
+                                        }))
+                                      }
+                                      disabled={isSubmitting}
+                                      title="Data em que o pagamento foi feito"
+                                      className="bg-white/10 border border-white/20 rounded-lg px-2.5 py-2 text-sm text-white [color-scheme:dark] focus:outline-none focus:border-cyan-400 disabled:opacity-50"
+                                    />
+                                    <PaymentMethodSelect
+                                      value={form.method}
+                                      onChange={(method) =>
+                                        setPatientPaymentForm((prev) => ({
+                                          ...prev,
+                                          [patientGroup.patientId]: { ...form, method },
+                                        }))
+                                      }
+                                      disabled={isSubmitting}
+                                      className="w-40"
+                                    />
+                                    <button
+                                      type="button"
+                                      onClick={() => handleRegisterPatientPayment(patientGroup.patientId)}
+                                      disabled={isSubmitting}
+                                      className="neon-button text-sm px-4 py-2 whitespace-nowrap disabled:opacity-50"
+                                    >
+                                      {isSubmitting ? "Abatendo..." : "Abater"}
+                                    </button>
+                                  </div>
+                                );
+                              })()}
+                            </div>
+
+                            {/* Pendente por procedimento (somente leitura — o abatimento acima já distribui sozinho) */}
+                            <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                              {Object.values(
+                                patientGroup.installments.reduce((acc, inst) => {
+                                  const procId = inst.procedure_id;
+                                  if (!acc[procId]) {
+                                    const record = financialRecords.find((r) => r.id === procId);
+                                    const procedure = patientGroup.procedures[procId];
+                                    acc[procId] = {
+                                      procedureId: procId,
+                                      name: record ? getProcedureDisplayName(record) : procedure?.procedure_type || "Procedimento",
+                                      totalPending: 0,
+                                    };
+                                  }
+                                  acc[procId].totalPending += getInstallmentRemaining(inst);
+                                  return acc;
+                                }, {} as Record<string, { procedureId: string; name: string; totalPending: number }>)
+                              ).map((group) => (
+                                <div
+                                  key={group.procedureId}
+                                  className="flex items-center justify-between gap-3 p-3 rounded-xl bg-white/5 border border-white/10"
+                                >
+                                  <p className="font-medium text-white text-sm truncate">{group.name}</p>
+                                  <p className="text-sm text-gray-300 flex-shrink-0">
+                                    Pendente: <span className="text-green-300 font-semibold">{formatCurrency(round2(group.totalPending))}</span>
+                                  </p>
+                                </div>
+                              ))}
+                            </div>
+                          </div>
+
                           {patientGroup.installments.map((inst) => {
                             const procedure = patientGroup.procedures[inst.procedure_id];
                             return (
@@ -2467,9 +2686,19 @@ const FinancialControl: React.FC = () => {
                                           ATRASADO
                                         </span>
                                       )}
+                                      {Number(inst.amount_paid ?? 0) > 0 && (
+                                        <span className="ml-2 inline-flex px-2 py-0.5 rounded-md bg-cyan-500/20 border border-cyan-400/30 text-cyan-200 text-xs font-medium">
+                                          {formatCurrency(Number(inst.amount_paid))} já pago
+                                        </span>
+                                      )}
                                     </p>
                                   </div>
-                                  <span className="text-lg font-bold text-green-300">{formatCurrency(inst.installment_value)}</span>
+                                  <div className="text-right">
+                                    <span className="text-lg font-bold text-green-300">{formatCurrency(getInstallmentRemaining(inst))}</span>
+                                    {Number(inst.amount_paid ?? 0) > 0 && (
+                                      <p className="text-xs text-gray-400">de {formatCurrency(inst.installment_value)}</p>
+                                    )}
+                                  </div>
                                 </div>
 
                                 <div className="grid grid-cols-1 md:grid-cols-5 gap-4 text-sm">
@@ -2628,67 +2857,114 @@ const FinancialControl: React.FC = () => {
               <div className="glass-card p-6 border border-white/10">
                 <h3 className="text-xl font-bold glow-text mb-4">Pagamentos Realizados</h3>
 
-                {(urlPatientId ? filteredCompletedInstallments : completedInstallments).length === 0 &&
-                (urlPatientId ? filteredManualPayments : manualPayments).length === 0 ? (
+                {completedEntries.length === 0 ? (
                   <div className="text-center py-10 text-gray-300">
                     <DollarSign size={48} className="mx-auto mb-4 text-gray-400" />
                     <p>{urlPatientId ? "Nenhum pagamento realizado para este paciente" : "Nenhum pagamento realizado"}</p>
                   </div>
                 ) : (
                   <div className="space-y-3">
-                    {(urlPatientId ? filteredManualPayments : manualPayments).map((mp) => (
-                      <div key={`manual-${mp.id}`} className="glass-card p-4 border border-emerald-400/20 bg-emerald-500/5">
-                        <div className="flex justify-between items-start mb-3">
-                          <div>
-                            <h4 className="font-semibold text-white">{mp.patient_name_snapshot}</h4>
-                            <p className="text-sm text-gray-300">{mp.description}</p>
-                            {mp.notes && <p className="text-xs text-gray-400 mt-1">{mp.notes}</p>}
+                    {completedEntries.map((entry) => {
+                      if (entry.kind === "manual") {
+                        const mp = entry.manual;
+                        return (
+                          <div key={`manual-${mp.id}`} className="glass-card p-4 border border-emerald-400/20 bg-emerald-500/5">
+                            <div className="flex justify-between items-start mb-3">
+                              <div>
+                                <h4 className="font-semibold text-white">{mp.patient_name_snapshot}</h4>
+                                <p className="text-sm text-gray-300">{mp.description}</p>
+                                {mp.notes && <p className="text-xs text-gray-400 mt-1">{mp.notes}</p>}
+                              </div>
+                              <span className="text-lg font-bold text-white">{formatCurrency(mp.total_amount)}</span>
+                            </div>
+                            <div className="grid grid-cols-2 md:grid-cols-3 gap-4 text-sm">
+                              <div>
+                                <span className="text-gray-300">Tipo:</span>
+                                <p className="font-medium text-emerald-300">Pagamento avulso</p>
+                              </div>
+                              <div>
+                                <span className="text-gray-300">Data do Pagamento:</span>
+                                <p className="font-medium text-white">{formatDate(mp.payment_date)}</p>
+                              </div>
+                              <div>
+                                <span className="text-gray-300">Método:</span>
+                                <p className="font-medium text-white">{getPaymentMethodText(mp.payment_method)}</p>
+                              </div>
+                            </div>
                           </div>
-                          <span className="text-lg font-bold text-white">{formatCurrency(mp.total_amount)}</span>
-                        </div>
-                        <div className="grid grid-cols-2 md:grid-cols-3 gap-4 text-sm">
-                          <div>
-                            <span className="text-gray-300">Tipo:</span>
-                            <p className="font-medium text-emerald-300">Pagamento avulso</p>
+                        );
+                      }
+
+                      if (entry.kind === "ledger") {
+                        const p = entry.ledger;
+                        const procedure = payments.find((pr) => pr.id === p.procedure_id);
+                        const record = financialRecords.find((r) => r.id === p.procedure_id);
+                        const installment = installments.find((i) => i.id === p.installment_id);
+                        return (
+                          <div
+                            key={`ledger-${p.id}`}
+                            className={`glass-card p-4 border ${entry.partial ? "border-cyan-400/20 bg-cyan-500/5" : "border-green-400/20 bg-green-500/10"}`}
+                          >
+                            <div className="flex justify-between items-start mb-3">
+                              <div>
+                                <h4 className="font-semibold text-white">{procedure?.client_name}</h4>
+                                <p className="text-sm text-gray-300">
+                                  {record ? getProcedureDisplayName(record) : procedure?.procedure_type || "Procedimento"}
+                                </p>
+                              </div>
+                              <span className="text-lg font-bold text-white">{formatCurrency(Number(p.amount))}</span>
+                            </div>
+                            <div className="grid grid-cols-2 md:grid-cols-4 gap-4 text-sm">
+                              <div>
+                                <span className="text-gray-300">Tipo:</span>
+                                <p className={`font-medium ${entry.partial ? "text-cyan-300" : "text-green-300"}`}>
+                                  {entry.partial ? "Pagamento parcial" : "Pago"}
+                                </p>
+                              </div>
+                              <div>
+                                <span className="text-gray-300">Data do Pagamento:</span>
+                                <p className="font-medium text-white">{formatDate(p.payment_date)}</p>
+                              </div>
+                              <div>
+                                <span className="text-gray-300">Método:</span>
+                                <p className="font-medium text-white">{getPaymentMethodText(p.payment_method)}</p>
+                              </div>
+                              {entry.partial && (
+                                <div>
+                                  <span className="text-gray-300">Saldo restante da parcela:</span>
+                                  <p className="font-medium text-white">
+                                    {installment ? formatCurrency(getInstallmentRemaining(installment)) : "—"}
+                                  </p>
+                                </div>
+                              )}
+                            </div>
                           </div>
-                          <div>
-                            <span className="text-gray-300">Data do Pagamento:</span>
-                            <p className="font-medium text-white">{formatDate(mp.payment_date)}</p>
-                          </div>
-                          <div>
-                            <span className="text-gray-300">Método:</span>
-                            <p className="font-medium text-white">{getPaymentMethodText(mp.payment_method)}</p>
-                          </div>
-                        </div>
-                      </div>
-                    ))}
-                    {(urlPatientId ? filteredCompletedInstallments : completedInstallments).map((inst) => {
+                        );
+                      }
+
+                      // legacy: parcela quitada de uma vez pelo fluxo antigo (sem linha no ledger)
+                      const inst = entry.installment;
                       const procedure = payments.find((p) => p.id === inst.procedure_id);
                       const paymentMethod = inst.payment_method || procedure?.payment_method || "Não informado";
-
+                      const record = financialRecords.find((r) => r.id === inst.procedure_id);
                       return (
-                        <div key={inst.id} className="glass-card p-4 border border-green-400/20 bg-green-500/10">
+                        <div key={`legacy-${inst.id}`} className="glass-card p-4 border border-green-400/20 bg-green-500/10">
                           <div className="flex justify-between items-start mb-3">
                             <div>
                               <h4 className="font-semibold text-white">{procedure?.client_name}</h4>
                               <p className="text-sm text-gray-300">
-                                {(() => {
-                                  const record = financialRecords.find(r => r.id === inst.procedure_id);
-                                  if (record) {
-                                    const displayName = getProcedureDisplayName(record);
-                                    return (
-                                      <>
-                                        {displayName}
-                                        {record.total_profit > 0 && (
-                                          <span className="ml-2 text-xs text-green-400">
-                                            • Lucro: {formatCurrency(record.total_profit)} ({record.profit_margin.toFixed(1)}%)
-                                          </span>
-                                        )}
-                                      </>
-                                    );
-                                  }
-                                  return procedure?.procedure_type || 'Procedimento';
-                                })()}
+                                {record ? (
+                                  <>
+                                    {getProcedureDisplayName(record)}
+                                    {record.total_profit > 0 && (
+                                      <span className="ml-2 text-xs text-green-400">
+                                        • Lucro: {formatCurrency(record.total_profit)} ({record.profit_margin.toFixed(1)}%)
+                                      </span>
+                                    )}
+                                  </>
+                                ) : (
+                                  procedure?.procedure_type || "Procedimento"
+                                )}
                               </p>
                             </div>
                             <span className="text-lg font-bold text-white">{formatCurrency(inst.installment_value)}</span>

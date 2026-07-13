@@ -10,19 +10,13 @@ const EVOLUTION_API_URL = (Deno.env.get('EVOLUTION_API_URL') ?? '').replace(/\/$
 const EVOLUTION_API_KEY = Deno.env.get('EVOLUTION_API_KEY') ?? '';
 const EVOLUTION_INSTANCE = Deno.env.get('EVOLUTION_INSTANCE') ?? 'clinica_loraine';
 
+// Janela de tolerância ao redor do horário-alvo do lembrete (o cron roda a cada minuto).
+const TOLERANCE_MINUTES = 5;
+const REMINDER_OPTIONS_MINUTES = [60, 120, 180];
+
 function formatPhone(phone: string): string {
   const cleaned = phone.replace(/\D/g, '');
   return cleaned.startsWith('55') ? cleaned : '55' + cleaned;
-}
-
-function formatDateBR(date: Date): string {
-  return date.toLocaleDateString('pt-BR', {
-    weekday: 'long',
-    day: '2-digit',
-    month: '2-digit',
-    year: 'numeric',
-    timeZone: 'America/Sao_Paulo',
-  });
 }
 
 function formatTimeBR(date: Date): string {
@@ -62,80 +56,64 @@ Deno.serve(async (_req: Request) => {
     const supabase = createClient(SUPABASE_URL, SUPABASE_SERVICE_KEY);
 
     const now = new Date();
-    // Window: appointments starting between 55–65 min from now.
-    // With a 5-min cron the 10-min window ensures coverage without duplicates.
-    const in55 = new Date(now.getTime() + 55 * 60 * 1000);
-    const in65 = new Date(now.getTime() + 65 * 60 * 1000);
+    const minOffset = Math.min(...REMINDER_OPTIONS_MINUTES);
+    const maxOffset = Math.max(...REMINDER_OPTIONS_MINUTES);
+
+    // Janela ampla o suficiente para cobrir 1h/2h/3h antes, com tolerância nas bordas.
+    // O filtro exato por whatsapp_reminder_minutes_before é feito em código, por linha.
+    const windowStart = new Date(now.getTime() + (minOffset - TOLERANCE_MINUTES) * 60 * 1000);
+    const windowEnd = new Date(now.getTime() + (maxOffset + TOLERANCE_MINUTES) * 60 * 1000);
 
     const { data: appointments, error } = await supabase
       .from('appointments')
-      .select('id, patient_name, patient_phone, title, start_time, patient_id, patients(phone)')
-      .gte('start_time', in55.toISOString())
-      .lte('start_time', in65.toISOString())
-      .in('status', ['scheduled', 'confirmed']);
+      .select('id, patient_name, patient_phone, title, start_time, patient_id, whatsapp_reminder_minutes_before, patients(phone)')
+      .eq('whatsapp_reminder_enabled', true)
+      .eq('whatsapp_reminder_sent', false)
+      .not('status', 'in', '(cancelled,completed)')
+      .gte('start_time', windowStart.toISOString())
+      .lte('start_time', windowEnd.toISOString());
 
     if (error) {
       console.error('[whatsapp-reminder-cron] Erro ao buscar agendamentos:', error);
       return new Response(JSON.stringify({ error: error.message }), { status: 500, headers: { 'Content-Type': 'application/json' } });
     }
 
-    console.log(`[whatsapp-reminder-cron] Agendamentos encontrados: ${appointments?.length ?? 0}`);
+    console.log(`[whatsapp-reminder-cron] Candidatos na janela ampla: ${appointments?.length ?? 0}`);
 
     const results = [];
 
     for (const appt of appointments ?? []) {
+      const minutesBefore = (appt.whatsapp_reminder_minutes_before as number) ?? 120;
+      const startDate = new Date(appt.start_time);
+      const targetTime = startDate.getTime() - minutesBefore * 60 * 1000;
+      const diffMinutes = Math.abs(now.getTime() - targetTime) / (60 * 1000);
+
+      // Fora da janela de tolerância deste agendamento específico — ainda não é a hora.
+      if (diffMinutes > TOLERANCE_MINUTES) continue;
+
       const phone = appt.patient_phone || (appt.patients as any)?.phone;
       if (!phone) {
         console.warn(`[whatsapp-reminder-cron] Agendamento ${appt.id} sem telefone, pulando.`);
         continue;
       }
 
-      // Deduplication: skip if reminder already sent for this appointment
-      const { data: existing } = await supabase
-        .from('whatsapp_reminders_log')
-        .select('id')
-        .eq('appointment_id', appt.id)
-        .eq('type', 'reminder_1h')
-        .maybeSingle();
-
-      if (existing) {
-        console.log(`[whatsapp-reminder-cron] Lembrete já enviado para ${appt.id}, pulando.`);
-        continue;
-      }
-
-      const startDate = new Date(appt.start_time);
       const firstName = (appt.patient_name as string ?? '').split(' ')[0];
-      const service = (appt.title as string ?? '').trim() || 'sua consulta';
-
-      const message = [
-        `Olá ${firstName}! 👋`,
-        ``,
-        `Lembramos do seu agendamento na *Clínica Loraine* daqui a 1 hora.`,
-        ``,
-        `🩺 Serviço: *${service}*`,
-        `📅 Data: ${formatDateBR(startDate)}`,
-        `⏰ Horário: ${formatTimeBR(startDate)}`,
-        ``,
-        `Chegue com 10 minutos de antecedência.`,
-        `Precisando reagendar, entre em contato conosco.`,
-        ``,
-        `Até logo! ✨`,
-      ].join('\n');
+      const message = `Olá ${firstName}! 👋 Você tem um horário agendado hoje às ${formatTimeBR(startDate)} na Clínica Loraine. Te esperamos! 😊`;
 
       const sendResult = await sendWhatsApp(phone, message);
 
       if (sendResult.ok) {
-        await supabase.from('whatsapp_reminders_log').insert({
-          appointment_id: appt.id,
-          type: 'reminder_1h',
-          phone,
-          sent_at: new Date().toISOString(),
-        });
-
         await supabase
           .from('appointments')
           .update({ whatsapp_reminder_sent: true })
           .eq('id', appt.id);
+
+        await supabase.from('whatsapp_reminders_log').insert({
+          appointment_id: appt.id,
+          type: `reminder_${minutesBefore}min`,
+          phone,
+          sent_at: new Date().toISOString(),
+        });
 
         results.push({ appointment_id: appt.id, status: 'sent', phone });
         console.log(`[whatsapp-reminder-cron] Lembrete enviado para ${phone} (${appt.id})`);
