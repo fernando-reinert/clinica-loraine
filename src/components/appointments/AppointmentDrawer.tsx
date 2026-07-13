@@ -27,6 +27,7 @@ import PatientSelector from './form/PatientSelector';
 import DateTimeSection from './form/DateTimeSection';
 import ProcedurePlanSection from './form/ProcedurePlanSection';
 import PaymentSection from './form/PaymentSection';
+import WhatsAppNotifySection from './form/WhatsAppNotifySection';
 import toast from 'react-hot-toast';
 import {
   DURATION_OPTIONS,
@@ -84,6 +85,9 @@ export default function AppointmentDrawer({
   });
   const [recurrenceValue, setRecurrenceValue] = useState('');
   const [occurrenceCount, setOccurrenceCount] = useState(OCCURRENCE_COUNT_DEFAULT);
+  const [whatsappNotifyOnCreate, setWhatsappNotifyOnCreate] = useState(false);
+  const [whatsappReminderEnabled, setWhatsappReminderEnabled] = useState(false);
+  const [whatsappReminderMinutesBefore, setWhatsappReminderMinutesBefore] = useState(120);
   const [procedureSearch, setProcedureSearch] = useState('');
   const [showProcedureDropdown, setShowProcedureDropdown] = useState(false);
   const [submitting, setSubmitting] = useState(false);
@@ -186,6 +190,9 @@ export default function AppointmentDrawer({
       setDurationMinutes(60);
       setRecurrenceValue('');
       setOccurrenceCount(OCCURRENCE_COUNT_DEFAULT);
+      setWhatsappNotifyOnCreate(false);
+      setWhatsappReminderEnabled(false);
+      setWhatsappReminderMinutesBefore(120);
       patientSearch.clearSelection();
     }
   }, [open, mode, initialAppointment, initialDate, initialHour, initialMinute]);
@@ -312,6 +319,9 @@ export default function AppointmentDrawer({
           status: 'scheduled',
           procedures: proceduresPayload,
           professionalId,
+          whatsappNotifyOnCreate,
+          whatsappReminderEnabled,
+          whatsappReminderMinutesBefore,
         };
 
         const recurrenceInterval = getRecurrenceInterval(recurrenceValue);
@@ -424,6 +434,20 @@ export default function AppointmentDrawer({
                 className="w-full bg-slate-800 border border-slate-700 rounded-lg px-3 py-2.5 text-sm text-slate-100 placeholder-slate-500 focus:outline-none focus:border-cyan-500 focus:ring-1 focus:ring-cyan-500/30 disabled:opacity-50 transition-colors"
               />
             </div>
+
+            {/* WhatsApp notifications (create mode only) */}
+            {mode === 'create' && (
+              <WhatsAppNotifySection
+                patientPhone={patientSearch.selected?.phone ?? ''}
+                notifyOnCreate={whatsappNotifyOnCreate}
+                onNotifyOnCreateChange={setWhatsappNotifyOnCreate}
+                reminderEnabled={whatsappReminderEnabled}
+                onReminderEnabledChange={setWhatsappReminderEnabled}
+                reminderMinutesBefore={whatsappReminderMinutesBefore}
+                onReminderMinutesBeforeChange={setWhatsappReminderMinutesBefore}
+                disabled={submitting}
+              />
+            )}
 
             {/* Payment (only when plan has items) */}
             {planItems.length > 0 && (

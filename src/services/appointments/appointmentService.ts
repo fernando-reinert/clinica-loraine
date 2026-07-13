@@ -4,7 +4,6 @@ import { createGcalEvent, cancelGcalEvent, updateGcalEvent } from '../calendar';
 import logger from '../../utils/logger';
 import { addMinutesToDate } from '../../utils/dateUtils';
 import type { Appointment, AppointmentStatus, AppointmentHistoryRow } from '../../types/db';
-import { sendConfirmationOnCreate } from '../whatsapp/whatsappAutomationService';
 
 export interface AppointmentProcedureItemInput {
   procedureId: string;
@@ -27,6 +26,9 @@ export interface CreateAppointmentPayload {
   procedures?: AppointmentProcedureItemInput[];
   professionalId?: string | null;
   recurrenceGroupId?: string | null;
+  whatsappNotifyOnCreate?: boolean;
+  whatsappReminderEnabled?: boolean;
+  whatsappReminderMinutesBefore?: number;
 }
 
 /** Regra de recorrência: intervalo + número exato de ocorrências (1..60). */
@@ -85,6 +87,9 @@ export const createAppointmentWithProcedures = async (
     }
     if (payload.professionalId) appointmentData.professional_id = payload.professionalId;
     if (payload.recurrenceGroupId) appointmentData.recurrence_group_id = payload.recurrenceGroupId;
+    appointmentData.whatsapp_notify_on_create = payload.whatsappNotifyOnCreate ?? false;
+    appointmentData.whatsapp_reminder_enabled = payload.whatsappReminderEnabled ?? false;
+    appointmentData.whatsapp_reminder_minutes_before = payload.whatsappReminderMinutesBefore ?? 120;
 
     logger.info('[APPOINTMENTS] Criando agendamento', {
       patientId,
@@ -126,7 +131,6 @@ export const createAppointmentWithProcedures = async (
 
     if (!hasProcedures) {
       logger.info('[APPOINTMENTS] Agendamento criado sem procedimentos', { id: appointment.id });
-      sendConfirmationOnCreate(appointment.id, patientName, patientPhone, startTimeIso, title);
       return { id: appointment.id };
     }
 
@@ -177,7 +181,6 @@ export const createAppointmentWithProcedures = async (
       id: appointment.id,
       itemsCount: procedures.length,
     });
-    sendConfirmationOnCreate(appointment.id, patientName, patientPhone, startTimeIso, title);
     return { id: appointment.id };
   } catch (error: any) {
     logger.error('[APPOINTMENTS] Falha inesperada ao criar agendamento com procedimentos', {
@@ -338,6 +341,9 @@ export const createRecurringAppointments = async (
       recurrence_index: i + 1,
       recurrence_count: totalCount,
       recurrence_rule: recurrenceRuleJson,
+      whatsapp_notify_on_create: basePayload.whatsappNotifyOnCreate ?? false,
+      whatsapp_reminder_enabled: basePayload.whatsappReminderEnabled ?? false,
+      whatsapp_reminder_minutes_before: basePayload.whatsappReminderMinutesBefore ?? 120,
     };
     if (professionalId) row.professional_id = professionalId;
     if (totalFromProcedures > 0) row.budget = totalFromProcedures;

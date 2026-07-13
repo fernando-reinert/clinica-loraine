@@ -10,6 +10,7 @@ export interface FinancialControlCacheData {
   payments: unknown[];
   installments: unknown[];
   manualPayments: unknown[];
+  installmentPayments: unknown[];
   appointments: unknown[];
   feeRules: unknown[];
   fetchedAt: number;
@@ -34,6 +35,7 @@ export function setFinancialControlCache(data: Partial<Omit<FinancialControlCach
     payments: data.payments ?? cache?.payments ?? [],
     installments: data.installments ?? cache?.installments ?? [],
     manualPayments: data.manualPayments ?? cache?.manualPayments ?? [],
+    installmentPayments: data.installmentPayments ?? cache?.installmentPayments ?? [],
     appointments: data.appointments ?? cache?.appointments ?? [],
     feeRules: data.feeRules ?? cache?.feeRules ?? [],
     fetchedAt: now,

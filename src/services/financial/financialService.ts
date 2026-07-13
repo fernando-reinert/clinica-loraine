@@ -59,6 +59,19 @@ export interface Installment {
   net_amount?: number | null;
   payment_provider?: string | null;
   paid_at?: string | null;
+  /** Quanto já foi pago desta parcela (permite pagamento parcial via registerProcedurePayment). */
+  amount_paid?: number;
+}
+
+/** Quanto ainda falta pagar de uma parcela, considerando pagamentos parciais já aplicados. */
+export const getInstallmentRemaining = (installment: Installment): number =>
+  round2(Number(installment.installment_value) - Number(installment.amount_paid ?? 0));
+
+export interface ProcedurePaymentAllocation {
+  installment_id: string;
+  procedure_id?: string;
+  amount_applied: number;
+  fully_paid: boolean;
 }
 
 export interface PatientFinancialSummary {
@@ -824,6 +837,44 @@ export const markInstallmentAsPaid = async (
 };
 
 /**
+ * Registra um valor recebido de um paciente, abatendo automaticamente das
+ * parcelas pendentes de TODOS os procedimentos dele (vencimento mais antigo
+ * primeiro, cruzando procedimentos diferentes se necessário). Não exige que o
+ * valor bata com nenhuma parcela específica. Roda no banco (RPC atômica),
+ * rejeitando valores acima do total pendente do paciente.
+ */
+export const registerPatientPayment = async (
+  patientId: string,
+  amount: number,
+  paymentMethod: string,
+  paymentDate?: string
+): Promise<ProcedurePaymentAllocation[]> => {
+  if (!amount || amount <= 0) {
+    throw new Error('Informe um valor maior que zero.');
+  }
+  try {
+    const { data, error } = await supabase.rpc('register_patient_payment', {
+      p_patient_id: patientId,
+      p_amount: round2(amount),
+      p_payment_method: paymentMethod,
+      p_payment_date: paymentDate || todayISO(),
+    });
+
+    if (error) {
+      logger.error('[FINANCIAL] registerPatientPayment erro', { error, patientId, amount });
+      throw new Error(error.message || 'Erro ao registrar pagamento.');
+    }
+
+    const allocations = (data ?? []) as ProcedurePaymentAllocation[];
+    logger.info('[FINANCIAL] Pagamento do paciente registrado e alocado', { patientId, amount, allocations });
+    return allocations;
+  } catch (err: any) {
+    logger.error('[FINANCIAL] registerPatientPayment falhou', { error: err?.message, patientId, amount });
+    throw err;
+  }
+};
+
+/**
  * Atualiza método de pagamento de um registro e suas parcelas pendentes.
  * Não altera parcelas já pagas (preserva fee snapshot).
  */
@@ -900,7 +951,7 @@ export const getPatientFinancialSummaryGrossNet = async (
 
     const { data: installments, error: instError } = await supabase
       .from('installments')
-      .select('procedure_id, installment_value, due_date')
+      .select('procedure_id, installment_value, amount_paid, due_date')
       .in('procedure_id', procedureIds)
       .eq('status', 'pendente');
 
@@ -921,7 +972,10 @@ export const getPatientFinancialSummaryGrossNet = async (
     const pending: GrossNetBucket = { gross: 0, fee: 0, net: 0, count: 0 };
 
     for (const i of installments as any[]) {
-      const gross = Number(i.installment_value ?? 0);
+      // Usa o saldo restante (não o valor cheio da parcela), já que pagamentos
+      // parciais podem ter abatido parte dela sem mudar o status para "pago".
+      const gross = Number(i.installment_value ?? 0) - Number(i.amount_paid ?? 0);
+      if (gross <= 0) continue;
       const proc = procMap.get(i.procedure_id);
       const method = proc?.payment_method ?? 'pix';
       const installmentsCount =
@@ -1134,6 +1188,135 @@ export const getPatientFinancialTimeline = async (
   }
 };
 
+/** Uma linha do extrato financeiro do paciente (histórico completo, estilo extrato bancário). */
+export interface PatientStatementEntry {
+  id: string;
+  /** ISO date/timestamp usado para ordenação e exibição. */
+  date: string;
+  kind: 'procedure_created' | 'payment' | 'manual_payment';
+  title: string;
+  description?: string;
+  amount: number;
+  paymentMethod?: string | null;
+  feeAmount?: number | null;
+  netAmount?: number | null;
+  procedureId?: string;
+  /** true quando o pagamento não quitou a parcela inteira (ficou saldo residual). */
+  partial?: boolean;
+}
+
+/**
+ * Extrato financeiro completo do paciente: cada procedimento criado + cada
+ * pagamento recebido (parcial ou total, via registerPatientPayment/
+ * registerProcedurePayment) + pagamentos avulsos — tudo em uma única linha do
+ * tempo ordenada por data, como um extrato bancário. É só leitura (nenhuma
+ * escrita), então não tem risco de corromper dado nenhum; reaproveita
+ * getPatientFinancialTimeline (já testada) como base.
+ */
+export const getPatientFinancialStatement = async (
+  patientId: string
+): Promise<PatientStatementEntry[]> => {
+  const entries: PatientStatementEntry[] = [];
+
+  try {
+    const timeline = await getPatientFinancialTimeline(patientId);
+    const procedureIds = timeline.records.map(({ record }) => record.id);
+
+    // 1) Procedimento/tratamento criado
+    timeline.records.forEach(({ record }) => {
+      const title =
+        record.items && record.items.length > 0
+          ? record.items.map((i) => i.procedure_name_snapshot).join(' + ') + ` (${record.items.length} itens)`
+          : record.procedure_type || 'Procedimento';
+      entries.push({
+        id: `created-${record.id}`,
+        date: record.created_at,
+        kind: 'procedure_created',
+        title,
+        description: `${record.total_installments}x`,
+        amount: record.total_amount,
+        paymentMethod: record.payment_method,
+        procedureId: record.id,
+      });
+    });
+
+    // 2) Pagamentos via ledger (registerProcedurePayment/registerPatientPayment) — cobre parciais e totais
+    let ledgerRows: InstallmentPaymentRow[] = [];
+    if (procedureIds.length > 0) {
+      const { data, error } = await supabase
+        .from('installment_payments')
+        .select('*')
+        .in('procedure_id', procedureIds);
+      if (!error) ledgerRows = (data ?? []) as InstallmentPaymentRow[];
+    }
+    const ledgerInstallmentIds = new Set(ledgerRows.map((r) => r.installment_id));
+
+    // Mapa parcela -> valor total, para saber se o pagamento deixou saldo (parcial) ou quitou
+    const installmentValueById = new Map<string, number>();
+    timeline.records.forEach(({ installments }) =>
+      installments.forEach((i) => installmentValueById.set(i.id, Number(i.installment_value ?? 0)))
+    );
+
+    ledgerRows.forEach((row) => {
+      const totalPaidForInstallment = ledgerRows
+        .filter((r) => r.installment_id === row.installment_id)
+        .reduce((sum, r) => sum + Number(r.amount ?? 0), 0);
+      const installmentValue = installmentValueById.get(row.installment_id) ?? 0;
+      entries.push({
+        id: `payment-${row.id}`,
+        date: row.payment_date,
+        kind: 'payment',
+        title: 'Pagamento recebido',
+        amount: Number(row.amount),
+        paymentMethod: row.payment_method,
+        feeAmount: Number(row.fee_amount ?? 0),
+        netAmount: Number(row.net_amount ?? 0),
+        procedureId: row.procedure_id,
+        partial: totalPaidForInstallment < installmentValue - 0.01,
+      });
+    });
+
+    // 3) Parcelas quitadas pelo fluxo legado (markInstallmentAsPaid), sem linha no ledger
+    timeline.records.forEach(({ record, installments }) => {
+      installments
+        .filter((i) => i.status === 'pago' && i.paid_date && !ledgerInstallmentIds.has(i.id))
+        .forEach((i) => {
+          entries.push({
+            id: `legacy-payment-${i.id}`,
+            date: i.paid_date as string,
+            kind: 'payment',
+            title: 'Pagamento recebido',
+            amount: Number(i.installment_value ?? 0),
+            paymentMethod: i.payment_method ?? record.payment_method,
+            feeAmount: i.fee_amount ?? undefined,
+            netAmount: i.net_amount ?? undefined,
+            procedureId: record.id,
+            partial: false,
+          });
+        });
+    });
+
+    // 4) Pagamentos avulsos (não vinculados a procedimento)
+    (timeline.manualPayments ?? []).forEach((mp) => {
+      entries.push({
+        id: `manual-${mp.id}`,
+        date: mp.payment_date,
+        kind: 'manual_payment',
+        title: mp.description,
+        description: mp.notes ?? undefined,
+        amount: Number(mp.total_amount ?? 0),
+        paymentMethod: mp.payment_method,
+      });
+    });
+
+    entries.sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
+    return entries;
+  } catch (err: any) {
+    logger.error('[FINANCIAL] getPatientFinancialStatement falhou', { patientId, error: err?.message });
+    return entries;
+  }
+};
+
 /**
  * Lista registros financeiros do paciente com itens e parcelas (para tela dedicada).
  */
@@ -1209,7 +1392,19 @@ export const getPatientPaidByMonthGrossNet = async (
     );
 
     const { start, nextStart } = getMonthDateRange(monthYear);
-    const { data: installments, error: instError } = await supabase
+
+    // Pagamentos via registerProcedurePayment (parciais ou não) — já têm fee/net calculados no momento do abatimento.
+    const { data: ledgerPayments } = await supabase
+      .from('installment_payments')
+      .select('installment_id, amount, fee_amount, net_amount')
+      .in('procedure_id', procedureIds)
+      .gte('payment_date', start)
+      .lt('payment_date', nextStart);
+
+    // Parcelas quitadas pelo fluxo legado (botão "Registrar Pagamento" de uma parcela inteira),
+    // que não passam pelo ledger novo — evita contar duas vezes as que já têm registro acima.
+    const ledgerInstallmentIds = new Set((ledgerPayments ?? []).map((p: any) => p.installment_id));
+    const { data: installments } = await supabase
       .from('installments')
       .select('*')
       .in('procedure_id', procedureIds)
@@ -1217,7 +1412,9 @@ export const getPatientPaidByMonthGrossNet = async (
       .gte('paid_date', start)
       .lt('paid_date', nextStart);
 
-    if (instError || !installments?.length) return empty;
+    const legacyInstallments = (installments ?? []).filter((i: any) => !ledgerInstallmentIds.has(i.id));
+
+    if (!ledgerPayments?.length && !legacyInstallments.length) return empty;
 
     const feeCache = new Map<string, number>();
     const getCachedFeePercent = async (method: string, installmentsCount: number | undefined): Promise<number> => {
@@ -1231,9 +1428,24 @@ export const getPatientPaidByMonthGrossNet = async (
     let gross = 0;
     let feeSum = 0;
     let netSum = 0;
-    for (const i of installments as any[]) {
+    let count = 0;
+
+    for (const p of ledgerPayments ?? []) {
+      gross += Number(p.amount ?? 0);
+      feeSum += Number(p.fee_amount ?? 0);
+      netSum += Number(p.net_amount ?? 0);
+      count += 1;
+    }
+
+    for (const i of legacyInstallments as any[]) {
       const g = Number(i.installment_value ?? 0);
       gross += g;
+      count += 1;
+      if (i.net_amount != null && i.fee_amount != null) {
+        feeSum += Number(i.fee_amount);
+        netSum += Number(i.net_amount);
+        continue;
+      }
       const method = i.payment_method ?? procMap.get(i.procedure_id)?.payment_method ?? 'pix';
       const instCount = ['credit_card', 'infinit_tag'].includes(method) ? (procMap.get(i.procedure_id)?.total_installments ?? 1) : undefined;
       const pct = await getCachedFeePercent(method, instCount);
@@ -1241,11 +1453,12 @@ export const getPatientPaidByMonthGrossNet = async (
       feeSum += feeAmount;
       netSum += netAmount;
     }
+
     return {
       gross: round2(gross),
       fee: round2(feeSum),
       net: round2(netSum),
-      count: installments.length,
+      count,
     };
   } catch (err: any) {
     logger.error('[FINANCIAL] getPatientPaidByMonthGrossNet falhou', { patientId, monthYear, error: err?.message });
@@ -1481,6 +1694,49 @@ export const listManualPayments = async (): Promise<ManualPayment[]> => {
   } catch (err: any) {
     logger.error('[FINANCIAL] listManualPayments falhou', { error: err?.message });
     throw err;
+  }
+};
+
+export interface InstallmentPaymentRow {
+  id: string;
+  installment_id: string;
+  procedure_id: string;
+  patient_id: string | null;
+  amount: number;
+  payment_method: string;
+  payment_date: string;
+  fee_percent: number;
+  fee_amount: number;
+  net_amount: number;
+  created_at: string;
+}
+
+/**
+ * Lista o extrato de abatimentos (registerProcedurePayment/registerPatientPayment).
+ * Necessário para faturamento/indicadores enxergarem pagamentos parciais — uma
+ * parcela parcialmente paga continua com status "pendente" e não aparece nas
+ * consultas que filtram por installments.status = 'pago'.
+ */
+export const listInstallmentPayments = async (): Promise<InstallmentPaymentRow[]> => {
+  try {
+    const { data, error } = await supabase
+      .from('installment_payments')
+      .select('*')
+      .order('payment_date', { ascending: false });
+
+    if (error) {
+      if (isRelationNotFoundError(error)) {
+        logger.warn('[FINANCIAL] Tabela installment_payments não encontrada');
+        return [];
+      }
+      logger.error('[FINANCIAL] listInstallmentPayments erro', { error });
+      return [];
+    }
+
+    return (data ?? []) as InstallmentPaymentRow[];
+  } catch (err: any) {
+    logger.error('[FINANCIAL] listInstallmentPayments falhou', { error: err?.message });
+    return [];
   }
 };
 
