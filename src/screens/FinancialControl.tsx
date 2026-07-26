@@ -23,6 +23,7 @@ import {
   Percent,
   Clock,
   Download,
+  Trash2,
 } from "lucide-react";
 
 import ResponsiveAppLayout from "../components/Layout/ResponsiveAppLayout";
@@ -43,6 +44,7 @@ import {
   listInstallmentPayments,
   type InstallmentPaymentRow,
   updatePaymentMethod,
+  deleteFinancialProcedure,
   getFeePercent,
   listFeeRules,
   round2,
@@ -81,16 +83,6 @@ interface Patient {
   email: string;
 }
 
-interface PaymentFormData {
-  patientId: string;
-  patientName: string;
-  procedureType: string;
-  totalAmount: number;
-  installments: number;
-  paymentMethod: string;
-  firstPaymentDate: string;
-}
-
 interface ProcedureData {
   id: string;
   patient_id: string;
@@ -121,12 +113,6 @@ interface Installment {
   paid_at?: string | null;
   /** Quanto já foi pago desta parcela (pagamento parcial via registerProcedurePayment). */
   amount_paid?: number;
-}
-
-interface CalculatedInstallment {
-  number: number;
-  value: number;
-  dueDate: string;
 }
 
 interface MonthlyRevenue {
@@ -168,6 +154,7 @@ interface ComandaItem {
   quantity: number;
   discount: number;
   profit: number;
+  procedureDate: string;
 }
 
 // Helper para converter ComandaItem para AppointmentPlanItem
@@ -180,6 +167,7 @@ const comandaItemToPlanItem = (item: ComandaItem): AppointmentPlanItem => ({
   final_price: item.finalPrice,
   quantity: item.quantity,
   discount: item.discount,
+  procedure_date: item.procedureDate,
 });
 
 // Helper para converter AppointmentPlanItem para ComandaItem
@@ -195,6 +183,7 @@ const planItemToComandaItem = (item: AppointmentPlanItem): ComandaItem => {
     quantity: item.quantity,
     discount: item.discount,
     profit,
+    procedureDate: item.procedure_date || '',
   };
 };
 
@@ -244,17 +233,6 @@ const FinancialControl: React.FC = () => {
   const { supabase } = useSupabase();
   const navigate = useNavigate();
 
-  // Estados legados (mantidos para compatibilidade)
-  const [formData, setFormData] = useState<PaymentFormData>({
-    patientId: "",
-    patientName: "",
-    procedureType: "",
-    totalAmount: 0,
-    installments: 1,
-    paymentMethod: "pix",
-    firstPaymentDate: new Date().toISOString().split("T")[0],
-  });
-
   // Estados novos para comanda
   const [comandaPatientId, setComandaPatientId] = useState("");
   const [comandaPatientName, setComandaPatientName] = useState("");
@@ -300,7 +278,6 @@ const FinancialControl: React.FC = () => {
   const [goalsModalOpen, setGoalsModalOpen] = useState(false);
   const [goalsForm, setGoalsForm] = useState({ target_gross: 0, target_net: 0, target_profit: 0 });
 
-  const [calculatedInstallments, setCalculatedInstallments] = useState<CalculatedInstallment[]>([]);
   const [monthlyRevenue, setMonthlyRevenue] = useState<MonthlyRevenue[]>([]);
   const [monthlyRevenueMode, setMonthlyRevenueMode] = useState<"net" | "gross">("net");
   const [feeRulesCache, setFeeRulesCache] = useState<FeeRuleRow[]>([]);
@@ -318,6 +295,12 @@ const FinancialControl: React.FC = () => {
     Record<string, { amount: string; method: string; date: string }>
   >({});
   const [submittingPatientPayment, setSubmittingPatientPayment] = useState<Set<string>>(new Set());
+  const [deletingProcedureId, setDeletingProcedureId] = useState<string | null>(null);
+  const [deleteProcedureModal, setDeleteProcedureModal] = useState<{
+    isOpen: boolean;
+    procedureId: string | null;
+    procedureName: string;
+  }>({ isOpen: false, procedureId: null, procedureName: "" });
 
   const [searchParams] = useSearchParams();
   const urlPatientId = searchParams.get("patientId") || null;
@@ -501,19 +484,6 @@ const FinancialControl: React.FC = () => {
       .finally(() => setGoalsLoading(false));
   }, [monthYear]);
 
-  useEffect(() => {
-    if (formData.patientName) {
-      const filtered = patients.filter((patient) =>
-        patient.name.toLowerCase().includes(formData.patientName.toLowerCase())
-      );
-      setFilteredPatients(filtered);
-      setShowPatientDropdown(true);
-    } else {
-      setFilteredPatients([]);
-      setShowPatientDropdown(false);
-    }
-  }, [formData.patientName, patients]);
-
   // Fechar dropdown de procedimentos ao clicar fora
   useEffect(() => {
     const handleClickOutside = (event: MouseEvent) => {
@@ -528,12 +498,6 @@ const FinancialControl: React.FC = () => {
       return () => document.removeEventListener('mousedown', handleClickOutside);
     }
   }, [showProcedureDropdown]);
-
-  useEffect(() => {
-    const list = calculateInstallments();
-    setCalculatedInstallments(list);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [formData.totalAmount, formData.installments, formData.firstPaymentDate]);
 
   useEffect(() => {
     calculateMonthlyRevenue();
@@ -581,33 +545,27 @@ const FinancialControl: React.FC = () => {
       })) as ProcedureData[];
       setPayments(procedures);
 
-      // Buscar parcelas
-      let insts: Installment[] = [];
-      if (procedures.length > 0) {
-        const allInstallments = await Promise.all([
-          listInstallmentsByStatus('pendente'),
-          listInstallmentsByStatus('pago'),
-        ]);
-        insts = [...allInstallments[0], ...allInstallments[1]];
-        setInstallments(insts);
-      } else {
-        setInstallments([]);
-      }
+      // Buscar parcelas, pagamentos manuais e extrato de abatimentos em paralelo
+      // (independentes entre si) para reduzir o tempo até os dados aparecerem na tela.
+      const [instsResult, manualResult, instPayments] = await Promise.all([
+        procedures.length > 0
+          ? Promise.all([listInstallmentsByStatus('pendente'), listInstallmentsByStatus('pago')]).then(
+              ([pendentes, pagas]) => [...pendentes, ...pagas]
+            )
+          : Promise.resolve([] as Installment[]),
+        listManualPayments().catch((manualErr: any) => {
+          if (!manualErr?.message?.includes('não existe no banco')) {
+            toast.error(manualErr?.message || "Não foi possível carregar pagamentos manuais.");
+          }
+          return [] as ManualPayment[];
+        }),
+        listInstallmentPayments(),
+      ]);
 
-      // Buscar pagamentos manuais
-      let manualList: ManualPayment[] = [];
-      try {
-        manualList = await listManualPayments();
-        setManualPayments(manualList);
-      } catch (manualErr: any) {
-        if (!manualErr?.message?.includes('não existe no banco')) {
-          toast.error(manualErr?.message || "Não foi possível carregar pagamentos manuais.");
-        }
-        setManualPayments([]);
-      }
-
-      // Buscar extrato de abatimentos (parciais e totais via registerPatientPayment)
-      const instPayments = await listInstallmentPayments();
+      const insts = instsResult;
+      const manualList = manualResult;
+      setInstallments(insts);
+      setManualPayments(manualList);
       setInstallmentPayments(instPayments);
 
       setFinancialControlCache({
@@ -730,9 +688,12 @@ const FinancialControl: React.FC = () => {
       grouped[procedure.patient_id].totalPending += getInstallmentRemaining(installment);
     });
 
-    setGroupedInstallments(
-      Object.values(grouped).sort((a, b) => a.patientName.localeCompare(b.patientName))
-    );
+    setGroupedInstallments((prev) => {
+      const prevExpanded = new Map(prev.map((p) => [p.patientId, p.isExpanded]));
+      return Object.values(grouped)
+        .map((group) => ({ ...group, isExpanded: prevExpanded.get(group.patientId) ?? false }))
+        .sort((a, b) => a.patientName.localeCompare(b.patientName));
+    });
   };
 
   const togglePatientExpanded = (patientId: string) => {
@@ -760,6 +721,8 @@ const FinancialControl: React.FC = () => {
         `Pagamento de ${formatCurrency(amount)} registrado e distribuído em ${procedureCount} procedimento(s).`
       );
       setPatientPaymentForm((prev) => ({ ...prev, [patientId]: { amount: "", method, date: todayISO() } }));
+      // Recarrega parcelas, ledger de abatimentos e totais. groupInstallmentsByPatient
+      // preserva isExpanded entre recomputações, então a seção do paciente não fecha.
       await fetchPayments();
     } catch (err: any) {
       toast.error(err?.message || "Erro ao registrar pagamento.");
@@ -861,6 +824,31 @@ const FinancialControl: React.FC = () => {
     }
   };
 
+  const handleDeleteProcedure = (procedureId: string, procedureName: string) => {
+    setDeleteProcedureModal({ isOpen: true, procedureId, procedureName });
+  };
+
+  const closeDeleteProcedureModal = () => {
+    setDeleteProcedureModal({ isOpen: false, procedureId: null, procedureName: "" });
+  };
+
+  const confirmDeleteProcedure = async () => {
+    const { procedureId } = deleteProcedureModal;
+    if (!procedureId) return;
+
+    setDeletingProcedureId(procedureId);
+    try {
+      await deleteFinancialProcedure(procedureId);
+      toast.success("Procedimento excluído com sucesso!");
+      closeDeleteProcedureModal();
+      await fetchPayments();
+    } catch (error: any) {
+      toast.error(error?.message || "Erro ao excluir procedimento!");
+    } finally {
+      setDeletingProcedureId(null);
+    }
+  };
+
   const getMaxRevenue = () => {
     if (monthlyRevenue.length === 0) return 0;
     return Math.max(
@@ -892,6 +880,7 @@ const FinancialControl: React.FC = () => {
       final_price: salePrice,
       quantity: 1,
       discount: 0,
+      procedure_date: comandaFirstPaymentDate,
     };
     const newComandaItem = planItemToComandaItem(newPlanItem);
     setComandaItems([...comandaItems, newComandaItem]);
@@ -1016,6 +1005,7 @@ const FinancialControl: React.FC = () => {
         quantity: planItem.quantity,
         discount: planItem.discount,
         profit_snapshot: calculateItemProfit(planItem),
+        procedure_date: planItem.procedure_date || null,
       }));
 
       const financialResult = await createFinancialRecord({
@@ -1081,6 +1071,7 @@ const FinancialControl: React.FC = () => {
           quantity,
           discount,
           profit,
+          procedureDate: (appointment.start_time || '').toString().split('T')[0] || todayISO(),
         };
       })
     );
@@ -1107,6 +1098,7 @@ const FinancialControl: React.FC = () => {
           quantity: item.quantity,
           discount: item.discount,
           profit_snapshot: profitSnapshot,
+          procedure_date: item.procedureDate,
         };
       });
 
@@ -1152,47 +1144,6 @@ const FinancialControl: React.FC = () => {
     }
   };
 
-  // ============================================
-  // FUNÇÕES LEGADAS (MANTIDAS)
-  // ============================================
-
-  const handlePatientSelect = (patient: Patient) => {
-    setFormData({
-      ...formData,
-      patientId: patient.id,
-      patientName: patient.name,
-    });
-    setShowPatientDropdown(false);
-  };
-
-  const handleInputChange = (e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement | HTMLSelectElement>) => {
-    const { name, value } = e.target;
-    setFormData((prev) => ({
-      ...prev,
-      [name]: name === "totalAmount" || name === "installments" ? Number(value) : value,
-    }));
-  };
-
-  const calculateInstallments = (): CalculatedInstallment[] => {
-    if (formData.totalAmount > 0 && formData.installments > 0) {
-      const installmentValue = formData.totalAmount / formData.installments;
-      const list: CalculatedInstallment[] = [];
-
-      for (let i = 0; i < formData.installments; i++) {
-        const dueDate = new Date(formData.firstPaymentDate);
-        dueDate.setMonth(dueDate.getMonth() + i);
-        list.push({
-          number: i + 1,
-          value: installmentValue,
-          dueDate: dueDate.toISOString().split("T")[0],
-        });
-      }
-
-      return list;
-    }
-    return [];
-  };
-
   const handleManualPaymentSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setIsLoading(true);
@@ -1224,79 +1175,6 @@ const FinancialControl: React.FC = () => {
       }
     } catch (err: any) {
       toast.error(err?.message || "Não foi possível registrar o pagamento.");
-    } finally {
-      setIsLoading(false);
-    }
-  };
-
-  const handleSubmit = async (e: React.FormEvent) => {
-    e.preventDefault();
-    setIsLoading(true);
-
-    try {
-      const { patientId, patientName, procedureType, totalAmount, installments: instCount, paymentMethod, firstPaymentDate } =
-        formData;
-
-      if (!patientId || !procedureType || !firstPaymentDate) {
-        toast.error("Preencha todos os campos obrigatórios!");
-        return;
-      }
-
-      const { data, error } = await supabase
-        .from("procedures")
-        .insert([
-          {
-            patient_id: patientId,
-            client_name: patientName,
-            procedure_type: procedureType,
-            total_amount: totalAmount,
-            total_installments: instCount,
-            payment_method: paymentMethod,
-            first_payment_date: firstPaymentDate,
-            status: "pendente",
-          },
-        ])
-        .select();
-
-      if (error) throw error;
-
-      const procedureData = (data as ProcedureData[]) || [];
-      const procedureId = procedureData?.[0]?.id;
-
-      if (procedureId) {
-        const installmentValue = totalAmount / instCount;
-
-        for (let i = 0; i < instCount; i++) {
-          const dueDate = new Date(firstPaymentDate);
-          dueDate.setMonth(dueDate.getMonth() + i);
-
-          await supabase.from("installments").insert([
-            {
-              procedure_id: procedureId,
-              installment_number: i + 1,
-              installment_value: installmentValue,
-              due_date: dueDate.toISOString().split("T")[0],
-              status: "pendente",
-              payment_method: paymentMethod,
-            },
-          ]);
-        }
-      }
-
-      toast.success("Procedimento registrado com sucesso!");
-      setFormData({
-        patientId: "",
-        patientName: "",
-        procedureType: "",
-        totalAmount: 0,
-        installments: 1,
-        paymentMethod: "pix",
-        firstPaymentDate: new Date().toISOString().split("T")[0],
-      });
-
-      fetchPayments();
-    } catch (error: any) {
-      toast.error("Erro ao registrar pagamento!");
     } finally {
       setIsLoading(false);
     }
@@ -1384,7 +1262,7 @@ const FinancialControl: React.FC = () => {
   // no ledger), tudo ordenado por data — mais recente primeiro.
   type CompletedEntry =
     | { kind: "manual"; date: string; manual: ManualPayment }
-    | { kind: "ledger"; date: string; ledger: InstallmentPaymentRow; partial: boolean }
+    | { kind: "ledger"; date: string; ledger: InstallmentPaymentRow; partial: boolean; remainingAfter: number }
     | { kind: "legacy"; date: string; installment: Installment };
 
   const completedEntries = useMemo<CompletedEntry[]>(() => {
@@ -1401,12 +1279,30 @@ const FinancialControl: React.FC = () => {
       totalByInstallment.set(p.installment_id, (totalByInstallment.get(p.installment_id) ?? 0) + Number(p.amount ?? 0));
     });
     const valueByInstallment = new Map(installments.map((i) => [i.id, Number(i.installment_value ?? 0)]));
-    const ledgerEntries: CompletedEntry[] = ledgerScoped.map((p) => ({
-      kind: "ledger",
-      date: p.payment_date,
-      ledger: p,
-      partial: (totalByInstallment.get(p.installment_id) ?? 0) < (valueByInstallment.get(p.installment_id) ?? 0) - 0.01,
-    }));
+    // Soma cumulativa por parcela, na ordem em que os pagamentos foram feitos, para
+    // calcular o saldo restante logo após CADA pagamento (não o saldo atual da parcela).
+    const paymentsByInstallmentOrdered = new Map<string, InstallmentPaymentRow[]>();
+    [...installmentPayments]
+      .sort((a, b) => new Date(a.created_at).getTime() - new Date(b.created_at).getTime())
+      .forEach((p) => {
+        const list = paymentsByInstallmentOrdered.get(p.installment_id) ?? [];
+        list.push(p);
+        paymentsByInstallmentOrdered.set(p.installment_id, list);
+      });
+    const ledgerEntries: CompletedEntry[] = ledgerScoped.map((p) => {
+      const installmentValue = valueByInstallment.get(p.installment_id) ?? 0;
+      const ordered = paymentsByInstallmentOrdered.get(p.installment_id) ?? [];
+      const paidUpToThis = ordered
+        .slice(0, ordered.findIndex((row) => row.id === p.id) + 1)
+        .reduce((sum, row) => sum + Number(row.amount ?? 0), 0);
+      return {
+        kind: "ledger",
+        date: p.payment_date,
+        ledger: p,
+        partial: (totalByInstallment.get(p.installment_id) ?? 0) < installmentValue - 0.01,
+        remainingAfter: round2(installmentValue - paidUpToThis),
+      };
+    });
 
     const ledgerInstallmentIds = new Set(installmentPayments.map((p) => p.installment_id));
     const legacyList = urlPatientId ? filteredCompletedInstallments : completedInstallments;
@@ -1843,20 +1739,10 @@ const FinancialControl: React.FC = () => {
             items={planItems}
             onChange={handlePlanItemsChange}
             title="Itens do Atendimento"
+            showProcedureDate
           />
         )}
-        <div className="grid grid-cols-1 md:grid-cols-3 gap-4 pt-4 border-t border-white/10">
-          <div>
-            <label className="block text-sm font-medium text-gray-200 mb-2">Número de Parcelas *</label>
-            <input
-              type="number"
-              min="1"
-              value={comandaInstallments}
-              onChange={(e) => setComandaInstallments(Number(e.target.value))}
-              className="w-full px-4 py-3 rounded-xl bg-white/5 border border-white/10 text-white"
-              required
-            />
-          </div>
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-4 pt-4 border-t border-white/10">
           <div>
             <label className="block text-sm font-medium text-gray-200 mb-2">Método de Pagamento *</label>
             <select
@@ -1887,60 +1773,6 @@ const FinancialControl: React.FC = () => {
           {isLoading ? "Registrando..." : "Registrar Atendimento"}
         </button>
       </form>
-      <div className="pt-6 border-t border-white/10">
-        <details className="glass-card p-4 border border-white/10">
-          <summary className="cursor-pointer text-sm text-gray-400 hover:text-white">Modo Manual (Legado)</summary>
-          <form onSubmit={handleSubmit} className="space-y-4 mt-4">
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-              <div>
-                <label className="block text-xs text-gray-300 mb-1">Paciente</label>
-                <input
-                  type="text"
-                  name="patientName"
-                  value={formData.patientName}
-                  onChange={handleInputChange}
-                  placeholder="Nome do paciente..."
-                  className="w-full px-3 py-2 rounded-lg bg-white/5 border border-white/10 text-white text-sm"
-                />
-              </div>
-              <div>
-                <label className="block text-xs text-gray-300 mb-1">Procedimento (texto)</label>
-                <input
-                  type="text"
-                  name="procedureType"
-                  value={formData.procedureType}
-                  onChange={handleInputChange}
-                  placeholder="Ex: Botox..."
-                  className="w-full px-3 py-2 rounded-lg bg-white/5 border border-white/10 text-white text-sm"
-                />
-              </div>
-              <div>
-                <label className="block text-xs text-gray-300 mb-1">Valor Total</label>
-                <input
-                  type="number"
-                  name="totalAmount"
-                  value={formData.totalAmount}
-                  onChange={handleInputChange}
-                  className="w-full px-3 py-2 rounded-lg bg-white/5 border border-white/10 text-white text-sm"
-                />
-              </div>
-              <div>
-                <label className="block text-xs text-gray-300 mb-1">Parcelas</label>
-                <input
-                  type="number"
-                  name="installments"
-                  value={formData.installments}
-                  onChange={handleInputChange}
-                  className="w-full px-3 py-2 rounded-lg bg-white/5 border border-white/10 text-white text-sm"
-                />
-              </div>
-            </div>
-            <button type="submit" disabled={isLoading} className="w-full px-4 py-2 rounded-lg bg-white/10 hover:bg-white/20 text-white text-sm">
-              Registrar (Modo Manual)
-            </button>
-          </form>
-        </details>
-      </div>
     </div>
   );
 
@@ -2530,7 +2362,7 @@ const FinancialControl: React.FC = () => {
             </div>
           ) : activeTab === "pending" ? (
             <div className="space-y-4">
-              <h3 className="text-xl font-bold glow-text">Pagamentos Pendentes ({pendingInstallments.length} parcelas)</h3>
+              <h3 className="text-xl font-bold glow-text">Pagamentos Pendentes</h3>
 
               {filteredGroupedInstallments.length === 0 ? (
                 <div className="text-center py-10 text-gray-300">
@@ -2556,7 +2388,9 @@ const FinancialControl: React.FC = () => {
                             )}
                             <div>
                               <h4 className="font-semibold text-white">{patientGroup.patientName}</h4>
-                              <p className="text-sm text-gray-300">{patientGroup.installments.length} parcela(s) pendente(s)</p>
+                              <p className="text-sm text-gray-300">
+                                {Object.keys(patientGroup.procedures).length} procedimento(s) realizado(s)
+                              </p>
                             </div>
                           </div>
                           <div className="text-right">
@@ -2601,7 +2435,7 @@ const FinancialControl: React.FC = () => {
                                     />
                                     <input
                                       type="date"
-                                      value={form.date || todayISO()}
+                                      value={form.date}
                                       onChange={(e) =>
                                         setPatientPaymentForm((prev) => ({
                                           ...prev,
@@ -2659,98 +2493,27 @@ const FinancialControl: React.FC = () => {
                                   className="flex items-center justify-between gap-3 p-3 rounded-xl bg-white/5 border border-white/10"
                                 >
                                   <p className="font-medium text-white text-sm truncate">{group.name}</p>
-                                  <p className="text-sm text-gray-300 flex-shrink-0">
-                                    Pendente: <span className="text-green-300 font-semibold">{formatCurrency(round2(group.totalPending))}</span>
-                                  </p>
+                                  <div className="flex items-center gap-3 flex-shrink-0">
+                                    <p className="text-sm text-gray-300">
+                                      Pendente: <span className="text-green-300 font-semibold">{formatCurrency(round2(group.totalPending))}</span>
+                                    </p>
+                                    <button
+                                      type="button"
+                                      onClick={(e) => {
+                                        e.stopPropagation();
+                                        handleDeleteProcedure(group.procedureId, group.name);
+                                      }}
+                                      disabled={deletingProcedureId === group.procedureId}
+                                      className="p-2 rounded-xl bg-white/5 hover:bg-red-500/20 border border-white/10 hover:border-red-400/30 transition-all disabled:opacity-50"
+                                      title="Excluir procedimento"
+                                    >
+                                      <Trash2 size={14} className="text-red-300" />
+                                    </button>
+                                  </div>
                                 </div>
                               ))}
                             </div>
                           </div>
-
-                          {patientGroup.installments.map((inst) => {
-                            const procedure = patientGroup.procedures[inst.procedure_id];
-                            return (
-                              <div key={inst.id} className="p-4 border-b border-white/10 last:border-b-0 bg-white/5">
-                                <div className="flex justify-between items-start mb-3">
-                                  <div>
-                                    <p className="font-semibold text-white">
-                                      {(() => {
-                                        const record = financialRecords.find(r => r.id === inst.procedure_id);
-                                        return record ? getProcedureDisplayName(record) : procedure?.procedure_type || 'Procedimento';
-                                      })()}
-                                    </p>
-                                    <p className="text-sm text-gray-300">
-                                      Parcela {inst.installment_number} de {procedure?.total_installments}
-                                      {inst.status === "pendente" && (inst.due_date || "").toString().split("T")[0] < todayStr && (
-                                        <span className="ml-2 inline-flex px-2 py-0.5 rounded-md bg-red-500/20 border border-red-400/30 text-red-200 text-xs font-medium">
-                                          ATRASADO
-                                        </span>
-                                      )}
-                                      {Number(inst.amount_paid ?? 0) > 0 && (
-                                        <span className="ml-2 inline-flex px-2 py-0.5 rounded-md bg-cyan-500/20 border border-cyan-400/30 text-cyan-200 text-xs font-medium">
-                                          {formatCurrency(Number(inst.amount_paid))} já pago
-                                        </span>
-                                      )}
-                                    </p>
-                                  </div>
-                                  <div className="text-right">
-                                    <span className="text-lg font-bold text-green-300">{formatCurrency(getInstallmentRemaining(inst))}</span>
-                                    {Number(inst.amount_paid ?? 0) > 0 && (
-                                      <p className="text-xs text-gray-400">de {formatCurrency(inst.installment_value)}</p>
-                                    )}
-                                  </div>
-                                </div>
-
-                                <div className="grid grid-cols-1 md:grid-cols-5 gap-4 text-sm">
-                                  <div>
-                                    <span className="text-gray-300">Vencimento:</span>
-                                    <p className="font-medium text-white">{formatDate(inst.due_date)}</p>
-                                  </div>
-
-                                  <div>
-                                    <span className="text-gray-300">Método Original:</span>
-                                    <div className="flex items-center gap-2">
-                                      <p className="font-medium text-white">{getPaymentMethodText(procedure?.payment_method || "")}</p>
-                                      <button
-                                        type="button"
-                                        onClick={(e) => {
-                                          e.stopPropagation();
-                                          if (procedure) openEditMethodModal(procedure);
-                                        }}
-                                        className="p-2 rounded-xl bg-white/5 hover:bg-white/10 border border-white/10 transition-all"
-                                        title="Editar método de pagamento"
-                                      >
-                                        <Edit size={14} className="text-cyan-300" />
-                                      </button>
-                                    </div>
-                                  </div>
-
-                                  <div>
-                                    <span className="text-gray-300">Status:</span>
-                                    <span className={`inline-flex mt-1 px-2 py-1 rounded-full text-xs font-medium ${getStatusColor(inst.status)}`}>
-                                      {inst.status}
-                                    </span>
-                                  </div>
-
-                                  <div className="md:col-span-2">
-                                    <span className="text-gray-300">Ações:</span>
-                                    <div className="flex gap-2 mt-1">
-                                      <button
-                                        type="button"
-                                        onClick={(e) => {
-                                          e.stopPropagation();
-                                          openPaymentModal(inst);
-                                        }}
-                                        className="w-full neon-button"
-                                      >
-                                        Registrar Pagamento
-                                      </button>
-                                    </div>
-                                  </div>
-                                </div>
-                              </div>
-                            );
-                          })}
                         </div>
                       )}
                     </div>
@@ -2899,7 +2662,6 @@ const FinancialControl: React.FC = () => {
                         const p = entry.ledger;
                         const procedure = payments.find((pr) => pr.id === p.procedure_id);
                         const record = financialRecords.find((r) => r.id === p.procedure_id);
-                        const installment = installments.find((i) => i.id === p.installment_id);
                         return (
                           <div
                             key={`ledger-${p.id}`}
@@ -2932,9 +2694,7 @@ const FinancialControl: React.FC = () => {
                               {entry.partial && (
                                 <div>
                                   <span className="text-gray-300">Saldo restante da parcela:</span>
-                                  <p className="font-medium text-white">
-                                    {installment ? formatCurrency(getInstallmentRemaining(installment)) : "—"}
-                                  </p>
+                                  <p className="font-medium text-white">{formatCurrency(entry.remainingAfter)}</p>
                                 </div>
                               )}
                             </div>
@@ -3365,6 +3125,48 @@ const FinancialControl: React.FC = () => {
                 </button>
                 <button type="button" onClick={handleUpdatePaymentMethod} className="flex-1 neon-button">
                   Salvar Alterações
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* Modal Confirmar Exclusão de Procedimento */}
+        {deleteProcedureModal.isOpen && (
+          <div className="fixed inset-0 bg-black/70 flex items-center justify-center z-50 p-4">
+            <div className="glass-card p-6 max-w-md w-full border border-red-400/30">
+              <div className="flex justify-between items-center mb-4">
+                <h3 className="text-lg font-semibold text-white">Excluir Procedimento</h3>
+                <button
+                  onClick={closeDeleteProcedureModal}
+                  className="p-2 rounded-xl bg-white/5 hover:bg-white/10 border border-white/10 transition-all"
+                >
+                  <X size={18} className="text-white" />
+                </button>
+              </div>
+
+              <p className="mb-6 text-gray-300">
+                Excluir <span className="font-medium text-white">"{deleteProcedureModal.procedureName}"</span>? Isso
+                remove o lançamento e todas as parcelas/pagamentos vinculados a ele.{" "}
+                <span className="text-red-300 font-medium">Essa ação não pode ser desfeita.</span>
+              </p>
+
+              <div className="flex gap-3">
+                <button
+                  type="button"
+                  onClick={closeDeleteProcedureModal}
+                  disabled={deletingProcedureId === deleteProcedureModal.procedureId}
+                  className="flex-1 px-4 py-2 rounded-xl border border-white/10 bg-white/5 hover:bg-white/10 text-white transition-all disabled:opacity-50"
+                >
+                  Cancelar
+                </button>
+                <button
+                  type="button"
+                  onClick={confirmDeleteProcedure}
+                  disabled={deletingProcedureId === deleteProcedureModal.procedureId}
+                  className="flex-1 px-4 py-2 rounded-xl bg-red-500/80 hover:bg-red-500 text-white font-medium transition-all disabled:opacity-50"
+                >
+                  {deletingProcedureId === deleteProcedureModal.procedureId ? "Excluindo..." : "Excluir"}
                 </button>
               </div>
             </div>

@@ -13,6 +13,8 @@ export interface AppointmentPlanEditorProps {
   title?: string;
   readOnly?: boolean;
   className?: string;
+  /** Exibe um campo de "Data do Procedimento" por item (usado no Financeiro). */
+  showProcedureDate?: boolean;
 }
 
 const formatCurrency = (value: number): string => {
@@ -25,6 +27,7 @@ const AppointmentPlanEditor: React.FC<AppointmentPlanEditorProps> = ({
   title = 'Plano do Atendimento',
   readOnly = false,
   className = '',
+  showProcedureDate = false,
 }) => {
   const totals: AppointmentPlanTotals = calculatePlanTotals(items);
 
@@ -72,7 +75,22 @@ const AppointmentPlanEditor: React.FC<AppointmentPlanEditorProps> = ({
               )}
             </div>
             
-            <div className="grid grid-cols-1 md:grid-cols-4 gap-3">
+            <div className={`grid grid-cols-1 gap-3 ${showProcedureDate ? 'md:grid-cols-5' : 'md:grid-cols-4'}`}>
+              {showProcedureDate && (
+                <div>
+                  <label className="block text-xs text-gray-300 mb-1">Data do Procedimento</label>
+                  {readOnly ? (
+                    <p className="text-sm font-semibold text-white">{item.procedure_date || '—'}</p>
+                  ) : (
+                    <input
+                      type="date"
+                      value={item.procedure_date || ''}
+                      onChange={(e) => handleUpdateItem(index, { procedure_date: e.target.value })}
+                      className="w-full px-2 py-1.5 rounded-lg bg-white/5 border border-white/10 text-white text-sm [color-scheme:dark]"
+                    />
+                  )}
+                </div>
+              )}
               <div>
                 <label className="block text-xs text-gray-300 mb-1">Quantidade</label>
                 {readOnly ? (
