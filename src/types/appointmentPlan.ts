@@ -19,6 +19,7 @@ export type AppointmentPlanItem = {
   final_price: number;        // editável
   quantity: number;           // editável
   discount: number;           // editável (por item)
+  procedure_date?: string;    // editável (YYYY-MM-DD) — data em que o procedimento foi realizado
 };
 
 export type AppointmentPlanTotals = {

@@ -24,6 +24,8 @@ export interface FinancialProcedureItem {
   quantity: number;
   discount: number;
   profit_snapshot: number;
+  /** Data em que o procedimento foi efetivamente realizado (opcional). */
+  procedure_date?: string | null;
 }
 
 export interface FinancialRecord {
@@ -483,15 +485,25 @@ export const createFinancialRecord = async (
       quantity: item.quantity,
       discount: item.discount,
       profit_snapshot: item.profit_snapshot,
+      procedure_date: item.procedure_date || null,
     }));
 
-    const { error: itemsError } = await supabase.from('procedure_items').insert(itemsPayload);
+    let { error: itemsError } = await supabase.from('procedure_items').insert(itemsPayload);
+
+    // Se a coluna procedure_date ainda não existir no schema (migration não executada),
+    // tenta de novo sem ela em vez de falhar o atendimento inteiro.
+    if (itemsError && isColumnNotFoundError(itemsError)) {
+      logger.warn('[FINANCIAL] Coluna procedure_date não encontrada. Execute a migration 20260726120000_procedure_items_date.sql no Supabase.', { itemsError });
+      const itemsPayloadWithoutDate = itemsPayload.map(({ procedure_date, ...rest }) => rest);
+      const retry = await supabase.from('procedure_items').insert(itemsPayloadWithoutDate);
+      itemsError = retry.error;
+    }
 
     if (itemsError) {
       // Se a tabela não existir, apenas logar warning mas não falhar (compatibilidade)
       if (
-        itemsError.code === 'PGRST116' || 
-        itemsError.message?.includes('relation') || 
+        itemsError.code === 'PGRST116' ||
+        itemsError.message?.includes('relation') ||
         itemsError.message?.includes('does not exist') ||
         itemsError.message?.includes('Not Found') ||
         (itemsError as any)?.status === 404
@@ -920,6 +932,52 @@ export const updatePaymentMethod = async (
       error: error?.message || String(error),
       procedureId,
     });
+    throw error;
+  }
+};
+
+/**
+ * Exclui um procedimento financeiro e todos os registros vinculados
+ * (parcelas, pagamentos parciais e itens). Uso: corrigir lançamento
+ * registrado com valor/dados errados.
+ */
+export const deleteFinancialProcedure = async (procedureId: string): Promise<void> => {
+  try {
+    const { error: paymentsError } = await supabase
+      .from('installment_payments')
+      .delete()
+      .eq('procedure_id', procedureId);
+    if (paymentsError) {
+      logger.warn('[FINANCIAL] Erro ao remover pagamentos parciais do procedimento', { paymentsError, procedureId });
+    }
+
+    const { error: itemsError } = await supabase
+      .from('procedure_items')
+      .delete()
+      .eq('procedure_id', procedureId);
+    if (itemsError) {
+      logger.warn('[FINANCIAL] Erro ao remover itens do procedimento', { itemsError, procedureId });
+    }
+
+    const { error: installmentsError } = await supabase
+      .from('installments')
+      .delete()
+      .eq('procedure_id', procedureId);
+    if (installmentsError) {
+      throw new Error(installmentsError.message || 'Erro ao remover parcelas do procedimento');
+    }
+
+    const { error: procedureError } = await supabase
+      .from('procedures')
+      .delete()
+      .eq('id', procedureId);
+    if (procedureError) {
+      throw new Error(procedureError.message || 'Erro ao remover procedimento');
+    }
+
+    logger.info('[FINANCIAL] Procedimento excluído com sucesso', { procedureId });
+  } catch (error: any) {
+    logger.error('[FINANCIAL] Falha ao excluir procedimento', { error: error?.message || String(error), procedureId });
     throw error;
   }
 };

@@ -294,17 +294,14 @@ const PatientDetailScreen: React.FC = () => {
                         >
                           {showFinancialValues ? <EyeOff size={16} /> : <Eye size={16} />}
                         </button>
-                        {financialSummary.overdue.gross > 0 && (
-                          <div className="px-2.5 py-1.5 rounded-xl bg-red-500/20 border border-red-400/30 text-red-200 text-xs">
-                            <span className="font-medium">EM ATRASO</span>
-                            <div className="mt-0.5 text-[11px]">Bruto: {maskBRL(showFinancialValues, financialSummary.overdue.gross)}</div>
-                            <div className="text-[11px]">Líquido: {maskBRL(showFinancialValues, financialSummary.overdue.net)}</div>
-                          </div>
-                        )}
                         <div className="px-2.5 py-1.5 rounded-xl bg-white/5 border border-white/10 text-gray-300 text-xs">
                           <span className="font-medium">Pendente</span>
-                          <div className="mt-0.5 text-[11px]">Bruto: {maskBRL(showFinancialValues, financialSummary.pending.gross)}</div>
-                          <div className="text-[11px]">Líquido: {maskBRL(showFinancialValues, financialSummary.pending.net)}</div>
+                          <div className="mt-0.5 text-[11px]">
+                            Bruto: {maskBRL(showFinancialValues, financialSummary.overdue.gross + financialSummary.pending.gross)}
+                          </div>
+                          <div className="text-[11px]">
+                            Líquido: {maskBRL(showFinancialValues, financialSummary.overdue.net + financialSummary.pending.net)}
+                          </div>
                         </div>
                       </div>
                     )}

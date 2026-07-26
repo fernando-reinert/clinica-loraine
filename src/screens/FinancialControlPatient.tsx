@@ -11,7 +11,6 @@ import {
   DollarSign,
   Clock,
   TrendingUp,
-  AlertCircle,
   RefreshCw,
   ArrowLeft,
   PlusCircle,
@@ -288,18 +287,8 @@ export default function FinancialControlPatient() {
           </button>
         </div>
 
-        {/* 3 chips: EM ATRASO, PENDENTE, PAGO (MÊS) */}
-        <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
-          <div className="glass-card p-4 border border-white/10">
-            <div className="flex items-center gap-2 mb-2">
-              <AlertCircle className="text-red-400" size={20} />
-              <span className="text-sm font-semibold text-red-300">EM ATRASO</span>
-            </div>
-            <p className="text-sm text-gray-400">Bruto / Taxas / Líquido</p>
-            <p className="text-sm font-medium text-white mt-1">
-              {formatCurrency(overdue.gross)} / {formatCurrency(overdue.fee)} / {formatCurrency(overdue.net)}
-            </p>
-          </div>
+        {/* 2 chips: PENDENTE (inclui atrasado), PAGO (MÊS) */}
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
           <div className="glass-card p-4 border border-white/10">
             <div className="flex items-center gap-2 mb-2">
               <Clock className="text-yellow-400" size={20} />
@@ -307,7 +296,8 @@ export default function FinancialControlPatient() {
             </div>
             <p className="text-sm text-gray-400">Bruto / Taxas / Líquido (esperado)</p>
             <p className="text-sm font-medium text-white mt-1">
-              {formatCurrency(pending.gross)} / {formatCurrency(pending.fee)} / {formatCurrency(pending.net)}
+              {formatCurrency(overdue.gross + pending.gross)} / {formatCurrency(overdue.fee + pending.fee)} /{" "}
+              {formatCurrency(overdue.net + pending.net)}
             </p>
           </div>
           <div className="glass-card p-4 border border-white/10">
