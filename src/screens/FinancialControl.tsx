@@ -2583,9 +2583,10 @@ const FinancialControl: React.FC = () => {
                                 const form = patientPaymentForm[patientGroup.patientId] ?? { amount: "", method: "pix", date: todayISO() };
                                 const isSubmitting = submittingPatientPayment.has(patientGroup.patientId);
                                 return (
-                                  <div className="flex items-center gap-2 flex-shrink-0">
+                                  <div className="grid grid-cols-2 gap-2 sm:flex sm:items-center sm:flex-shrink-0">
                                     <input
                                       type="number"
+                                      inputMode="decimal"
                                       step="0.01"
                                       min="0"
                                       placeholder="Valor recebido"
@@ -2597,7 +2598,7 @@ const FinancialControl: React.FC = () => {
                                         }))
                                       }
                                       disabled={isSubmitting}
-                                      className="w-36 bg-white/10 border border-white/20 rounded-lg px-2.5 py-2 text-sm text-white placeholder-gray-400 focus:outline-none focus:border-cyan-400 disabled:opacity-50"
+                                      className="w-full min-w-0 sm:w-36 bg-white/10 border border-white/20 rounded-lg px-2.5 py-2 text-base sm:text-sm text-white placeholder-gray-400 focus:outline-none focus:border-cyan-400 disabled:opacity-50"
                                     />
                                     <input
                                       type="date"
@@ -2610,7 +2611,7 @@ const FinancialControl: React.FC = () => {
                                       }
                                       disabled={isSubmitting}
                                       title="Data em que o pagamento foi feito"
-                                      className="bg-white/10 border border-white/20 rounded-lg px-2.5 py-2 text-sm text-white [color-scheme:dark] focus:outline-none focus:border-cyan-400 disabled:opacity-50"
+                                      className="w-full min-w-0 sm:w-auto bg-white/10 border border-white/20 rounded-lg px-2 py-2 text-sm text-white [color-scheme:dark] focus:outline-none focus:border-cyan-400 disabled:opacity-50"
                                     />
                                     <PaymentMethodSelect
                                       value={form.method}
@@ -2621,13 +2622,13 @@ const FinancialControl: React.FC = () => {
                                         }))
                                       }
                                       disabled={isSubmitting}
-                                      className="w-40"
+                                      className="col-span-2 sm:col-span-1 w-full sm:w-40"
                                     />
                                     <button
                                       type="button"
                                       onClick={() => handleRegisterPatientPayment(patientGroup.patientId)}
                                       disabled={isSubmitting}
-                                      className="neon-button text-sm px-4 py-2 whitespace-nowrap disabled:opacity-50"
+                                      className="col-span-2 sm:col-span-1 neon-button text-sm px-4 py-2.5 sm:py-2 whitespace-nowrap disabled:opacity-50"
                                     >
                                       {isSubmitting ? "Abatendo..." : "Abater"}
                                     </button>
