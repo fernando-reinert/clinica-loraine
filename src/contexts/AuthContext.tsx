@@ -1,4 +1,4 @@
-import React, { createContext, useContext, useEffect, useState } from 'react';
+import React, { createContext, useContext, useEffect, useRef, useState } from 'react';
 import { User, Session } from '@supabase/supabase-js';
 import { useSupabase } from './SupabaseContext';
 import toast from 'react-hot-toast';
@@ -32,10 +32,12 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
   const [user, setUser] = useState<User | null>(null);
   const [session, setSession] = useState<Session | null>(null);
   const [loading, setLoading] = useState(true);
+  const lastUserIdRef = useRef<string | null>(null);
 
   useEffect(() => {
     // Get initial session
     supabase.auth.getSession().then(({ data: { session } }) => {
+      lastUserIdRef.current = lastUserIdRef.current ?? session?.user?.id ?? null;
       setSession(session);
       setUser(session?.user ?? null);
       setLoading(false);
@@ -44,13 +46,20 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
     // Listen for auth changes
     const { data: { subscription } } = supabase.auth.onAuthStateChange(
       async (event, session) => {
+        const nextUser = session?.user ?? null;
+        const isSameUser = nextUser?.id === lastUserIdRef.current;
+        lastUserIdRef.current = nextUser?.id ?? null;
+
         setSession(session);
-        setUser(session?.user ?? null);
+        // Supabase re-emits SIGNED_IN / TOKEN_REFRESHED when the tab regains focus.
+        // Keep the same user reference when the user didn't change so hooks that
+        // depend on `user` don't refetch everything.
+        setUser((prev) =>
+          isSameUser && prev && event !== 'USER_UPDATED' ? prev : nextUser
+        );
         setLoading(false);
 
-        if (event === 'SIGNED_IN') {
-          toast.success('Login realizado com sucesso!');
-        } else if (event === 'SIGNED_OUT') {
+        if (event === 'SIGNED_OUT') {
           toast.success('Logout realizado com sucesso!');
         }
       }

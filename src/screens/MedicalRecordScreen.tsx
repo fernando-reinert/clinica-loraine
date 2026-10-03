@@ -3042,7 +3042,7 @@ Data: {{signed_at}}`;
                     </button>
                   </div>
                   <div className="border border-white/10 rounded-xl overflow-hidden">
-                    <div className="grid grid-cols-[1fr_1fr_1fr_auto] gap-2 bg-white/5 px-3 py-2 text-xs font-medium text-gray-300">
+                    <div className="hidden md:grid grid-cols-[1fr_1fr_1fr_auto] gap-2 bg-white/5 px-3 py-2 text-xs font-medium text-gray-300">
                       <span>Região a ser tratada</span>
                       <span>Volume</span>
                       <span>Produto</span>
@@ -3050,7 +3050,9 @@ Data: {{signed_at}}`;
                     </div>
                     <div className="divide-y divide-white/5">
                       {getFillerRowsForForm(injectablesRecord.fillers).map((row, index) => (
-                        <div key={index} className="grid grid-cols-[1fr_1fr_1fr_auto] gap-2 px-3 py-2 items-center">
+                        <div key={index} className="grid grid-cols-[minmax(0,1fr)_minmax(0,1fr)_auto] md:grid-cols-[1fr_1fr_1fr_auto] gap-2 px-3 py-2 items-end md:items-center">
+                          <div className="col-span-3 md:col-span-1 min-w-0">
+                          <label className="md:hidden block text-xs font-medium text-gray-300 mb-1">Região a ser tratada</label>
                           <input
                             type="text"
                             value={row.region ?? ''}
@@ -3067,8 +3069,11 @@ Data: {{signed_at}}`;
                               });
                             }}
                             placeholder="Região a ser tratada"
-                            className="px-2 py-1.5 rounded-lg bg-white/5 border border-white/10 text-white text-xs placeholder:text-gray-400 focus:ring-2 focus:ring-cyan-500 focus:border-cyan-500 outline-none"
+                            className="w-full min-w-0 px-2 py-2 md:py-1.5 rounded-lg bg-white/5 border border-white/10 text-white text-base md:text-xs placeholder:text-gray-400 focus:ring-2 focus:ring-cyan-500 focus:border-cyan-500 outline-none"
                           />
+                          </div>
+                          <div className="min-w-0">
+                          <label className="md:hidden block text-xs font-medium text-gray-300 mb-1">Volume</label>
                           <input
                             type="text"
                             value={row.volume ?? ''}
@@ -3085,8 +3090,11 @@ Data: {{signed_at}}`;
                               });
                             }}
                             placeholder="Volume"
-                            className="px-2 py-1.5 rounded-lg bg-white/5 border border-white/10 text-white text-xs placeholder:text-gray-400 focus:ring-2 focus:ring-cyan-500 focus:border-cyan-500 outline-none"
+                            className="w-full min-w-0 px-2 py-2 md:py-1.5 rounded-lg bg-white/5 border border-white/10 text-white text-base md:text-xs placeholder:text-gray-400 focus:ring-2 focus:ring-cyan-500 focus:border-cyan-500 outline-none"
                           />
+                          </div>
+                          <div className="min-w-0">
+                          <label className="md:hidden block text-xs font-medium text-gray-300 mb-1">Produto</label>
                           <input
                             type="text"
                             value={row.product ?? ''}
@@ -3103,9 +3111,10 @@ Data: {{signed_at}}`;
                               });
                             }}
                             placeholder="Produto"
-                            className="px-2 py-1.5 rounded-lg bg-white/5 border border-white/10 text-white text-xs placeholder:text-gray-400 focus:ring-2 focus:ring-cyan-500 focus:border-cyan-500 outline-none"
+                            className="w-full min-w-0 px-2 py-2 md:py-1.5 rounded-lg bg-white/5 border border-white/10 text-white text-base md:text-xs placeholder:text-gray-400 focus:ring-2 focus:ring-cyan-500 focus:border-cyan-500 outline-none"
                           />
-                          <div className="flex items-center justify-center w-9">
+                          </div>
+                          <div className="flex items-center justify-center w-11 md:w-9">
                             {getFillerRowsForForm(injectablesRecord.fillers).length > 1 ? (
                               <button
                                 type="button"
