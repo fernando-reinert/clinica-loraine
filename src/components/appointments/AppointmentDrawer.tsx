@@ -355,7 +355,7 @@ export default function AppointmentDrawer({
     <>
       {/* Backdrop */}
       <div
-        className="fixed inset-0 z-40 bg-black/60 backdrop-blur-sm"
+        className="fixed inset-0 z-[55] bg-black/60 backdrop-blur-sm"
         onClick={onClose}
         aria-hidden="true"
       />
@@ -365,7 +365,7 @@ export default function AppointmentDrawer({
         role="dialog"
         aria-modal="true"
         aria-label={mode === 'edit' ? 'Editar agendamento' : 'Novo agendamento'}
-        className="fixed inset-y-0 right-0 z-50 flex flex-col bg-slate-900 border-l border-slate-700/50 shadow-2xl w-[min(560px,100vw)] sm:w-[min(560px,95vw)]"
+        className="fixed inset-y-0 right-0 z-[60] flex flex-col bg-slate-900 border-l border-slate-700/50 shadow-2xl w-[min(560px,100vw)] sm:w-[min(560px,95vw)]"
       >
         {/* Header */}
         <div className="flex items-center justify-between px-5 py-4 border-b border-slate-700/50 flex-shrink-0">
