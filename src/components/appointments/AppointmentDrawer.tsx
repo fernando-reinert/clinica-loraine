@@ -1,5 +1,6 @@
 // src/components/appointments/AppointmentDrawer.tsx
 import React, { useState, useEffect, useRef, useCallback } from 'react';
+import { createPortal } from 'react-dom';
 import { X, History, ChevronDown, ChevronUp } from 'lucide-react';
 import { useAuth } from '../../contexts/AuthContext';
 import { supabase } from '../../services/supabase/client';
@@ -351,7 +352,9 @@ export default function AppointmentDrawer({
 
   if (!open) return null;
 
-  return (
+  // Portal no <body>: evita que o drawer fique preso num stacking context do layout
+  // (ex.: .main-scroll-area no iOS) e acabe atrás da barra de navegação inferior.
+  return createPortal(
     <>
       {/* Backdrop */}
       <div
@@ -532,6 +535,7 @@ export default function AppointmentDrawer({
           </div>
         </form>
       </div>
-    </>
+    </>,
+    document.body
   );
 }
