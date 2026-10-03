@@ -1,6 +1,8 @@
 {
   "name": "Clínica Áurea",
   "short_name": "Clínica Áurea",
+  "start_url": "/",
+  "scope": "/",
   "icons": [
     {
       "src": "/android-chrome-192x192.png",
