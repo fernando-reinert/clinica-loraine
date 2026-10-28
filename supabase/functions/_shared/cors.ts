@@ -5,6 +5,7 @@ export const ALLOWED_ORIGINS = [
   "http://127.0.0.1:5173",
   "http://192.168.88.34:5173",
   "https://clinica-aurea.com",
+  "https://app.clinica-aurea.com",
 ];
 
 const CORS_METHODS = "POST, OPTIONS";

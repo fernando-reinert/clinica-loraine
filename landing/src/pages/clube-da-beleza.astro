@@ -1,0 +1,47 @@
+---
+import Base from "../layouts/Base.astro";
+import WhatsappIcon from "../components/WhatsappIcon.astro";
+import { CLUBE_PLANS, CLUBE_INTRO, CLUBE_DISCLAIMER } from "../data/clube";
+import { whatsappLink } from "../data/services";
+---
+<Base
+  title="Clubinho da Beleza | Plano Anual de Estética | Clínica Áurea"
+  description="Plano anual com mensalidades fixas para toxina botulínica e preenchimento na Clínica Áurea, em Carvalhos (MG). Conheça os planos Essencial, Constância e Áurea."
+  path="/clube-da-beleza"
+>
+  <section class="site-page-hero">
+    <div class="site-section-label" style="color:#D4B96A">Clube da Beleza</div>
+    <h1>Clubinho da <em style="color:#D4B96A">Beleza</em></h1>
+    <p>Sua beleza com planejamento o ano inteiro.</p>
+  </section>
+
+  <section class="site-section">
+    <p class="site-section-intro">{CLUBE_INTRO}</p>
+    <div class="site-clube-grid">
+      {CLUBE_PLANS.map((p) => (
+        <div class="site-clube-card">
+          <h2 class="site-clube-name">{p.name}</h2>
+          <div class="site-clube-procedures">{p.procedures}</div>
+          <div class="site-clube-price">{p.price}</div>
+          <div class="site-clube-choose">Escolha:</div>
+          <ul>{p.options.map((o) => <li>{o}</li>)}</ul>
+          <p class="site-clube-months">{p.months}</p>
+        </div>
+      ))}
+    </div>
+    <p class="site-clube-disclaimer">{CLUBE_DISCLAIMER}</p>
+  </section>
+
+  <section class="site-cta-final">
+    <h2>Quer participar do <em style="color:#D4B96A">clube</em>?</h2>
+    <p>Fale com a gente pelo WhatsApp e conheça as condições de adesão.</p>
+    <a
+      href={whatsappLink("Olá, gostaria de saber mais sobre o Clubinho da Beleza da Clínica Áurea")}
+      target="_blank"
+      rel="noopener noreferrer"
+      class="site-btn-gold"
+    >
+      <WhatsappIcon /> Falar pelo WhatsApp
+    </a>
+  </section>
+</Base>

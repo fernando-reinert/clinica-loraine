@@ -1,0 +1,129 @@
+---
+import Base from "../layouts/Base.astro";
+
+const values = [
+  { title: "Acolhimento e escuta", text: "Compreender as necessidades e expectativas de cada pessoa." },
+  { title: "Ética e responsabilidade", text: "Orientar com transparência e indicar tratamentos após avaliação individual." },
+  { title: "Naturalidade", text: "Valorizar a beleza respeitando os traços e a identidade de cada paciente." },
+  { title: "Aprimoramento constante", text: "Investir em conhecimento e atualização profissional." },
+  { title: "Qualidade no cuidado", text: "Atenção à escolha dos produtos, aos procedimentos e ao acompanhamento." },
+  { title: "Respeito à individualidade", text: "Construir planos de cuidado adequados a cada pessoa." },
+];
+---
+<Base
+  title="Sobre a Clínica Áurea | Loraine Vilela, Enfermeira Esteta em Carvalhos, MG"
+  description="Conheça a Clínica Áurea, em Carvalhos (MG): missão, visão, valores e a equipe com enfermeira esteta Loraine Vilela, nutricionista e médica."
+  path="/sobre"
+>
+  <section class="site-page-hero">
+    <div class="site-section-label" style="color:#D4B96A">Sobre a clínica</div>
+    <h1>Clínica <em style="color:#D4B96A">Áurea</em></h1>
+    <p>Saúde e Estética Avançada</p>
+  </section>
+
+  <section class="site-section">
+    <div class="site-section-label">Sobre a clínica</div>
+    <h2>Um espaço de <em>cuidado e acolhimento</em></h2>
+    <div class="site-prose">
+      <p>
+        A Áurea nasceu do desejo de Loraine Vilela de criar um espaço onde saúde, beleza e autoestima fossem cuidadas
+        com atenção e acolhimento.
+      </p>
+      <p>
+        Localizada em Carvalhos, no Sul de Minas, a clínica oferece um ambiente confortável para procedimentos de
+        estética facial e corporal, consultas médicas, atendimento nutricional e programas de emagrecimento com
+        acompanhamento profissional.
+      </p>
+      <p>
+        Nosso compromisso é conhecer cada pessoa e oferecer um cuidado que respeite sua individualidade, seus
+        objetivos e seu momento de vida.
+      </p>
+    </div>
+  </section>
+
+  <section class="site-exclusive">
+    <div class="site-exclusive-inner site-mvv">
+      <div class="site-mvv-block">
+        <div class="site-section-label" style="color:#D4B96A">Missão</div>
+        <p>
+          Cuidar da saúde, da beleza e do bem-estar com atendimento humanizado e personalizado, valorizando a
+          individualidade e a autoestima de cada pessoa.
+        </p>
+      </div>
+      <div class="site-mvv-block">
+        <div class="site-section-label" style="color:#D4B96A">Visão</div>
+        <p>
+          Ser referência em saúde e estética avançada em Carvalhos e região, reconhecida pela qualidade do
+          atendimento, pelo acolhimento e pelo compromisso com o cuidado responsável.
+        </p>
+      </div>
+    </div>
+  </section>
+
+  <section class="site-section">
+    <div class="site-section-label">Valores</div>
+    <h2>O que <em>nos guia</em></h2>
+    <div class="site-diff-grid">
+      {values.map((v, i) => (
+        <div class="site-diff-item">
+          <div class="site-diff-num">{String(i + 1).padStart(2, "0")}</div>
+          <div class="site-diff-text"><h3>{v.title}</h3><p>{v.text}</p></div>
+        </div>
+      ))}
+    </div>
+  </section>
+
+  <section class="site-section">
+    <div class="site-about-grid">
+      <div class="site-about-img">
+        <span class="site-about-img-placeholder">Foto da Loraine</span>
+      </div>
+      <div class="site-about-text">
+        <div class="site-section-label">Fundadora</div>
+        <h2 class="site-about-title">Loraine Pires Vilela Reinert</h2>
+        <div class="site-person-role">Enfermeira esteta | COREN-MG 344.168</div>
+        <p>
+          Sou enfermeira, pós-graduada em Estética Avançada e fundadora da Clínica Áurea. Encontrei na estética uma
+          forma de unir o cuidado com as pessoas à valorização da beleza e da autoestima.
+        </p>
+        <p>
+          Minha atuação é dedicada à harmonização facial e corporal, com planejamento personalizado e atenção à
+          naturalidade. Cada atendimento começa com escuta: entender o que incomoda você, suas expectativas e o que faz
+          sentido para suas necessidades.
+        </p>
+        <p>
+          Busco aprimoramento constante por meio de cursos e atualização profissional, aliado ao uso de produtos de
+          marcas de referência e ao acompanhamento em cada etapa do cuidado.
+        </p>
+      </div>
+    </div>
+  </section>
+
+  <section class="site-team">
+    <div class="site-team-inner">
+      <div class="site-section-label">Equipe</div>
+      <h2>Cuidado <em>multidisciplinar</em></h2>
+      <div class="site-team-grid">
+        <div class="site-team-card">
+          <div class="site-team-photo">Foto</div>
+          <h3>Rafael Mendes</h3>
+          <div class="site-person-role">Nutricionista | CRN-23101478</div>
+          <p>
+            Acompanhamento nutricional personalizado, com foco em emagrecimento, ganho de massa magra, saúde e
+            qualidade de vida. Planejamento alimentar adaptado à rotina, às necessidades e aos objetivos de cada
+            paciente.
+          </p>
+        </div>
+        <div class="site-team-card">
+          <div class="site-team-photo">Foto</div>
+          <h3>Dra. Maria Zélia de Souza</h3>
+          <div class="site-person-role">Médica | CRM-MG 91410</div>
+          <p>
+            Consultas médicas e acompanhamento clínico voltados ao controle do peso e à saúde metabólica, com
+            avaliação individual e orientação de acordo com as necessidades de cada paciente.
+          </p>
+        </div>
+      </div>
+    </div>
+  </section>
+</Base>

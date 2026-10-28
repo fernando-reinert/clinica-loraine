@@ -1,0 +1,80 @@
+---
+import Base from "../layouts/Base.astro";
+import WhatsappIcon from "../components/WhatsappIcon.astro";
+import { SITE } from "../data/site";
+import { WHATSAPP_EVALUATION } from "../data/services";
+
+const mapQuery = encodeURIComponent(`${SITE.address.street}, ${SITE.address.city}, ${SITE.address.state}`);
+---
+<Base
+  title="Contato e Localização | Clínica Áurea em Carvalhos, MG"
+  description="Clínica Áurea: Rua Dr Ulisses Fabiano Alves, 99, Loja 02, Centro, Carvalhos (MG). WhatsApp (35) 99745-4406. Atendemos Carvalhos e região, inclusive aos sábados."
+  path="/contato"
+>
+  <section class="site-page-hero">
+    <div class="site-section-label" style="color:#D4B96A">Contato</div>
+    <h1>Venha nos <em style="color:#D4B96A">visitar</em></h1>
+    <p>Estamos no coração de Carvalhos, com fácil acesso e estacionamento gratuito na região.</p>
+  </section>
+
+  <section class="site-section">
+    <div class="site-loc-grid">
+      <div class="site-loc-map">
+        <iframe
+          title="Mapa da Clínica Áurea"
+          src={`https://www.google.com/maps?q=${mapQuery}&output=embed`}
+          loading="lazy"
+          referrerpolicy="no-referrer-when-downgrade"
+        ></iframe>
+      </div>
+      <div class="site-loc-info">
+        <h2 class="site-about-title">Clínica Áurea</h2>
+
+        <div class="site-loc-detail">
+          <svg viewBox="0 0 24 24" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M21 10c0 7-9 13-9 13s-9-6-9-13a9 9 0 0 1 18 0z" /><circle cx="12" cy="10" r="3" /></svg>
+          <div>
+            {SITE.address.street}<br />
+            {SITE.address.district} - {SITE.address.city}, {SITE.address.state}<br />
+            <small style="color:var(--site-fg-muted)">Ref: Rua da Igreja</small>
+          </div>
+        </div>
+
+        <div class="site-loc-detail">
+          <svg viewBox="0 0 24 24" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M22 16.92v3a2 2 0 0 1-2.18 2 19.79 19.79 0 0 1-8.63-3.07 19.5 19.5 0 0 1-6-6 19.79 19.79 0 0 1-3.07-8.67A2 2 0 0 1 4.11 2h3a2 2 0 0 1 2 1.72 12.84 12.84 0 0 0 .7 2.81 2 2 0 0 1-.45 2.11L8.09 9.91a16 16 0 0 0 6 6l1.27-1.27a2 2 0 0 1 2.11-.45 12.84 12.84 0 0 0 2.81.7A2 2 0 0 1 22 16.92z" /></svg>
+          <div>
+            <a href={`tel:${SITE.phoneIntl}`}>{SITE.phone}</a><br />
+            <small>WhatsApp disponível</small>
+          </div>
+        </div>
+
+        <div class="site-loc-detail">
+          <svg viewBox="0 0 24 24" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="10" /><polyline points="12 6 12 12 16 14" /></svg>
+          <div>Horário agendado<br /><small>Atendemos inclusive aos sábados</small></div>
+        </div>
+
+        <div class="site-loc-detail">
+          <svg viewBox="0 0 24 24" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="2" y="2" width="20" height="20" rx="5" ry="5" /><path d="M16 11.37A4 4 0 1 1 12.63 8 4 4 0 0 1 16 11.37z" /><line x1="17.5" y1="6.5" x2="17.51" y2="6.5" /></svg>
+          <div><a href={`https://www.instagram.com/${SITE.instagram}`} target="_blank" rel="noopener noreferrer">@{SITE.instagram}</a></div>
+        </div>
+
+        <div class="site-loc-cities">
+          <h3 class="site-loc-cities-title">Atendemos toda a região</h3>
+          <div class="site-loc-tags">
+            {SITE.areas.map((city) => <span class="site-loc-tag">{city}</span>)}
+          </div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <section class="site-cta-final">
+    <h2>Agende sua <em style="color:#D4B96A">avaliação</em></h2>
+    <p>
+      Entre em contato pelo WhatsApp e agende sua avaliação personalizada. O valor de R$ 150 é convertido
+      integralmente no seu procedimento.
+    </p>
+    <a href={WHATSAPP_EVALUATION} target="_blank" rel="noopener noreferrer" class="site-btn-gold">
+      <WhatsappIcon /> Falar pelo WhatsApp
+    </a>
+  </section>
+</Base>
