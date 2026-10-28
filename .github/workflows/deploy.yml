@@ -1,10 +1,12 @@
-name: Deploy to Hostinger
+name: Deploy App to Hostinger (app.clinica-aurea.com)
 
 on:
   push:
     branches:
       - main
       - master
+    paths-ignore:
+      - 'landing/**'
   workflow_dispatch: # Permite execução manual
 
 jobs:
@@ -38,10 +40,9 @@ jobs:
           password: ${{ secrets.HOSTINGER_PASSWORD }}
           port: ${{ secrets.HOSTINGER_PORT || '21' }}
           local-dir: ./dist/
-          server-dir: ${{ secrets.HOSTINGER_PATH || '/public_html/' }}
+          server-dir: ${{ secrets.HOSTINGER_APP_PATH }}
           exclude: |
             **/.git*
             **/.git*/**
             **/node_modules/**
             **/.DS_Store
-          dangerous-clean-slate: true

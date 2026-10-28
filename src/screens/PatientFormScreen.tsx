@@ -1,7 +1,8 @@
 import React, { useState, useEffect } from 'react';
-import { useParams, useNavigate } from 'react-router-dom';
+import { useParams } from 'react-router-dom';
 import { supabase } from '../services/supabase/client';
 import toast from 'react-hot-toast';
+import { goToLanding } from '../utils/siteUrl';
 import { 
   CheckCircle, 
   Clock,
@@ -20,7 +21,6 @@ import '../styles/patient-form.css';
 const PatientFormScreen: React.FC = () => {
   const params = useParams();
   const shareToken = params.shareToken;
-  const navigate = useNavigate();
   
   const [formData, setFormData] = useState<AnamneseFormData | null>(null);
   const [patient, setPatient] = useState<Patient | null>(null);
@@ -38,7 +38,7 @@ const PatientFormScreen: React.FC = () => {
 
       if (!shareToken) {
         toast.error('Link inválido');
-        navigate('/');
+        goToLanding();
         return;
       }
 
@@ -54,13 +54,13 @@ const PatientFormScreen: React.FC = () => {
       if (error) {
         console.error('❌ Erro ao carregar formulário:', error);
         toast.error('Formulário não encontrado ou link expirado');
-        navigate('/');
+        goToLanding();
         return;
       }
 
       if (!form) {
         toast.error('Formulário não encontrado');
-        navigate('/');
+        goToLanding();
         return;
       }
 
@@ -69,7 +69,7 @@ const PatientFormScreen: React.FC = () => {
       // Verificar se o link não expirou
       if (form.share_expires_at && new Date(form.share_expires_at) < new Date()) {
         toast.error('Este link expirou. Solicite um novo link à clínica.');
-        navigate('/');
+        goToLanding();
         return;
       }
 
@@ -93,7 +93,7 @@ const PatientFormScreen: React.FC = () => {
     } catch (error) {
       console.error('💥 Erro ao carregar formulário:', error);
       toast.error('Erro ao carregar formulário');
-      navigate('/');
+      goToLanding();
     } finally {
       setLoading(false);
     }
@@ -354,7 +354,7 @@ const PatientFormScreen: React.FC = () => {
             O link pode ter expirado ou o formulário não existe mais.
           </p>
           <button
-            onClick={() => navigate('/')}
+            onClick={() => goToLanding()}
             className="w-full min-h-[44px] sm:w-auto sm:min-w-[140px] inline-flex items-center justify-center px-6 py-3 rounded-xl text-sm font-medium text-slate-50 bg-indigo-600 hover:bg-indigo-500 transition-colors"
           >
             Voltar ao início
@@ -417,7 +417,7 @@ const PatientFormScreen: React.FC = () => {
             Este formulário não está mais disponível para preenchimento.
           </p>
           <button
-            onClick={() => navigate('/')}
+            onClick={() => goToLanding()}
             className="w-full min-h-[44px] sm:w-auto sm:min-w-[140px] inline-flex items-center justify-center px-6 py-3 rounded-xl text-sm font-medium text-slate-50 bg-indigo-600 hover:bg-indigo-500 transition-colors"
           >
             Voltar ao início

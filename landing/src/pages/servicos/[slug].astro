@@ -1,0 +1,67 @@
+---
+import Base from "../../layouts/Base.astro";
+import WhatsappIcon from "../../components/WhatsappIcon.astro";
+import { SERVICES, whatsappLink } from "../../data/services";
+import { SITE, truncate } from "../../data/site";
+
+export function getStaticPaths() {
+  return SERVICES.map((service) => ({ params: { slug: service.slug }, props: { service } }));
+}
+
+const { service } = Astro.props;
+const others = SERVICES.filter((s) => s.slug !== service.slug).slice(0, 6);
+
+const breadcrumbLd = {
+  "@context": "https://schema.org",
+  "@type": "BreadcrumbList",
+  itemListElement: [
+    { "@type": "ListItem", position: 1, name: "Início", item: SITE.url },
+    { "@type": "ListItem", position: 2, name: "Serviços", item: `${SITE.url}/servicos` },
+    { "@type": "ListItem", position: 3, name: service.title, item: `${SITE.url}/servicos/${service.slug}` },
+  ],
+};
+---
+<Base
+  title={`${service.title} em Carvalhos, MG | Clínica Áurea`}
+  description={truncate(service.description)}
+  path={`/servicos/${service.slug}`}
+  jsonLd={[breadcrumbLd]}
+>
+  <section class="site-page-hero">
+    <div class="site-section-label" style="color:#D4B96A">Serviços</div>
+    <h1>{service.title}</h1>
+    <p>Clínica Áurea &bull; Carvalhos, MG</p>
+  </section>
+
+  <section class="site-service-detail">
+    <h2>Sobre o tratamento</h2>
+    <p>{service.description}</p>
+    <p style="font-size:0.85rem">Todos os tratamentos são planejados após avaliação individual.</p>
+
+    <div class="site-service-cta-box">
+      <h3>Agende sua avaliação</h3>
+      <p>O valor da avaliação (R$ 150) é convertido integralmente no preço do procedimento.</p>
+      <a
+        href={whatsappLink(`Olá, gostaria de saber mais sobre ${service.title} na Clínica Áurea`)}
+        target="_blank"
+        rel="noopener noreferrer"
+        class="site-btn-gold"
+      >
+        <WhatsappIcon size={18} /> Agendar pelo WhatsApp
+      </a>
+    </div>
+  </section>
+
+  <section class="site-section">
+    <div class="site-section-label">Veja também</div>
+    <h2>Outros <em>tratamentos</em></h2>
+    <div class="site-services-grid">
+      {others.map((s) => (
+        <a href={`/servicos/${s.slug}`} class="site-service-card">
+          <h3>{s.title}</h3>
+          <p>{truncate(s.description, 110)}</p>
+        </a>
+      ))}
+    </div>
+  </section>
+</Base>

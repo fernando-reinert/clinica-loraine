@@ -11,7 +11,7 @@ import {
 import { sha256Hex } from "../_shared/hash.ts";
 
 const CODE_BYTES = 32;
-const APP_PUBLIC_URL = Deno.env.get("APP_PUBLIC_URL") ?? "https://clinica-aurea.com";
+const APP_PUBLIC_URL = Deno.env.get("APP_PUBLIC_URL") ?? "https://app.clinica-aurea.com";
 
 function secureRandomBase64Url(length: number): string {
   const arr = new Uint8Array(length);

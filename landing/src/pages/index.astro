@@ -1,0 +1,166 @@
+---
+import Base from "../layouts/Base.astro";
+import WhatsappIcon from "../components/WhatsappIcon.astro";
+import { SERVICES, WHATSAPP_EVALUATION } from "../data/services";
+import { CLUBE_PLANS, CLUBE_INTRO } from "../data/clube";
+
+const featured = SERVICES.filter((s) => s.featured);
+
+const differentials = [
+  { title: "Atendimento humanizado", text: "Um espaço para ouvir suas dúvidas, compreender seus objetivos e acolher você em cada etapa do cuidado." },
+  { title: "Planejamento individualizado", text: "Cada tratamento começa com uma avaliação, respeitando suas necessidades, suas características e suas expectativas." },
+  { title: "Valorização da naturalidade", text: "Nosso cuidado busca realçar sua beleza e preservar os traços que tornam você única." },
+  { title: "Aprimoramento constante", text: "Investimento contínuo em cursos e atualização profissional para oferecer um cuidado criterioso e bem fundamentado." },
+  { title: "Produtos e tecnologias selecionados", text: "Marcas de referência e recursos como o laser de CO₂ híbrido, escolhidos conforme a indicação e as necessidades de cada paciente." },
+  { title: "Saúde, estética e nutrição", text: "Atendimento com enfermeira esteta, médica e nutricionista, com possibilidade de acompanhamento integrado conforme seus objetivos." },
+  { title: "Orientação e acompanhamento", text: "Informações claras sobre o tratamento, os cuidados necessários e a recuperação, com acompanhamento da evolução." },
+  { title: "Ambiente acolhedor", text: "Um espaço confortável e preparado para receber você com atenção, privacidade e tranquilidade." },
+];
+
+const testimonials = [
+  { text: "A Loraine é uma profissional incrível! Me senti acolhida desde a primeira consulta. O resultado do botox ficou super natural.", author: "Maria S.", location: "Carvalhos, MG" },
+  { text: "Fiz a harmonização facial e estou encantada. A Loraine explica tudo com muita paciência e o ambiente da clínica é muito aconchegante.", author: "Ana P.", location: "Serranos, MG" },
+  { text: "Melhor clínica da região! Profissionalismo e cuidado em cada detalhe. Já indiquei para todas as minhas amigas.", author: "Juliana R.", location: "Seritinga, MG" },
+];
+---
+<Base
+  title="Clínica Áurea | Estética Avançada e Harmonização em Carvalhos, MG"
+  description="Clínica Áurea em Carvalhos, Sul de Minas: harmonização facial e corporal, toxina botulínica, bioestimuladores e laser de CO₂ com enfermeira esteta, médica e nutricionista."
+  path="/"
+>
+  <section class="site-hero">
+    <div class="site-hero-content">
+      <div class="site-hero-badge">Clínica Áurea &bull; Carvalhos&ndash;MG</div>
+      <h1>Saúde e Estética<br /><em>Avançada</em></h1>
+      <p class="site-hero-sub">
+        Valorize sua beleza com cuidado personalizado e atenção à naturalidade. Harmonização facial e corporal com
+        Loraine Vilela, enfermeira esteta, e programas de emagrecimento com acompanhamento médico e nutricional.
+      </p>
+      <div class="site-hero-buttons">
+        <a href={WHATSAPP_EVALUATION} target="_blank" rel="noopener noreferrer" class="site-btn-gold">
+          <WhatsappIcon size={16} /> Agende sua avaliação
+        </a>
+        <a href="/servicos" class="site-btn-outline">Conheça nossos serviços</a>
+      </div>
+    </div>
+  </section>
+
+  <section class="site-section">
+    <div class="site-about-grid">
+      <div class="site-about-img">
+        <span class="site-about-img-placeholder">Foto da Loraine</span>
+      </div>
+      <div class="site-about-text">
+        <div class="site-section-label">Sobre</div>
+        <h2 class="site-about-title">Loraine Pires Vilela Reinert</h2>
+        <p>
+          Sou enfermeira, pós-graduada em Estética Avançada e fundadora da Clínica Áurea. Encontrei na estética uma
+          forma de unir o cuidado com as pessoas à valorização da beleza e da autoestima.
+        </p>
+        <p>Minha atuação é dedicada à harmonização facial e corporal, com planejamento personalizado e atenção à naturalidade.</p>
+        <div class="site-credentials">
+          <div class="site-credential"><span class="site-credential-dot"></span>Enfermeira esteta</div>
+          <div class="site-credential"><span class="site-credential-dot"></span>COREN-MG 344.168</div>
+          <div class="site-credential"><span class="site-credential-dot"></span>Pós-graduada em Estética Avançada</div>
+          <div class="site-credential"><span class="site-credential-dot"></span>Equipe: nutricionista e médica</div>
+        </div>
+        <a href="/sobre" class="site-btn-outline-dark">Conheça a clínica e a equipe</a>
+      </div>
+    </div>
+  </section>
+
+  <section class="site-section">
+    <div class="site-section-label">Serviços</div>
+    <h2>Tratamentos <em>personalizados</em></h2>
+    <p class="site-section-intro">
+      Cuidado para valorizar sua beleza em cada detalhe. Nossos tratamentos faciais, corporais e capilares são
+      planejados após avaliação individual, respeitando suas necessidades, seus objetivos e suas características.
+    </p>
+    <div class="site-services-grid">
+      {featured.map((s) => (
+        <a href={`/servicos/${s.slug}`} class="site-service-card">
+          <div class="site-service-icon"><svg viewBox="0 0 24 24" aria-hidden="true"><path d={s.icon} /></svg></div>
+          <h3>{s.title}</h3>
+          <p>{s.description}</p>
+        </a>
+      ))}
+    </div>
+  </section>
+
+  <section class="site-exclusive">
+    <div class="site-exclusive-inner site-exclusive-wide">
+      <div class="site-section-label" style="color:#D4B96A">Procedimentos</div>
+      <h2>Todos os nossos <em style="color:#D4B96A">procedimentos</em></h2>
+      <div class="site-proc-list">
+        {SERVICES.map((s) => (
+          <a href={`/servicos/${s.slug}`} class="site-proc-item">
+            <h3>{s.title}</h3>
+            <p>{s.description}</p>
+          </a>
+        ))}
+      </div>
+    </div>
+  </section>
+
+  <section class="site-section">
+    <div class="site-section-label">Por que escolher a Clínica Áurea?</div>
+    <h2>Cuidado que começa <em>com você</em></h2>
+    <p class="site-section-intro">
+      Escuta, atenção aos detalhes e planejamento personalizado para cuidar da sua beleza, saúde e bem-estar.
+    </p>
+    <div class="site-diff-grid">
+      {differentials.map((d, i) => (
+        <div class="site-diff-item">
+          <div class="site-diff-num">{String(i + 1).padStart(2, "0")}</div>
+          <div class="site-diff-text"><h3>{d.title}</h3><p>{d.text}</p></div>
+        </div>
+      ))}
+    </div>
+  </section>
+
+  <section class="site-clube">
+    <div class="site-clube-inner">
+      <div class="site-section-label">Clube da Beleza</div>
+      <h2>Sua beleza com planejamento <em>o ano inteiro</em></h2>
+      <p class="site-section-intro site-clube-intro">{CLUBE_INTRO}</p>
+      <div class="site-clube-summary">
+        {CLUBE_PLANS.map((p) => (
+          <div class="site-clube-summary-item">
+            <h3>{p.name}</h3>
+            <div class="site-clube-procedures">{p.procedures}</div>
+            <div class="site-clube-price">{p.price}</div>
+          </div>
+        ))}
+      </div>
+      <a href="/clube-da-beleza" class="site-btn-gold">Conheça o clube da beleza</a>
+    </div>
+  </section>
+
+  <section class="site-testimonials">
+    <div class="site-testimonials-inner">
+      <div class="site-section-label">Depoimentos</div>
+      <h2 style="margin-bottom:2.5rem">O que nossas <em>clientes</em> dizem</h2>
+      <div class="site-dep-grid">
+        {testimonials.map((t) => (
+          <div class="site-dep-card">
+            <div class="site-dep-stars" aria-hidden="true">&#9733; &#9733; &#9733; &#9733; &#9733;</div>
+            <p class="site-dep-text">"{t.text}"</p>
+            <div class="site-dep-author">{t.author}</div>
+            <div class="site-dep-location">{t.location}</div>
+          </div>
+        ))}
+      </div>
+    </div>
+  </section>
+
+  <section class="site-cta-final">
+    <h2>Agende sua <em style="color:#D4B96A">avaliação</em></h2>
+    <p>
+      Entre em contato pelo WhatsApp e agende sua avaliação personalizada. O valor de R$ 150 é convertido
+      integralmente no seu procedimento.
+    </p>
+    <a href={WHATSAPP_EVALUATION} target="_blank" rel="noopener noreferrer" class="site-btn-gold">
+      <WhatsappIcon /> Falar pelo WhatsApp
+    </a>
+  </section>
+</Base>

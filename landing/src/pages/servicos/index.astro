@@ -1,0 +1,56 @@
+---
+import Base from "../../layouts/Base.astro";
+import { SERVICES } from "../../data/services";
+import { SITE } from "../../data/site";
+
+const listLd = {
+  "@context": "https://schema.org",
+  "@type": "ItemList",
+  name: "Serviços da Clínica Áurea",
+  itemListElement: SERVICES.map((s, i) => ({
+    "@type": "ListItem",
+    position: i + 1,
+    name: s.title,
+    url: `${SITE.url}/servicos/${s.slug}`,
+  })),
+};
+---
+<Base
+  title="Serviços e Tratamentos Estéticos em Carvalhos, MG | Clínica Áurea"
+  description="Harmonização facial e corporal, toxina botulínica, bioestimuladores, laser de CO₂ híbrido, microagulhamento e mais, com planejamento individual na Clínica Áurea."
+  path="/servicos"
+  jsonLd={[listLd]}
+>
+  <section class="site-page-hero">
+    <div class="site-section-label" style="color:#D4B96A">Nossos serviços</div>
+    <h1>Tratamentos <em style="color:#D4B96A">personalizados</em></h1>
+    <p>
+      Cuidado para valorizar sua beleza em cada detalhe. Nossos tratamentos faciais, corporais e capilares são
+      planejados após avaliação individual, respeitando suas necessidades, seus objetivos e suas características.
+    </p>
+  </section>
+
+  <section class="site-section">
+    <div class="site-services-grid">
+      {SERVICES.map((s) => (
+        <a href={`/servicos/${s.slug}`} class="site-service-card">
+          <div class="site-service-icon"><svg viewBox="0 0 24 24" aria-hidden="true"><path d={s.icon} /></svg></div>
+          <h2 class="site-service-card-title">{s.title}</h2>
+          <p>{s.description}</p>
+        </a>
+      ))}
+    </div>
+  </section>
+
+  <section class="site-evaluation">
+    <div class="site-evaluation-inner">
+      <div class="site-section-label">Primeiro passo</div>
+      <h2>Avaliação <em>personalizada</em></h2>
+      <div class="site-evaluation-price">R$ 150</div>
+      <p class="site-evaluation-note">
+        Valor totalmente convertido no preço do procedimento escolhido. Sua avaliação vira investimento.
+      </p>
+      <a href="/contato" class="site-btn-gold">Agende sua avaliação</a>
+    </div>
+  </section>
+</Base>

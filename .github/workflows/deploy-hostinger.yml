@@ -3,6 +3,8 @@ name: Deploy to Hostinger (Vite)
 on:
   push:
     branches: ["main"]
+    paths-ignore:
+      - "landing/**"
 
 jobs:
   build-and-deploy:
