@@ -100,6 +100,19 @@ export interface FeeRuleRow {
   fee_percent: number;
 }
 
+/** Valida a data do procedimento (YYYY-MM-DD): formato real e não futura. */
+const assertValidProcedureDate = (procedureDate: string): void => {
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(procedureDate) || Number.isNaN(new Date(procedureDate).getTime())) {
+    throw new Error('Data do procedimento inválida');
+  }
+  if (procedureDate > todayISO()) {
+    throw new Error('A data do procedimento não pode ser no futuro');
+  }
+};
+
+/** Meio-dia evita virar o dia por diferença de fuso (procedures.created_at é timestamp sem fuso). */
+const procedureDateToCreatedAt = (procedureDate: string): string => `${procedureDate}T12:00:00`;
+
 export interface CreateFinancialRecordInput {
   patientId: string;
   patientName: string;
@@ -111,6 +124,8 @@ export interface CreateFinancialRecordInput {
   };
   appointmentId?: string | null;
   procedureType?: string; // Legado - para compatibilidade
+  /** Data em que o procedimento foi realizado (YYYY-MM-DD). Omitido = agora (comportamento anterior). */
+  procedureDate?: string | null;
 }
 
 export interface CreateFinancialRecordResult {
@@ -401,11 +416,19 @@ export const createFinancialRecord = async (
   input: CreateFinancialRecordInput
 ): Promise<CreateFinancialRecordResult> => {
   try {
-    const { patientId, patientName, items, installmentsConfig, appointmentId, procedureType } = input;
+    const { patientId, patientName, items, installmentsConfig, appointmentId, procedureType, procedureDate } = input;
 
     // Validar itens
     if (!items || items.length === 0) {
       throw new Error('É necessário pelo menos um item de procedimento');
+    }
+
+    // Data retroativa: o financeiro usa procedures.created_at como data do atendimento.
+    // Só sobrescreve quando a data é válida, não é futura e difere de hoje (hoje mantém o default do banco).
+    let createdAtOverride: string | null = null;
+    if (procedureDate) {
+      assertValidProcedureDate(procedureDate);
+      if (procedureDate !== todayISO()) createdAtOverride = procedureDateToCreatedAt(procedureDate);
     }
 
     // Calcular totais
@@ -445,6 +468,9 @@ export const createFinancialRecord = async (
     }
     if (appointmentId) {
       fullPayload.appointment_id = appointmentId;
+    }
+    if (createdAtOverride) {
+      fullPayload.created_at = createdAtOverride;
     }
     fullPayload.total_cost = totalCost;
     fullPayload.total_profit = totalProfit;
@@ -922,6 +948,33 @@ export const updatePaymentMethod = async (
     });
     throw error;
   }
+};
+
+/**
+ * Corrige a data em que o procedimento foi realizado (procedures.created_at).
+ * Não altera valores, parcelas nem pagamentos; apenas a data usada no histórico e nos relatórios.
+ */
+export const updateProcedureDate = async (
+  procedureId: string,
+  procedureDate: string
+): Promise<void> => {
+  assertValidProcedureDate(procedureDate);
+
+  const { data, error } = await supabase
+    .from('procedures')
+    .update({ created_at: procedureDateToCreatedAt(procedureDate) })
+    .eq('id', procedureId)
+    .select('id');
+
+  if (error) {
+    logger.error('[FINANCIAL] Falha ao atualizar data do procedimento', { error, procedureId });
+    throw new Error(error.message || 'Erro ao atualizar data do procedimento');
+  }
+  // RLS pode filtrar a linha sem erro: sem linha retornada, nada foi alterado
+  if (!data || data.length === 0) {
+    throw new Error('Registro não encontrado ou sem permissão para alterar');
+  }
+  logger.info('[FINANCIAL] Data do procedimento atualizada', { procedureId, procedureDate });
 };
 
 const emptyGrossNetBucket: GrossNetBucket = { gross: 0, fee: 0, net: 0, count: 0 };

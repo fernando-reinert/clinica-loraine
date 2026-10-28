@@ -7,6 +7,7 @@ import AppointmentDrawer from '../components/appointments/AppointmentDrawer';
 import type { DrawerAppointment } from '../components/appointments/AppointmentDrawer';
 import CalendarPanel from '../components/appointments/CalendarPanel';
 import DayPanel from '../components/appointments/DayPanel';
+import MobileDateStrip from '../components/appointments/MobileDateStrip';
 import ConfirmDialog from '../components/ConfirmDialog';
 import { useAppointmentsPage } from '../hooks/useAppointmentsPage';
 import { useAppointmentActions } from '../hooks/useAppointmentActions';
@@ -142,7 +143,7 @@ export default function AppointmentsScreen() {
 
             <button
               type="button"
-              onClick={() => page.openDrawerCreate()}
+              onClick={() => page.openDrawerCreate(page.selectedDay)}
               className="flex items-center gap-1.5 px-3 py-2 bg-cyan-500 hover:bg-cyan-400 text-slate-900 font-semibold text-xs rounded-lg transition-colors"
             >
               <Plus className="w-3.5 h-3.5" />
@@ -153,35 +154,7 @@ export default function AppointmentsScreen() {
         </div>
 
         {/* ── Mobile: horizontal date strip ───────────────────────────── */}
-        <div className="md:hidden flex-shrink-0 px-4 py-2 border-b border-slate-800">
-          <div className="flex gap-2 overflow-x-auto pb-1 scrollbar-none">
-            {Array.from({ length: 7 }).map((_, i) => {
-              const d = new Date();
-              d.setDate(d.getDate() - 3 + i);
-              const dayNum = d.getDate();
-              const isSelected =
-                d.getFullYear() === page.selectedDay.getFullYear() &&
-                d.getMonth() === page.selectedDay.getMonth() &&
-                d.getDate() === page.selectedDay.getDate();
-              const isT = d.toDateString() === new Date().toDateString();
-              return (
-                <button
-                  key={i}
-                  type="button"
-                  onClick={() => page.setSelectedDay(d)}
-                  className={`flex-shrink-0 flex flex-col items-center px-3 py-1.5 rounded-lg min-w-[44px] transition-colors ${
-                    isSelected ? 'bg-cyan-500 text-slate-900' : isT ? 'text-cyan-400 bg-cyan-500/10' : 'text-slate-500 bg-slate-800'
-                  }`}
-                >
-                  <span className="text-[10px] font-medium uppercase">
-                    {d.toLocaleDateString('pt-BR', { weekday: 'short' }).replace('.', '')}
-                  </span>
-                  <span className="text-sm font-bold">{dayNum}</span>
-                </button>
-              );
-            })}
-          </div>
-        </div>
+        <MobileDateStrip selectedDay={page.selectedDay} onSelectDay={page.setSelectedDay} />
 
         {/* ── Main content ─────────────────────────────────────────────── */}
         <div className="flex-1 min-h-0 overflow-hidden">

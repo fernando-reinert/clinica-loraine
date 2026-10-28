@@ -29,6 +29,7 @@ import ResponsiveAppLayout from "../components/Layout/ResponsiveAppLayout";
 import PaymentMethodSelect from "../components/financial/PaymentMethodSelect";
 import LoadingSpinner from "../components/LoadingSpinner";
 import AppointmentPlanEditor from "../components/AppointmentPlanEditor";
+import DateInputBR from "../components/DateInputBR";
 import type { Procedure } from "../types/db";
 import type { AppointmentPlanItem } from "../types/appointmentPlan";
 import { calculatePlanTotals, calculateItemProfit } from "../types/appointmentPlan";
@@ -43,6 +44,7 @@ import {
   listInstallmentPayments,
   type InstallmentPaymentRow,
   updatePaymentMethod,
+  updateProcedureDate,
   getFeePercent,
   listFeeRules,
   round2,
@@ -264,6 +266,7 @@ const FinancialControl: React.FC = () => {
   const [comandaFirstPaymentDate, setComandaFirstPaymentDate] = useState(
     new Date().toISOString().split("T")[0]
   );
+  const [comandaProcedureDate, setComandaProcedureDate] = useState(() => todayISO());
   const [procedureSearch, setProcedureSearch] = useState("");
   const [showProcedureDropdown, setShowProcedureDropdown] = useState(false);
 
@@ -342,6 +345,13 @@ const FinancialControl: React.FC = () => {
     procedure: null,
     selectedMethod: "pix",
   });
+
+  const [editDateModal, setEditDateModal] = useState<{
+    isOpen: boolean;
+    procedure: ProcedureData | null;
+    date: string;
+    saving: boolean;
+  }>({ isOpen: false, procedure: null, date: "", saving: false });
 
   const [closeAppointmentModal, setCloseAppointmentModal] = useState<CloseAppointmentModal>({
     isOpen: false,
@@ -848,6 +858,38 @@ const FinancialControl: React.FC = () => {
     }
   };
 
+  const openEditDateModal = (procedure: ProcedureData) => {
+    setEditDateModal({
+      isOpen: true,
+      procedure,
+      date: (procedure.created_at || "").toString().slice(0, 10),
+      saving: false,
+    });
+  };
+
+  const closeEditDateModal = () => {
+    setEditDateModal({ isOpen: false, procedure: null, date: "", saving: false });
+  };
+
+  const handleUpdateProcedureDate = async () => {
+    if (!editDateModal.procedure) return;
+    if (!editDateModal.date) {
+      toast.error("Informe uma data válida (dd/mm/aaaa)");
+      return;
+    }
+
+    setEditDateModal((prev) => ({ ...prev, saving: true }));
+    try {
+      await updateProcedureDate(editDateModal.procedure.id, editDateModal.date);
+      toast.success("Data do procedimento atualizada!");
+      await fetchPayments();
+      closeEditDateModal();
+    } catch (error: any) {
+      toast.error(error?.message || "Erro ao atualizar data do procedimento!");
+      setEditDateModal((prev) => ({ ...prev, saving: false }));
+    }
+  };
+
   const handleUpdatePaymentMethod = async () => {
     if (!editMethodModal.procedure) return;
 
@@ -1005,6 +1047,10 @@ const FinancialControl: React.FC = () => {
       toast.error('Selecione um paciente e adicione pelo menos um procedimento');
       return;
     }
+    if (!comandaProcedureDate || !comandaFirstPaymentDate) {
+      toast.error('Informe datas válidas (dd/mm/aaaa)');
+      return;
+    }
 
     setIsLoading(true);
     try {
@@ -1027,6 +1073,7 @@ const FinancialControl: React.FC = () => {
           paymentMethod: comandaPaymentMethod,
           firstPaymentDate: comandaFirstPaymentDate,
         },
+        procedureDate: comandaProcedureDate,
       });
 
       toast.success('Atendimento registrado com sucesso!');
@@ -1046,6 +1093,7 @@ const FinancialControl: React.FC = () => {
       setComandaInstallments(1);
       setComandaPaymentMethod('pix');
       setComandaFirstPaymentDate(new Date().toISOString().split('T')[0]);
+      setComandaProcedureDate(todayISO());
       await fetchPayments();
     } catch (error: any) {
       toast.error(error?.message || 'Erro ao registrar atendimento');
@@ -1845,7 +1893,17 @@ const FinancialControl: React.FC = () => {
             title="Itens do Atendimento"
           />
         )}
-        <div className="grid grid-cols-1 md:grid-cols-3 gap-4 pt-4 border-t border-white/10">
+        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4 pt-4 border-t border-white/10">
+          <div>
+            <label className="block text-sm font-medium text-gray-200 mb-2">Data do Procedimento *</label>
+            <DateInputBR
+              value={comandaProcedureDate}
+              max={todayISO()}
+              onChange={setComandaProcedureDate}
+              className="w-full min-w-0 px-4 py-3 rounded-xl bg-white/5 border border-white/10 text-white"
+              required
+            />
+          </div>
           <div>
             <label className="block text-sm font-medium text-gray-200 mb-2">Número de Parcelas *</label>
             <input
@@ -1874,11 +1932,10 @@ const FinancialControl: React.FC = () => {
           </div>
           <div>
             <label className="block text-sm font-medium text-gray-200 mb-2">Data do Primeiro Pagamento *</label>
-            <input
-              type="date"
+            <DateInputBR
               value={comandaFirstPaymentDate}
-              onChange={(e) => setComandaFirstPaymentDate(e.target.value)}
-              className="w-full px-4 py-3 rounded-xl bg-white/5 border border-white/10 text-white"
+              onChange={setComandaFirstPaymentDate}
+              className="w-full min-w-0 px-4 py-3 rounded-xl bg-white/5 border border-white/10 text-white"
               required
             />
           </div>
@@ -2649,17 +2706,23 @@ const FinancialControl: React.FC = () => {
                                       procedureId: procId,
                                       name: record ? getProcedureDisplayName(record) : procedure?.procedure_type || "Procedimento",
                                       totalPending: 0,
+                                      procedureDate: record?.created_at || procedure?.created_at || "",
                                     };
                                   }
                                   acc[procId].totalPending += getInstallmentRemaining(inst);
                                   return acc;
-                                }, {} as Record<string, { procedureId: string; name: string; totalPending: number }>)
+                                }, {} as Record<string, { procedureId: string; name: string; totalPending: number; procedureDate: string }>)
                               ).map((group) => (
                                 <div
                                   key={group.procedureId}
                                   className="flex items-center justify-between gap-3 p-3 rounded-xl bg-white/5 border border-white/10"
                                 >
-                                  <p className="font-medium text-white text-sm truncate">{group.name}</p>
+                                  <div className="min-w-0">
+                                    <p className="font-medium text-white text-sm truncate">{group.name}</p>
+                                    {group.procedureDate && (
+                                      <p className="text-xs text-gray-400">Realizado em {formatDate(group.procedureDate)}</p>
+                                    )}
+                                  </div>
                                   <p className="text-sm text-gray-300 flex-shrink-0">
                                     Pendente: <span className="text-green-300 font-semibold">{formatCurrency(round2(group.totalPending))}</span>
                                   </p>
@@ -2680,6 +2743,29 @@ const FinancialControl: React.FC = () => {
                                         return record ? getProcedureDisplayName(record) : procedure?.procedure_type || 'Procedimento';
                                       })()}
                                     </p>
+                                    <div className="flex items-center gap-2 text-sm text-gray-300 mb-0.5">
+                                      <span>
+                                        Realizado em:{" "}
+                                        <span className="font-medium text-white">
+                                          {(() => {
+                                            const d = financialRecords.find((r) => r.id === inst.procedure_id)?.created_at || procedure?.created_at;
+                                            return d ? formatDate(d) : "—";
+                                          })()}
+                                        </span>
+                                      </span>
+                                      <button
+                                        type="button"
+                                        onClick={(e) => {
+                                          e.stopPropagation();
+                                          if (procedure) openEditDateModal(procedure);
+                                        }}
+                                        className="p-1.5 rounded-lg bg-white/5 hover:bg-white/10 border border-white/10 transition-all"
+                                        title="Editar data do procedimento"
+                                        aria-label="Editar data do procedimento"
+                                      >
+                                        <Edit size={12} className="text-cyan-300" />
+                                      </button>
+                                    </div>
                                     <p className="text-sm text-gray-300">
                                       Parcela {inst.installment_number} de {procedure?.total_installments}
                                       {inst.status === "pendente" && (inst.due_date || "").toString().split("T")[0] < todayStr && (
@@ -3366,6 +3452,66 @@ const FinancialControl: React.FC = () => {
                 </button>
                 <button type="button" onClick={handleUpdatePaymentMethod} className="flex-1 neon-button">
                   Salvar Alterações
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* Modal editar data do procedimento */}
+        {editDateModal.isOpen && editDateModal.procedure && (
+          <div className="fixed inset-0 bg-black/70 flex items-center justify-center z-50 p-4">
+            <div className="glass-card p-6 max-w-md w-full border border-white/10">
+              <div className="flex justify-between items-center mb-4">
+                <h3 className="text-lg font-semibold text-white">Data do Procedimento</h3>
+                <button
+                  type="button"
+                  onClick={closeEditDateModal}
+                  className="p-2 rounded-xl bg-white/5 hover:bg-white/10 border border-white/10 transition-all"
+                  aria-label="Fechar"
+                >
+                  <X size={18} className="text-white" />
+                </button>
+              </div>
+
+              <div className="mb-4 text-gray-300 space-y-1">
+                <p>
+                  Paciente: <span className="font-medium text-white">{editDateModal.procedure.client_name}</span>
+                </p>
+                <p>
+                  Procedimento: <span className="font-medium text-white">{editDateModal.procedure.procedure_type}</span>
+                </p>
+              </div>
+
+              <div className="mb-2">
+                <label className="block text-sm font-medium text-gray-200 mb-2">Data em que foi realizado *</label>
+                <DateInputBR
+                  value={editDateModal.date}
+                  max={todayISO()}
+                  onChange={(next) => setEditDateModal((prev) => ({ ...prev, date: next }))}
+                  className="w-full min-w-0 px-4 py-3 rounded-xl bg-white/5 border border-white/10 text-white"
+                  required
+                />
+              </div>
+              <p className="text-xs text-gray-400 mb-6">
+                Altera só a data do atendimento. Valores, parcelas e pagamentos não mudam.
+              </p>
+
+              <div className="flex gap-3">
+                <button
+                  type="button"
+                  onClick={closeEditDateModal}
+                  className="flex-1 px-4 py-2 rounded-xl border border-white/10 bg-white/5 hover:bg-white/10 text-white transition-all"
+                >
+                  Cancelar
+                </button>
+                <button
+                  type="button"
+                  onClick={handleUpdateProcedureDate}
+                  disabled={editDateModal.saving}
+                  className="flex-1 neon-button"
+                >
+                  {editDateModal.saving ? "Salvando..." : "Salvar"}
                 </button>
               </div>
             </div>
