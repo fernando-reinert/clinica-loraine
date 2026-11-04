@@ -41,11 +41,13 @@ import {
 } from "../services/financial/financialService";
 import { getSupabaseEnvStatus } from "../services/supabase/client";
 import { withRetry, logStructuredError } from "../utils/retryFetch";
+import { formatDateBR } from "../utils/dateUtils";
 
 const HIDDEN_VALUE = "••••";
 
+// Sempre dd/mm/aaaa no fuso do Brasil (evita 04/11 aparecer como 03/11)
 function formatDate(dateString: string): string {
-  return new Date(dateString).toLocaleDateString("pt-BR");
+  return formatDateBR(dateString);
 }
 
 function getPaymentMethodText(method: string): string {
@@ -338,7 +340,10 @@ export default function FinancialControlPatient() {
               <ChevronLeft size={18} />
             </button>
             <span className="text-white font-medium min-w-[140px] text-center">
-              {new Date(monthYear + "-01").toLocaleDateString("pt-BR", { month: "long", year: "numeric" })}
+              {(() => {
+                const [y, m] = monthYear.split("-").map(Number);
+                return new Date(y, m - 1, 1).toLocaleDateString("pt-BR", { month: "long", year: "numeric" });
+              })()}
             </span>
             <button
               type="button"

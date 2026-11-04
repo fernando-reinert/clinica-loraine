@@ -1,6 +1,7 @@
 // src/services/financial/financialService.ts
 import { supabase } from '../supabase/client';
 import logger from '../../utils/logger';
+import { addMonthsISO } from '../../utils/dateUtils';
 
 // ============================================
 // TIPOS
@@ -538,14 +539,11 @@ export const createFinancialRecord = async (
     const installmentsPayload: any[] = [];
 
     for (let i = 0; i < installmentsConfig.count; i++) {
-      const dueDate = new Date(installmentsConfig.firstPaymentDate);
-      dueDate.setMonth(dueDate.getMonth() + i);
-
       installmentsPayload.push({
         procedure_id: procedureId,
         installment_number: i + 1,
         installment_value: Number(installmentValue.toFixed(2)),
-        due_date: dueDate.toISOString().split('T')[0],
+        due_date: addMonthsISO(installmentsConfig.firstPaymentDate, i),
         status: 'pendente',
         payment_method: installmentsConfig.paymentMethod,
       });

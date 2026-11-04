@@ -325,3 +325,51 @@ export function toDatetimeLocal(iso: string): string {
   const min = String(d.getMinutes()).padStart(2, '0');
   return `${y}-${mo}-${day}T${h}:${min}`;
 }
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Datas "só dia" (YYYY-MM-DD) no fuso do Brasil.
+// `new Date('2026-11-04')` é lido como meia-noite UTC e, no Brasil, vira 03/11.
+// Estas funções evitam essa conversão e usam sempre America/Sao_Paulo.
+// ─────────────────────────────────────────────────────────────────────────────
+
+const BR_TIMEZONE = 'America/Sao_Paulo';
+
+/** Hoje (YYYY-MM-DD) no horário de Brasília. Não usar toISOString(): é UTC e à noite já é "amanhã". */
+export const todayBrISO = (): string =>
+  new Date().toLocaleDateString('en-CA', { timeZone: BR_TIMEZONE });
+
+/**
+ * Converte data/timestamp do banco para YYYY-MM-DD no horário de Brasília.
+ * - 'YYYY-MM-DD' (coluna date): devolvido como está.
+ * - Timestamp com fuso (+00, Z): convertido para Brasília.
+ * - Timestamp sem fuso (colunas `timestamp` do Supabase): gravado em UTC, tratado como UTC.
+ * Retorna '' se vazio ou inválido.
+ */
+export const toBrDateISO = (value: string | null | undefined): string => {
+  if (!value) return '';
+  const s = String(value).trim();
+  if (/^\d{4}-\d{2}-\d{2}$/.test(s)) return s;
+  const hasZone = /(Z|[+-]\d{2}(:?\d{2})?)$/.test(s);
+  const d = new Date(hasZone ? s : `${s.replace(' ', 'T')}Z`);
+  if (Number.isNaN(d.getTime())) return '';
+  return d.toLocaleDateString('en-CA', { timeZone: BR_TIMEZONE });
+};
+
+/** Exibe sempre dd/mm/aaaa (modelo brasileiro). */
+export const formatDateBR = (value: string | null | undefined): string => {
+  const iso = toBrDateISO(value);
+  if (!iso) return '--/--/----';
+  const [y, m, d] = iso.split('-');
+  return `${d}/${m}/${y}`;
+};
+
+/** Soma meses a uma data YYYY-MM-DD sem depender de fuso (31/01 + 1 mês = 28/02). */
+export const addMonthsISO = (iso: string, months: number): string => {
+  const [y, m, d] = iso.split('-').map(Number);
+  const target = new Date(Date.UTC(y, m - 1 + months, d));
+  if (target.getUTCDate() !== d) {
+    // dia não existe no mês de destino: usa o último dia do mês
+    return new Date(Date.UTC(y, m + months, 0)).toISOString().slice(0, 10);
+  }
+  return target.toISOString().slice(0, 10);
+};

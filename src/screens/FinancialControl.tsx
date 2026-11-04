@@ -30,6 +30,7 @@ import PaymentMethodSelect from "../components/financial/PaymentMethodSelect";
 import LoadingSpinner from "../components/LoadingSpinner";
 import AppointmentPlanEditor from "../components/AppointmentPlanEditor";
 import DateInputBR from "../components/DateInputBR";
+import { formatDateBR, addMonthsISO, toBrDateISO } from "../utils/dateUtils";
 import type { Procedure } from "../types/db";
 import type { AppointmentPlanItem } from "../types/appointmentPlan";
 import { calculatePlanTotals, calculateItemProfit } from "../types/appointmentPlan";
@@ -254,7 +255,7 @@ const FinancialControl: React.FC = () => {
     totalAmount: 0,
     installments: 1,
     paymentMethod: "pix",
-    firstPaymentDate: new Date().toISOString().split("T")[0],
+    firstPaymentDate: todayISO(),
   });
 
   // Estados novos para comanda
@@ -264,7 +265,7 @@ const FinancialControl: React.FC = () => {
   const [comandaInstallments, setComandaInstallments] = useState(1);
   const [comandaPaymentMethod, setComandaPaymentMethod] = useState("pix");
   const [comandaFirstPaymentDate, setComandaFirstPaymentDate] = useState(
-    new Date().toISOString().split("T")[0]
+    todayISO()
   );
   const [comandaProcedureDate, setComandaProcedureDate] = useState(() => todayISO());
   const [procedureSearch, setProcedureSearch] = useState("");
@@ -366,7 +367,7 @@ const FinancialControl: React.FC = () => {
     patientId: "",
     patientName: "",
     paymentMethod: "pix",
-    paymentDate: new Date().toISOString().split("T")[0],
+    paymentDate: todayISO(),
     amount: 0,
     description: "",
     notes: "",
@@ -652,8 +653,8 @@ const FinancialControl: React.FC = () => {
 
     paidInstallments.forEach((installment) => {
       if (installment.paid_date) {
-        const date = new Date(installment.paid_date);
-        const monthYear = `${date.getFullYear()}-${(date.getMonth() + 1).toString().padStart(2, "0")}`;
+        const monthYear = toBrDateISO(installment.paid_date).slice(0, 7);
+        if (!monthYear) return;
 
         if (!revenueByMonth[monthYear]) revenueByMonth[monthYear] = { grossTotal: 0, netTotal: 0 };
         const g = installment.installment_value;
@@ -672,9 +673,8 @@ const FinancialControl: React.FC = () => {
     });
 
     manualPayments.forEach((mp) => {
-      const date = new Date((mp.payment_date || "").toString().split("T")[0]);
-      if (isNaN(date.getTime())) return;
-      const monthYear = `${date.getFullYear()}-${(date.getMonth() + 1).toString().padStart(2, "0")}`;
+      const monthYear = toBrDateISO(mp.payment_date).slice(0, 7);
+      if (!monthYear) return;
       if (!revenueByMonth[monthYear]) revenueByMonth[monthYear] = { grossTotal: 0, netTotal: 0 };
       const g = Number(mp.total_amount ?? 0);
       revenueByMonth[monthYear].grossTotal += g;
@@ -691,9 +691,8 @@ const FinancialControl: React.FC = () => {
     installmentPayments
       .filter((p) => pendingInstallmentIds.has(p.installment_id))
       .forEach((p) => {
-        const date = new Date((p.payment_date || "").toString().split("T")[0]);
-        if (isNaN(date.getTime())) return;
-        const monthYear = `${date.getFullYear()}-${(date.getMonth() + 1).toString().padStart(2, "0")}`;
+        const monthYear = toBrDateISO(p.payment_date).slice(0, 7);
+        if (!monthYear) return;
         if (!revenueByMonth[monthYear]) revenueByMonth[monthYear] = { grossTotal: 0, netTotal: 0 };
         revenueByMonth[monthYear].grossTotal += Number(p.amount ?? 0);
         revenueByMonth[monthYear].netTotal += Number(p.net_amount ?? 0);
@@ -862,7 +861,7 @@ const FinancialControl: React.FC = () => {
     setEditDateModal({
       isOpen: true,
       procedure,
-      date: (procedure.created_at || "").toString().slice(0, 10),
+      date: toBrDateISO(procedure.created_at),
       saving: false,
     });
   };
@@ -1092,7 +1091,7 @@ const FinancialControl: React.FC = () => {
       setComandaItems([]);
       setComandaInstallments(1);
       setComandaPaymentMethod('pix');
-      setComandaFirstPaymentDate(new Date().toISOString().split('T')[0]);
+      setComandaFirstPaymentDate(todayISO());
       setComandaProcedureDate(todayISO());
       await fetchPayments();
     } catch (error: any) {
@@ -1227,12 +1226,10 @@ const FinancialControl: React.FC = () => {
       const list: CalculatedInstallment[] = [];
 
       for (let i = 0; i < formData.installments; i++) {
-        const dueDate = new Date(formData.firstPaymentDate);
-        dueDate.setMonth(dueDate.getMonth() + i);
         list.push({
           number: i + 1,
           value: installmentValue,
-          dueDate: dueDate.toISOString().split("T")[0],
+          dueDate: addMonthsISO(formData.firstPaymentDate, i),
         });
       }
 
@@ -1260,7 +1257,7 @@ const FinancialControl: React.FC = () => {
         patientId: "",
         patientName: "",
         paymentMethod: "pix",
-        paymentDate: new Date().toISOString().split("T")[0],
+        paymentDate: todayISO(),
         amount: 0,
         description: "",
         notes: "",
@@ -1315,15 +1312,12 @@ const FinancialControl: React.FC = () => {
         const installmentValue = totalAmount / instCount;
 
         for (let i = 0; i < instCount; i++) {
-          const dueDate = new Date(firstPaymentDate);
-          dueDate.setMonth(dueDate.getMonth() + i);
-
           await supabase.from("installments").insert([
             {
               procedure_id: procedureId,
               installment_number: i + 1,
               installment_value: installmentValue,
-              due_date: dueDate.toISOString().split("T")[0],
+              due_date: addMonthsISO(firstPaymentDate, i),
               status: "pendente",
               payment_method: paymentMethod,
             },
@@ -1339,7 +1333,7 @@ const FinancialControl: React.FC = () => {
         totalAmount: 0,
         installments: 1,
         paymentMethod: "pix",
-        firstPaymentDate: new Date().toISOString().split("T")[0],
+        firstPaymentDate: todayISO(),
       });
 
       fetchPayments();
@@ -1354,9 +1348,8 @@ const FinancialControl: React.FC = () => {
     return new Intl.NumberFormat("pt-BR", { style: "currency", currency: "BRL" }).format(value);
   };
 
-  const formatDate = (dateString: string) => {
-    return new Date(dateString).toLocaleDateString("pt-BR");
-  };
+  // Sempre dd/mm/aaaa no fuso do Brasil (evita 04/11 aparecer como 03/11)
+  const formatDate = (dateString: string) => formatDateBR(dateString);
 
   const getStatusColor = (status: string) => {
     switch (status) {
@@ -1551,35 +1544,27 @@ const FinancialControl: React.FC = () => {
   const totalPending = pendingNetExpected;
 
   const totalProfit = useMemo(() => {
-    const [y, m] = monthYear.split("-").map(Number);
     return financialRecords
-      .filter(r => {
-        const recordDate = new Date(r.created_at);
-        return recordDate.getMonth() === m - 1 && recordDate.getFullYear() === y;
-      })
+      .filter(r => toBrDateISO(r.created_at).slice(0, 7) === monthYear)
       .reduce((sum, r) => sum + (r.total_profit || 0), 0);
   }, [financialRecords, monthYear]);
 
   const averageMargin = useMemo(() => {
-    const [y, m] = monthYear.split("-").map(Number);
-    const recordsInMonth = financialRecords.filter(r => {
-      const d = new Date(r.created_at);
-      return d.getMonth() === m - 1 && d.getFullYear() === y && r.total_amount > 0;
-    });
+    const recordsInMonth = financialRecords.filter(
+      r => toBrDateISO(r.created_at).slice(0, 7) === monthYear && r.total_amount > 0
+    );
     if (recordsInMonth.length === 0) return 0;
     const totalMargin = recordsInMonth.reduce((sum, r) => sum + (r.profit_margin || 0), 0);
     return totalMargin / recordsInMonth.length;
   }, [financialRecords, monthYear]);
 
   const totalFeesThisMonth = useMemo(() => {
-    const [y, m] = monthYear.split("-").map(Number);
     let fees = 0;
     let gross = 0;
     completedInstallments.forEach((i) => {
       const paidDate = i.paid_date || (i.paid_at && (i.paid_at as string).split("T")[0]);
       if (!paidDate) return;
-      const d = new Date(paidDate);
-      if (d.getMonth() !== m - 1 || d.getFullYear() !== y) return;
+      if (toBrDateISO(paidDate).slice(0, 7) !== monthYear) return;
       gross += i.installment_value;
       if (i.fee_amount != null) fees += Number(i.fee_amount);
       else if (i.net_amount != null) fees += i.installment_value - Number(i.net_amount);
@@ -1595,8 +1580,7 @@ const FinancialControl: React.FC = () => {
     manualToUse.forEach((mp) => {
       const paidDate = (mp.payment_date || "").toString().split("T")[0];
       if (!paidDate) return;
-      const d = new Date(paidDate);
-      if (d.getMonth() !== m - 1 || d.getFullYear() !== y) return;
+      if (toBrDateISO(paidDate).slice(0, 7) !== monthYear) return;
       const g = Number(mp.total_amount ?? 0);
       gross += g;
       const pct = getFeePercentFromCache(mp.payment_method, 1);
@@ -1606,11 +1590,9 @@ const FinancialControl: React.FC = () => {
   }, [completedInstallments, payments, feeRulesCache, monthYear, manualPayments, filteredManualPayments, urlPatientId]);
 
   const topProceduresProfitThisMonth = useMemo(() => {
-    const [y, m] = monthYear.split("-").map(Number);
-    const recordsInMonth = financialRecords.filter(r => {
-      const d = new Date(r.created_at);
-      return d.getMonth() === m - 1 && d.getFullYear() === y;
-    });
+    const recordsInMonth = financialRecords.filter(
+      r => toBrDateISO(r.created_at).slice(0, 7) === monthYear
+    );
     const byName: Record<string, number> = {};
     recordsInMonth.forEach((r) => {
       const rec = r as FinancialRecord;
@@ -1631,11 +1613,9 @@ const FinancialControl: React.FC = () => {
   }, [financialRecords, monthYear]);
 
   const averageTicketThisMonth = useMemo(() => {
-    const [y, m] = monthYear.split("-").map(Number);
-    const recordsInMonth = financialRecords.filter(r => {
-      const d = new Date(r.created_at);
-      return d.getMonth() === m - 1 && d.getFullYear() === y;
-    });
+    const recordsInMonth = financialRecords.filter(
+      r => toBrDateISO(r.created_at).slice(0, 7) === monthYear
+    );
     if (recordsInMonth.length === 0) return { avgGross: 0, avgNet: 0, count: 0 };
     let totalGross = 0;
     let totalNet = 0;
@@ -2539,7 +2519,7 @@ const FinancialControl: React.FC = () => {
                             onClick={() => setPatientTimelineExpanded((s) => new Set(s.has(recId) ? [...s].filter((x) => x !== recId) : [...s, recId]))}
                           >
                             <div>
-                              <p className="text-sm text-gray-400">{new Date(record.created_at).toLocaleDateString("pt-BR")}</p>
+                              <p className="text-sm text-gray-400">{formatDate(record.created_at)}</p>
                               <p className="font-semibold text-white">{getProcedureDisplayName(record as FinancialRecord)}</p>
                               <p className="text-sm text-gray-300">
                                 Bruto: {formatCurrency(record.total_amount)} · Líquido esperado: {formatCurrency(round2(expectedNetTotal))} · {getPaymentMethodText(method)} {record.total_installments}x

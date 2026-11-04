@@ -13,7 +13,7 @@ import { calculatePlanTotals } from '../types/appointmentPlan';
 import { createFinancialRecord } from '../services/financial/financialService';
 import type { FinancialProcedureItem } from '../services/financial/financialService';
 import { createGcalEvent } from '../services/calendar';
-import { combineDateWithTime } from '../utils/dateUtils';
+import { combineDateWithTime, todayBrISO } from '../utils/dateUtils';
 import toast from 'react-hot-toast';
 import { useProcedureCatalog } from '../hooks/useProcedureCatalog';
 
@@ -70,7 +70,7 @@ const AppointmentCreateScreen: React.FC = () => {
   const [paymentInfo, setPaymentInfo] = useState<AppointmentPaymentInfo>({
     installments: 1,
     payment_method: 'pix',
-    first_payment_date: new Date().toISOString().split('T')[0],
+    first_payment_date: todayBrISO(),
   });
 
   const [loading, setLoading] = useState(true);
@@ -547,7 +547,7 @@ const AppointmentCreateScreen: React.FC = () => {
       setPaymentInfo({
         installments: 1,
         payment_method: 'pix',
-        first_payment_date: new Date().toISOString().split('T')[0],
+        first_payment_date: todayBrISO(),
       });
       
       navigate('/appointments');

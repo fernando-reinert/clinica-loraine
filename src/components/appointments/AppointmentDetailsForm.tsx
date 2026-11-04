@@ -3,7 +3,7 @@
 
 import React, { useState, useEffect, useRef, useMemo } from "react";
 import { Calendar, Search, DollarSign, Plus, Zap } from "lucide-react";
-import { convertToSupabaseFormat, buildEndTimeIso } from "../../utils/dateUtils";
+import { convertToSupabaseFormat, buildEndTimeIso, todayBrISO } from "../../utils/dateUtils";
 import { supabase } from "../../services/supabase/client";
 import { createGcalEvent, updateGcalEvent } from "../../services/calendar";
 import { createAppointmentWithProcedures, updateAppointmentWithProcedures } from "../../services/appointments/appointmentService";
@@ -99,7 +99,7 @@ const AppointmentDetailsForm: React.FC<AppointmentDetailsFormProps> = ({
   const [paymentInfo, setPaymentInfo] = useState<AppointmentPaymentInfo>({
     installments: 1,
     payment_method: "pix",
-    first_payment_date: new Date().toISOString().split("T")[0],
+    first_payment_date: todayBrISO(),
   });
   const procedureDropdownRef = useRef<HTMLDivElement>(null);
 

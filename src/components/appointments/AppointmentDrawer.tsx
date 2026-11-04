@@ -19,6 +19,7 @@ import {
   buildEndTimeFromDurationMinutes,
   toDatetimeLocal,
   convertToBrazilianFormat,
+  todayBrISO,
 } from '../../utils/dateUtils';
 import type { Procedure } from '../../types/db';
 import type { AppointmentPlanItem, AppointmentPaymentInfo } from '../../types/appointmentPlan';
@@ -82,7 +83,7 @@ export default function AppointmentDrawer({
   const [paymentInfo, setPaymentInfo] = useState<AppointmentPaymentInfo>({
     installments: 1,
     payment_method: 'pix',
-    first_payment_date: new Date().toISOString().slice(0, 10),
+    first_payment_date: todayBrISO(),
   });
   const [recurrenceValue, setRecurrenceValue] = useState('');
   const [occurrenceCount, setOccurrenceCount] = useState(OCCURRENCE_COUNT_DEFAULT);
@@ -186,7 +187,7 @@ export default function AppointmentDrawer({
       setPlanItems([]);
       const d = initialDate ? new Date(initialDate.getTime()) : new Date();
       d.setHours(initialHour, initialMinute, 0, 0);
-      setDateTime(d.toISOString().slice(0, 16));
+      setDateTime(toDatetimeLocal(d.toISOString()));
       setTitle('');
       setDurationMinutes(60);
       setRecurrenceValue('');
