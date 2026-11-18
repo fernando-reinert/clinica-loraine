@@ -1,6 +1,7 @@
 name: Deploy Landing (clinica-aurea.com)
 
 # Publica o site (Astro) na raiz de public_html via FTP.
+# A raiz da conta FTP fica um nível ACIMA de public_html: por isso o caminho é ./public_html/.
 # Credenciais FTP: secrets FTP_SERVER, FTP_USERNAME, FTP_PASSWORD, FTP_PORT.
 # Sem "clean-slate": a pasta app/ (sistema) fica dentro de public_html e não pode ser apagada.
 # O arquivo de estado próprio garante que só são removidos arquivos que a landing enviou antes.
@@ -47,7 +48,7 @@ jobs:
           password: ${{ secrets.FTP_PASSWORD }}
           port: ${{ secrets.FTP_PORT }}
           local-dir: ./landing/dist/
-          server-dir: ./
+          server-dir: ./public_html/
           state-name: .ftp-deploy-sync-state-landing.json
           exclude: |
             **/.git*
