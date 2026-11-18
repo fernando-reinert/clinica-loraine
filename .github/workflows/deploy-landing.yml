@@ -1,11 +1,20 @@
-name: Deploy Landing to Hostinger (clinica-aurea.com)
+name: Deploy Landing (clinica-aurea.com)
+
+# Publica o site (Astro) na raiz de public_html via FTP.
+# Credenciais FTP: secrets FTP_SERVER, FTP_USERNAME, FTP_PASSWORD, FTP_PORT.
+# Sem "clean-slate": a pasta app/ (sistema) fica dentro de public_html e não pode ser apagada.
+# O arquivo de estado próprio garante que só são removidos arquivos que a landing enviou antes.
 
 on:
   push:
     branches: ["main"]
     paths:
       - "landing/**"
-  workflow_dispatch:
+  workflow_dispatch: # Execução manual (aba Actions > Run workflow)
+
+concurrency:
+  group: deploy-landing
+  cancel-in-progress: false
 
 jobs:
   build-and-deploy:
@@ -25,14 +34,23 @@ jobs:
       - run: npm ci
       - run: npm run build
 
-      # Sem clean-slate: a pasta do subdomínio do app pode ficar dentro de public_html.
-      - name: Deploy via FTP
+      - name: Verificar build
+        run: |
+          test -f dist/index.html
+          test -d dist/_astro
+
+      - name: Deploy via FTP (public_html)
         uses: SamKirkland/FTP-Deploy-Action@v4.3.5
         with:
-          server: ${{ secrets.HOSTINGER_HOST }}
-          username: ${{ secrets.HOSTINGER_USER }}
-          password: ${{ secrets.HOSTINGER_PASSWORD }}
-          port: ${{ secrets.HOSTINGER_PORT || '21' }}
+          server: ${{ secrets.FTP_SERVER }}
+          username: ${{ secrets.FTP_USERNAME }}
+          password: ${{ secrets.FTP_PASSWORD }}
+          port: ${{ secrets.FTP_PORT }}
           local-dir: ./landing/dist/
-          server-dir: ${{ secrets.HOSTINGER_LANDING_PATH }}
+          server-dir: ./
           state-name: .ftp-deploy-sync-state-landing.json
+          exclude: |
+            **/.git*
+            **/.git*/**
+            **/node_modules/**
+            **/.DS_Store
