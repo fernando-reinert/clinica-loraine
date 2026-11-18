@@ -3,10 +3,10 @@
 Dois workflows publicam por FTP na Hostinger quando há push na `main` (ou rodando manualmente em
 **Actions > escolher o workflow > Run workflow**).
 
-| Workflow | Arquivo | Quando roda | Destino (relativo à pasta pessoal da conta FTP) |
+| Workflow | Arquivo | Quando roda | Destino (caminho absoluto no FTP) |
 |---|---|---|---|
-| Deploy App | `deploy.yml` | push na `main` (ignora `landing/**` e docs) | `./domains/clinica-aurea.com/public_html/app/` -> app.clinica-aurea.com |
-| Deploy Landing | `deploy-landing.yml` | push na `main` que altere `landing/**` | `./domains/clinica-aurea.com/public_html/` -> clinica-aurea.com |
+| Deploy App | `deploy.yml` | push na `main` (ignora `landing/**` e docs) | `/domains/clinica-aurea.com/public_html/app/` -> app.clinica-aurea.com |
+| Deploy Landing | `deploy-landing.yml` | push na `main` que altere `landing/**` | `/domains/clinica-aurea.com/public_html/` -> clinica-aurea.com |
 
 Os dois rodam em fila (um por vez cada) e **não usam "clean-slate"**: o action só remove arquivos que ele
 mesmo enviou antes (arquivo de estado `.ftp-deploy-sync-state*.json` na pasta de destino). Assim, a landing
@@ -36,5 +36,5 @@ fica quebrado. O workflow do app falha de propósito (antes de publicar) se esse
 
 - **Falha de conexão FTP**: confirme `FTP_SERVER`, `FTP_PORT` e se a conta FTP está ativa.
 - **App abre em branco / erro de Supabase**: confira os secrets `VITE_SUPABASE_*`.
-- **Arquivo no lugar errado**: o login FTP entra na pasta pessoal da conta (onde ficam `domains/`, `.logs/`). O site fica em `domains/clinica-aurea.com/public_html/`. Se o site não mudar após um deploy verde, procure o arquivo `.ftp-deploy-sync-state*.json` em `public_html` no Gerenciador de Arquivos; se não estiver lá, o caminho está errado.
+- **Arquivo no lugar errado**: o login FTP cai em `/public_html` (pasta de entrada, que NÃO é a do site). O site fica em `/domains/clinica-aurea.com/public_html/`, então os caminhos precisam ser absolutos (começam com `/`). Caminhos com `./` gravam dentro da pasta de entrada e o site não muda, mesmo com o deploy verde. Para conferir, procure `.ftp-deploy-sync-state*.json` na pasta `public_html` do Gerenciador de Arquivos.
 - **Secrets com espaço**: cole o valor sem espaço nem quebra de linha no fim (isso já causou erro 530 de login).

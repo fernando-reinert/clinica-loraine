@@ -1,7 +1,8 @@
 name: Deploy App (app.clinica-aurea.com)
 
 # Publica o sistema em public_html/app via FTP.
-# O login FTP entra na pasta pessoal da conta; o site fica em domains/clinica-aurea.com/public_html/.
+# O login FTP cai em /public_html (pasta de entrada, NÃO é a do site). O site fica em
+# /domains/clinica-aurea.com/public_html/, por isso o server-dir é um caminho ABSOLUTO.
 # Credenciais FTP: secrets FTP_SERVER, FTP_USERNAME, FTP_PASSWORD, FTP_PORT.
 # Chaves do Supabase no build: secrets VITE_SUPABASE_URL e VITE_SUPABASE_ANON_KEY.
 # Sem "clean-slate": o action só remove o que ele mesmo enviou antes (arquivo de estado).
@@ -66,7 +67,7 @@ jobs:
           password: ${{ secrets.FTP_PASSWORD }}
           port: ${{ secrets.FTP_PORT }}
           local-dir: ./dist/
-          server-dir: ./domains/clinica-aurea.com/public_html/app/
+          server-dir: /domains/clinica-aurea.com/public_html/app/
           exclude: |
             **/.git*
             **/.git*/**
