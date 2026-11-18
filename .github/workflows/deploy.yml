@@ -1,46 +1,71 @@
-name: Deploy App to Hostinger (app.clinica-aurea.com)
+name: Deploy App (app.clinica-aurea.com)
+
+# Publica o sistema em public_html/app via FTP.
+# Credenciais FTP: secrets FTP_SERVER, FTP_USERNAME, FTP_PASSWORD, FTP_PORT.
+# Chaves do Supabase no build: secrets VITE_SUPABASE_URL e VITE_SUPABASE_ANON_KEY.
+# Sem "clean-slate": o action só remove o que ele mesmo enviou antes (arquivo de estado).
 
 on:
   push:
-    branches:
-      - main
-      - master
+    branches: ["main"]
     paths-ignore:
-      - 'landing/**'
-  workflow_dispatch: # Permite execução manual
+      - "landing/**"
+      - "docs/**"
+      - "**/*.md"
+  workflow_dispatch: # Execução manual (aba Actions > Run workflow)
+
+concurrency:
+  group: deploy-app
+  cancel-in-progress: false
 
 jobs:
   build-and-deploy:
     runs-on: ubuntu-latest
-    
     steps:
-      - name: Checkout code
+      - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Setup Node.js
+      - name: Setup Node
         uses: actions/setup-node@v4
         with:
-          node-version: '18'
-          cache: 'npm'
+          node-version: 20
+          cache: npm
 
       - name: Install dependencies
         run: npm ci
 
-      - name: Build project
+      # Sem estas variáveis o build sai apontando para um Supabase falso (app quebrado).
+      - name: Verificar variáveis do Supabase
+        env:
+          SUPABASE_URL: ${{ secrets.VITE_SUPABASE_URL }}
+          SUPABASE_KEY: ${{ secrets.VITE_SUPABASE_ANON_KEY }}
+        run: |
+          if [ -z "$SUPABASE_URL" ] || [ -z "$SUPABASE_KEY" ]; then
+            echo "::error::Crie os secrets VITE_SUPABASE_URL e VITE_SUPABASE_ANON_KEY (Settings > Secrets and variables > Actions)."
+            exit 1
+          fi
+
+      - name: Build
         run: npm run build
+        env:
+          VITE_SUPABASE_URL: ${{ secrets.VITE_SUPABASE_URL }}
+          VITE_SUPABASE_ANON_KEY: ${{ secrets.VITE_SUPABASE_ANON_KEY }}
 
-      - name: Copy .htaccess to dist
-        run: cp public/.htaccess dist/.htaccess
+      - name: Verificar build
+        run: |
+          test -f dist/index.html
+          test -f dist/.htaccess
+          ls dist/assets/index-*.js
 
-      - name: Deploy to Hostinger via SFTP
+      - name: Deploy via FTP (public_html/app)
         uses: SamKirkland/FTP-Deploy-Action@v4.3.5
         with:
-          server: ${{ secrets.HOSTINGER_HOST }}
-          username: ${{ secrets.HOSTINGER_USER }}
-          password: ${{ secrets.HOSTINGER_PASSWORD }}
-          port: ${{ secrets.HOSTINGER_PORT || '21' }}
+          server: ${{ secrets.FTP_SERVER }}
+          username: ${{ secrets.FTP_USERNAME }}
+          password: ${{ secrets.FTP_PASSWORD }}
+          port: ${{ secrets.FTP_PORT }}
           local-dir: ./dist/
-          server-dir: ${{ secrets.HOSTINGER_APP_PATH }}
+          server-dir: ./app/
           exclude: |
             **/.git*
             **/.git*/**
